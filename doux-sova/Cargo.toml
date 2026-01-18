@@ -1,0 +1,14 @@
+[package]
+name = "doux-sova"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+doux = { path = "..", features = ["native"] }
+crossbeam-channel = "0.5"
+cpal = "0.15"
+serde = { version = "1", features = ["derive"] }
+
+[dependencies.sova_core]
+package = "core"
+git = "https://github.com/sova-org/Sova"

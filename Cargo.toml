@@ -1,0 +1,50 @@
+[workspace]
+members = [".", "doux-sova"]
+
+[package]
+name = "doux"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "doux"
+path = "src/main.rs"
+required-features = ["native"]
+
+[[bin]]
+name = "doux-repl"
+path = "src/repl.rs"
+required-features = ["native"]
+
+[features]
+default = ["native"]
+native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline"]
+
+[dependencies]
+clap = { version = "4", optional = true, features = ["derive"] }
+cpal = { version = "0.15", optional = true }
+rosc = { version = "0.10", optional = true }
+symphonia = { version = "0.5", optional = true, default-features = false, features = ["wav", "pcm", "mp3", "ogg", "flac", "aac"] }
+rustyline = { version = "14", optional = true }
+mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

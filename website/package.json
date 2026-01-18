@@ -1,0 +1,24 @@
+{
+  "name": "doux-website",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.15.1",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "mdsvex": "^0.12.3",
+    "svelte": "^5.16.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6"
+  },
+  "type": "module",
+  "dependencies": {
+    "coi-serviceworker": "^0.1.7",
+    "lucide-svelte": "^0.562.0"
+  }
+}

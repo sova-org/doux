@@ -1,0 +1,30 @@
+# Rust
+/target
+*.rs.bk
+
+# Node
+node_modules/
+
+# Lock files (except Cargo.lock for binary reproducibility)
+pnpm-lock.yaml
+
+# SvelteKit
+.svelte-kit/
+website/build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log

@@ -1,0 +1,676 @@
+#[cfg(feature = "native")]
+pub mod audio;
+#[cfg(feature = "native")]
+pub mod config;
+pub mod effects;
+pub mod envelope;
+#[cfg(feature = "native")]
+pub mod error;
+pub mod event;
+pub mod fastmath;
+pub mod filter;
+#[cfg(feature = "native")]
+pub mod loader;
+pub mod noise;
+pub mod orbit;
+#[cfg(feature = "native")]
+pub mod osc;
+pub mod oscillator;
+pub mod plaits;
+pub mod sample;
+pub mod schedule;
+#[cfg(feature = "native")]
+pub mod telemetry;
+pub mod types;
+pub mod voice;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
+use envelope::init_envelope;
+use event::Event;
+use orbit::{EffectParams, Orbit};
+use sample::{FileSource, SampleEntry, SampleInfo, SamplePool, WebSampleSource};
+use schedule::Schedule;
+#[cfg(feature = "native")]
+use telemetry::EngineMetrics;
+use types::{DelayType, Source, BLOCK_SIZE, CHANNELS, MAX_ORBITS, MAX_VOICES};
+use voice::{Voice, VoiceParams};
+
+pub struct Engine {
+    pub sr: f32,
+    pub isr: f32,
+    pub voices: Vec<Voice>,
+    pub active_voices: usize,
+    pub orbits: Vec<Orbit>,
+    pub schedule: Schedule,
+    pub time: f64,
+    pub tick: u64,
+    pub output_channels: usize,
+    pub output: Vec<f32>,
+    // Sample storage
+    pub sample_pool: SamplePool,
+    pub samples: Vec<SampleInfo>,
+    pub sample_index: Vec<SampleEntry>,
+    // Default orbit params (used when voice doesn't specify)
+    pub effect_params: EffectParams,
+    // Telemetry (native only)
+    #[cfg(feature = "native")]
+    pub metrics: EngineMetrics,
+}
+
+impl Engine {
+    pub fn new(sample_rate: f32) -> Self {
+        Self::new_with_channels(sample_rate, CHANNELS)
+    }
+
+    pub fn new_with_channels(sample_rate: f32, output_channels: usize) -> Self {
+        let mut orbits = Vec::with_capacity(MAX_ORBITS);
+        for _ in 0..MAX_ORBITS {
+            orbits.push(Orbit::new(sample_rate));
+        }
+
+        Self {
+            sr: sample_rate,
+            isr: 1.0 / sample_rate,
+            voices: vec![Voice::default(); MAX_VOICES],
+            active_voices: 0,
+            orbits,
+            schedule: Schedule::new(),
+            time: 0.0,
+            tick: 0,
+            output_channels,
+            output: vec![0.0; BLOCK_SIZE * output_channels],
+            sample_pool: SamplePool::new(),
+            samples: Vec::with_capacity(256),
+            sample_index: Vec::new(),
+            effect_params: EffectParams {
+                delay_time: 0.333,
+                delay_feedback: 0.6,
+                delay_type: DelayType::Standard,
+                verb_decay: 0.75,
+                verb_damp: 0.95,
+                verb_predelay: 0.1,
+                verb_diff: 0.7,
+                comb_freq: 220.0,
+                comb_feedback: 0.9,
+                comb_damp: 0.1,
+            },
+            #[cfg(feature = "native")]
+            metrics: EngineMetrics::default(),
+        }
+    }
+
+    pub fn load_sample(&mut self, samples: &[f32], channels: u8, freq: f32) -> Option<usize> {
+        let info = self.sample_pool.add(samples, channels, freq)?;
+        let idx = self.samples.len();
+        self.samples.push(info);
+        Some(idx)
+    }
+
+    /// Look up sample by name (e.g., "wave_tek") and n (e.g., 0 for "wave_tek/0")
+    /// n wraps around using modulo if it exceeds the folder count
+    fn find_sample_index(&self, name: &str, n: usize) -> Option<usize> {
+        let prefix = format!("{name}/");
+        let count = self
+            .sample_index
+            .iter()
+            .filter(|e| e.name.starts_with(&prefix))
+            .count();
+        if count == 0 {
+            return None;
+        }
+        let wrapped_n = n % count;
+        let target = format!("{name}/{wrapped_n}");
+        self.sample_index.iter().position(|e| e.name == target)
+    }
+
+    /// Get a loaded sample index, loading lazily if needed (native only)
+    fn get_or_load_sample(&mut self, name: &str, n: usize) -> Option<usize> {
+        // First check if this is a direct index into already-loaded samples (WASM path)
+        // For WASM, treat `name` as numeric index if sample_index is empty
+        if self.sample_index.is_empty() {
+            let idx: usize = name.parse().ok()?;
+            if idx < self.samples.len() {
+                return Some(idx);
+            }
+            return None;
+        }
+
+        // Find the sample in the index by name
+        let index_idx = self.find_sample_index(name, n)?;
+
+        // If already loaded, return the loaded index
+        if let Some(loaded_idx) = self.sample_index[index_idx].loaded {
+            return Some(loaded_idx);
+        }
+
+        // Load the sample now (native only)
+        #[cfg(feature = "native")]
+        {
+            let path = self.sample_index[index_idx].path.clone();
+            match loader::load_sample_file(self, &path) {
+                Ok(loaded_idx) => {
+                    self.sample_index[index_idx].loaded = Some(loaded_idx);
+                    Some(loaded_idx)
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed to load sample {}: {e}",
+                        self.sample_index[index_idx].name
+                    );
+                    None
+                }
+            }
+        }
+        #[cfg(not(feature = "native"))]
+        {
+            None
+        }
+    }
+
+    pub fn evaluate(&mut self, input: &str) -> Option<usize> {
+        let event = Event::parse(input);
+
+        // Default to "play" if no explicit command - matches dough's JS wrapper behavior
+        let cmd = event.cmd.as_deref().unwrap_or("play");
+
+        match cmd {
+            "play" => self.play_event(event),
+            "hush" => {
+                self.hush();
+                None
+            }
+            "panic" => {
+                self.panic();
+                None
+            }
+            "reset" => {
+                self.panic();
+                self.schedule.clear();
+                self.time = 0.0;
+                self.tick = 0;
+                None
+            }
+            "release" => {
+                if let Some(v) = event.voice {
+                    if v < self.active_voices {
+                        self.voices[v].params.gate = 0.0;
+                    }
+                }
+                None
+            }
+            "hush_endless" => {
+                for i in 0..self.active_voices {
+                    if self.voices[i].params.duration.is_none() {
+                        self.voices[i].params.gate = 0.0;
+                    }
+                }
+                None
+            }
+            "reset_time" => {
+                self.time = 0.0;
+                self.tick = 0;
+                None
+            }
+            "reset_schedule" => {
+                self.schedule.clear();
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn play_event(&mut self, event: Event) -> Option<usize> {
+        if event.time.is_some() {
+            // ALL events with time go to schedule (like dough.c)
+            // This ensures repeat works correctly for time=0 events
+            self.schedule.push(event);
+            return None;
+        }
+        self.process_event(&event)
+    }
+
+    pub fn play(&mut self, params: VoiceParams) -> Option<usize> {
+        if self.active_voices >= MAX_VOICES {
+            return None;
+        }
+        let i = self.active_voices;
+        self.voices[i] = Voice::default();
+        self.voices[i].params = params;
+        self.voices[i].sr = self.sr;
+        self.active_voices += 1;
+        Some(i)
+    }
+
+    /// Process an event, handling voice selection like dough.c's process_engine_event()
+    fn process_event(&mut self, event: &Event) -> Option<usize> {
+        // Cut group: release any voices in the same cut group
+        if let Some(cut) = event.cut {
+            for i in 0..self.active_voices {
+                if self.voices[i].params.cut == Some(cut) {
+                    self.voices[i].params.gate = 0.0;
+                }
+            }
+        }
+
+        let (voice_idx, is_new_voice) = if let Some(v) = event.voice {
+            if v < self.active_voices {
+                // Voice exists - reuse it
+                (v, false)
+            } else {
+                // Voice index out of range - allocate new
+                if self.active_voices >= MAX_VOICES {
+                    return None;
+                }
+                let i = self.active_voices;
+                self.active_voices += 1;
+                (i, true)
+            }
+        } else {
+            // No voice specified - allocate new
+            if self.active_voices >= MAX_VOICES {
+                return None;
+            }
+            let i = self.active_voices;
+            self.active_voices += 1;
+            (i, true)
+        };
+
+        let should_reset = is_new_voice || event.reset.unwrap_or(false);
+
+        if should_reset {
+            self.voices[voice_idx] = Voice::default();
+            self.voices[voice_idx].sr = self.sr;
+            // Initialize glide_lag to target freq to prevent glide from 0
+            if let Some(freq) = event.freq {
+                self.voices[voice_idx].glide_lag.s = freq;
+            }
+        }
+
+        // Update voice params (only the ones explicitly set in event)
+        self.update_voice_params(voice_idx, event);
+
+        Some(voice_idx)
+    }
+
+    /// Update voice params - only updates fields that are explicitly set in the event
+    fn update_voice_params(&mut self, idx: usize, event: &Event) {
+        macro_rules! copy_opt {
+            ($src:expr, $dst:expr, $($field:ident),+ $(,)?) => {
+                $(if let Some(val) = $src.$field { $dst.$field = val; })+
+            };
+        }
+        macro_rules! copy_opt_some {
+            ($src:expr, $dst:expr, $($field:ident),+ $(,)?) => {
+                $(if let Some(val) = $src.$field { $dst.$field = Some(val); })+
+            };
+        }
+        // Resolve sound/sample first (before borrowing voice)
+        // If sound parses as a Source, use it; otherwise treat as sample folder name
+        let (parsed_source, loaded_sample) = if let Some(ref sound_str) = event.sound {
+            if let Ok(source) = sound_str.parse::<Source>() {
+                (Some(source), None)
+            } else {
+                // Treat as sample folder name
+                let sample = self.get_or_load_sample(sound_str, event.n.unwrap_or(0));
+                (None, sample)
+            }
+        } else {
+            (None, None)
+        };
+
+        let v = &mut self.voices[idx];
+
+        // --- Pitch ---
+        copy_opt!(event, v.params, freq, detune, speed);
+        copy_opt_some!(event, v.params, glide);
+
+        // --- Source ---
+        if let Some(source) = parsed_source {
+            v.params.sound = source;
+        }
+        copy_opt!(event, v.params, pw, spread);
+        if let Some(size) = event.size {
+            v.params.shape.size = size.min(256);
+        }
+        if let Some(mult) = event.mult {
+            v.params.shape.mult = mult.clamp(0.25, 16.0);
+        }
+        if let Some(warp) = event.warp {
+            v.params.shape.warp = warp.clamp(-1.0, 1.0);
+        }
+        if let Some(mirror) = event.mirror {
+            v.params.shape.mirror = mirror.clamp(0.0, 1.0);
+        }
+        if let Some(harmonics) = event.harmonics {
+            v.params.harmonics = harmonics.clamp(0.01, 0.999);
+        }
+        if let Some(timbre) = event.timbre {
+            v.params.timbre = timbre.clamp(0.01, 0.999);
+        }
+        if let Some(morph) = event.morph {
+            v.params.morph = morph.clamp(0.01, 0.999);
+        }
+        copy_opt_some!(event, v.params, cut);
+
+        // Sample playback (native)
+        if let Some(sample_idx) = loaded_sample {
+            v.params.sound = Source::Sample;
+            let begin = event.begin.unwrap_or(0.0);
+            let end = event.end.unwrap_or(1.0);
+            v.file_source = Some(FileSource::new(sample_idx, begin, end));
+        } else if event.begin.is_some() || event.end.is_some() {
+            // Update begin/end on existing file_source
+            if let Some(ref mut fs) = v.file_source {
+                if let Some(begin) = event.begin {
+                    fs.begin = begin.clamp(0.0, 1.0);
+                }
+                if let Some(end) = event.end {
+                    fs.end = end.clamp(fs.begin, 1.0);
+                }
+            }
+        }
+
+        // Web sample playback (WASM - set by JavaScript)
+        if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
+            v.params.sound = Source::WebSample;
+            v.web_sample = Some(WebSampleSource::new(
+                SampleInfo {
+                    offset,
+                    frames: frames as u32,
+                    channels: event.file_channels.unwrap_or(1),
+                    freq: event.file_freq.unwrap_or(65.406),
+                },
+                event.begin.unwrap_or(0.0),
+                event.end.unwrap_or(1.0),
+            ));
+        }
+
+        // --- Gain ---
+        copy_opt!(event, v.params, gain, postgain, velocity, pan, gate);
+        copy_opt_some!(event, v.params, duration);
+
+        // --- Gain Envelope ---
+        let gain_env = init_envelope(
+            None,
+            event.attack,
+            event.decay,
+            event.sustain,
+            event.release,
+        );
+        if gain_env.active {
+            v.params.attack = gain_env.att;
+            v.params.decay = gain_env.dec;
+            v.params.sustain = gain_env.sus;
+            v.params.release = gain_env.rel;
+        }
+
+        // --- Filters ---
+        // Macro to apply envelope params (env amount + ADSR) to a target
+        macro_rules! apply_env {
+            ($src:expr, $dst:expr, $e:ident, $a:ident, $d:ident, $s:ident, $r:ident, $active:ident) => {
+                let env = init_envelope($src.$e, $src.$a, $src.$d, $src.$s, $src.$r);
+                if env.active {
+                    $dst.$e = env.env;
+                    $dst.$a = env.att;
+                    $dst.$d = env.dec;
+                    $dst.$s = env.sus;
+                    $dst.$r = env.rel;
+                    $dst.$active = true;
+                }
+            };
+        }
+
+        copy_opt_some!(event, v.params, lpf);
+        copy_opt!(event, v.params, lpq);
+        apply_env!(event, v.params, lpe, lpa, lpd, lps, lpr, lp_env_active);
+
+        copy_opt_some!(event, v.params, hpf);
+        copy_opt!(event, v.params, hpq);
+        apply_env!(event, v.params, hpe, hpa, hpd, hps, hpr, hp_env_active);
+
+        copy_opt_some!(event, v.params, bpf);
+        copy_opt!(event, v.params, bpq);
+        apply_env!(event, v.params, bpe, bpa, bpd, bps, bpr, bp_env_active);
+
+        copy_opt!(event, v.params, ftype);
+
+        // --- Modulation ---
+        apply_env!(
+            event,
+            v.params,
+            penv,
+            patt,
+            pdec,
+            psus,
+            prel,
+            pitch_env_active
+        );
+        copy_opt!(event, v.params, vib, vibmod, vibshape);
+        copy_opt!(event, v.params, fm, fmh, fmshape);
+        apply_env!(event, v.params, fme, fma, fmd, fms, fmr, fm_env_active);
+        copy_opt!(event, v.params, am, amdepth, amshape);
+        copy_opt!(event, v.params, rm, rmdepth, rmshape);
+
+        // --- Effects ---
+        copy_opt!(
+            event,
+            v.params,
+            phaser,
+            phaserdepth,
+            phasersweep,
+            phasercenter
+        );
+        copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
+        copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
+        copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
+        copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
+        copy_opt!(event, v.params, distortvol);
+
+        // --- Sends ---
+        copy_opt!(
+            event,
+            v.params,
+            orbit,
+            delay,
+            delaytime,
+            delayfeedback,
+            delaytype
+        );
+        copy_opt!(
+            event,
+            v.params,
+            verb,
+            verbdecay,
+            verbdamp,
+            verbpredelay,
+            verbdiff
+        );
+    }
+
+    fn free_voice(&mut self, i: usize) {
+        if self.active_voices > 0 {
+            self.active_voices -= 1;
+            self.voices.swap(i, self.active_voices);
+        }
+    }
+
+    fn process_schedule(&mut self) {
+        loop {
+            // O(1) early-exit: check only the first (earliest) event
+            let t = match self.schedule.peek_time() {
+                Some(t) if t <= self.time => t,
+                _ => return,
+            };
+
+            let diff = self.time - t;
+            let mut event = self.schedule.pop_front().unwrap();
+
+            // Fire only if event is fresh (within 1ms) - matches dough.c WASM
+            // Old events are silently rescheduled to catch up
+            if diff < 0.001 {
+                self.process_event(&event);
+            }
+
+            // Reschedule repeating events (re-insert in sorted order)
+            if let Some(rep) = event.repeat {
+                event.time = Some(t + rep as f64);
+                self.schedule.push(event);
+            }
+            // Loop continues for catch-up behavior
+        }
+    }
+
+    pub fn gen_sample(
+        &mut self,
+        output: &mut [f32],
+        sample_idx: usize,
+        web_pcm: &[f32],
+        live_input: &[f32],
+    ) {
+        let base_idx = sample_idx * self.output_channels;
+        let num_pairs = self.output_channels / 2;
+
+        for c in 0..self.output_channels {
+            output[base_idx + c] = 0.0;
+        }
+
+        // Clear orbit sends
+        for orbit in &mut self.orbits {
+            orbit.clear_sends();
+        }
+
+        // Process voices - matches dough.c behavior exactly:
+        // When a voice dies, it's freed immediately and the loop continues,
+        // which means the swapped-in voice (from the end) gets skipped this frame.
+        let isr = self.isr;
+        let num_orbits = self.orbits.len();
+
+        let mut i = 0;
+        while i < self.active_voices {
+            // Reborrow for each iteration to allow free_voice during loop
+            let pool = self.sample_pool.data.as_slice();
+            let samples = self.samples.as_slice();
+
+            let alive = self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input);
+            if !alive {
+                self.free_voice(i);
+                // Match dough.c: increment i, skipping the swapped-in voice
+                i += 1;
+                continue;
+            }
+
+            let orbit_idx = self.voices[i].params.orbit % num_orbits;
+            let out_pair = orbit_idx % num_pairs;
+            let pair_offset = out_pair * 2;
+
+            output[base_idx + pair_offset] += self.voices[i].ch[0];
+            output[base_idx + pair_offset + 1] += self.voices[i].ch[1];
+
+            // Add to orbit sends
+            if self.voices[i].params.delay > 0.0 {
+                for c in 0..CHANNELS {
+                    self.orbits[orbit_idx]
+                        .add_delay_send(c, self.voices[i].ch[c] * self.voices[i].params.delay);
+                }
+                // Update orbit delay params from voice
+                self.effect_params.delay_time = self.voices[i].params.delaytime;
+                self.effect_params.delay_feedback = self.voices[i].params.delayfeedback;
+                self.effect_params.delay_type = self.voices[i].params.delaytype;
+            }
+            if self.voices[i].params.verb > 0.0 {
+                for c in 0..CHANNELS {
+                    self.orbits[orbit_idx]
+                        .add_verb_send(c, self.voices[i].ch[c] * self.voices[i].params.verb);
+                }
+                // Update orbit verb params from voice
+                self.effect_params.verb_decay = self.voices[i].params.verbdecay;
+                self.effect_params.verb_damp = self.voices[i].params.verbdamp;
+                self.effect_params.verb_predelay = self.voices[i].params.verbpredelay;
+                self.effect_params.verb_diff = self.voices[i].params.verbdiff;
+            }
+            if self.voices[i].params.comb > 0.0 {
+                for c in 0..CHANNELS {
+                    self.orbits[orbit_idx]
+                        .add_comb_send(c, self.voices[i].ch[c] * self.voices[i].params.comb);
+                }
+                // Update orbit comb params from voice
+                self.effect_params.comb_freq = self.voices[i].params.combfreq;
+                self.effect_params.comb_feedback = self.voices[i].params.combfeedback;
+                self.effect_params.comb_damp = self.voices[i].params.combdamp;
+            }
+
+            i += 1;
+        }
+
+        for (orbit_idx, orbit) in self.orbits.iter_mut().enumerate() {
+            orbit.process(&self.effect_params);
+
+            let out_pair = orbit_idx % num_pairs;
+            let pair_offset = out_pair * 2;
+            output[base_idx + pair_offset] +=
+                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0];
+            output[base_idx + pair_offset + 1] +=
+                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1];
+        }
+
+        for c in 0..self.output_channels {
+            output[base_idx + c] = (output[base_idx + c] * 0.5).clamp(-1.0, 1.0);
+        }
+    }
+
+    pub fn process_block(&mut self, output: &mut [f32], web_pcm: &[f32], live_input: &[f32]) {
+        #[cfg(feature = "native")]
+        let start = std::time::Instant::now();
+
+        let samples = output.len() / self.output_channels;
+        for i in 0..samples {
+            self.process_schedule();
+            self.tick += 1;
+            self.time = self.tick as f64 / self.sr as f64;
+            self.gen_sample(output, i, web_pcm, live_input);
+        }
+
+        #[cfg(feature = "native")]
+        {
+            use std::sync::atomic::Ordering;
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.metrics.load.record_sample(elapsed_ns);
+            self.metrics
+                .active_voices
+                .store(self.active_voices as u32, Ordering::Relaxed);
+            self.metrics
+                .peak_voices
+                .fetch_max(self.active_voices as u32, Ordering::Relaxed);
+            self.metrics
+                .schedule_depth
+                .store(self.schedule.len() as u32, Ordering::Relaxed);
+        }
+    }
+
+    pub fn dsp(&mut self) {
+        let mut output = std::mem::take(&mut self.output);
+        self.process_block(&mut output, &[], &[]);
+        self.output = output;
+    }
+
+    pub fn dsp_with_web_pcm(&mut self, web_pcm: &[f32], live_input: &[f32]) {
+        let mut output = std::mem::take(&mut self.output);
+        self.process_block(&mut output, web_pcm, live_input);
+        self.output = output;
+    }
+
+    pub fn get_time(&self) -> f64 {
+        self.time
+    }
+
+    pub fn hush(&mut self) {
+        for i in 0..self.active_voices {
+            self.voices[i].params.gate = 0.0;
+        }
+    }
+
+    pub fn panic(&mut self) {
+        self.active_voices = 0;
+    }
+}

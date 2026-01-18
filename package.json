@@ -1,0 +1,10 @@
+{
+  "name": "doux",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "cd website && pnpm dev",
+    "build": "cd website && pnpm build",
+    "preview": "cd website && pnpm preview"
+  }
+}
