@@ -32,7 +32,9 @@ use orbit::{EffectParams, Orbit};
 use sample::{FileSource, SampleEntry, SampleInfo, SamplePool, WebSampleSource};
 use schedule::Schedule;
 #[cfg(feature = "native")]
-use telemetry::EngineMetrics;
+use std::sync::Arc;
+#[cfg(feature = "native")]
+pub use telemetry::EngineMetrics;
 use types::{DelayType, Source, BLOCK_SIZE, CHANNELS, MAX_ORBITS, MAX_VOICES};
 use voice::{Voice, VoiceParams};
 
@@ -55,7 +57,7 @@ pub struct Engine {
     pub effect_params: EffectParams,
     // Telemetry (native only)
     #[cfg(feature = "native")]
-    pub metrics: EngineMetrics,
+    pub metrics: Arc<EngineMetrics>,
 }
 
 impl Engine {
@@ -96,7 +98,48 @@ impl Engine {
                 comb_damp: 0.1,
             },
             #[cfg(feature = "native")]
-            metrics: EngineMetrics::default(),
+            metrics: Arc::new(EngineMetrics::default()),
+        }
+    }
+
+    #[cfg(feature = "native")]
+    pub fn new_with_metrics(
+        sample_rate: f32,
+        output_channels: usize,
+        metrics: Arc<EngineMetrics>,
+    ) -> Self {
+        let mut orbits = Vec::with_capacity(MAX_ORBITS);
+        for _ in 0..MAX_ORBITS {
+            orbits.push(Orbit::new(sample_rate));
+        }
+
+        Self {
+            sr: sample_rate,
+            isr: 1.0 / sample_rate,
+            voices: vec![Voice::default(); MAX_VOICES],
+            active_voices: 0,
+            orbits,
+            schedule: Schedule::new(),
+            time: 0.0,
+            tick: 0,
+            output_channels,
+            output: vec![0.0; BLOCK_SIZE * output_channels],
+            sample_pool: SamplePool::new(),
+            samples: Vec::with_capacity(256),
+            sample_index: Vec::new(),
+            effect_params: EffectParams {
+                delay_time: 0.333,
+                delay_feedback: 0.6,
+                delay_type: DelayType::Standard,
+                verb_decay: 0.75,
+                verb_damp: 0.95,
+                verb_predelay: 0.1,
+                verb_diff: 0.7,
+                comb_freq: 220.0,
+                comb_feedback: 0.9,
+                comb_damp: 0.1,
+            },
+            metrics,
         }
     }
 
@@ -220,7 +263,11 @@ impl Engine {
         }
     }
 
-    fn play_event(&mut self, event: Event) -> Option<usize> {
+    fn play_event(&mut self, mut event: Event) -> Option<usize> {
+        if let Some(delta) = event.delta {
+            event.time = Some(self.time + delta);
+            event.delta = None;
+        }
         if event.time.is_some() {
             // ALL events with time go to schedule (like dough.c)
             // This ensures repeat works correctly for time=0 events
@@ -311,8 +358,12 @@ impl Engine {
             if let Ok(source) = sound_str.parse::<Source>() {
                 (Some(source), None)
             } else {
-                // Treat as sample folder name
-                let sample = self.get_or_load_sample(sound_str, event.n.unwrap_or(0));
+                // Combine sound name with bank suffix if present
+                let effective_name = match &event.bank {
+                    Some(b) => format!("{}_{}", sound_str, b),
+                    None => sound_str.clone(),
+                };
+                let sample = self.get_or_load_sample(&effective_name, event.n.unwrap_or(0));
                 (None, sample)
             }
         } else {
@@ -646,6 +697,9 @@ impl Engine {
                 .schedule_depth
                 .store(self.schedule.len() as u32, Ordering::Relaxed);
         }
+
+        let copy_len = output.len().min(self.output.len());
+        self.output[..copy_len].copy_from_slice(&output[..copy_len]);
     }
 
     pub fn dsp(&mut self) {

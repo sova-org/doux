@@ -15,9 +15,21 @@ pub struct AudioDeviceInfo {
     pub is_default: bool,
 }
 
+/// Returns the preferred audio host, trying JACK first (works with pipewire-jack on Linux).
+pub fn preferred_host() -> Host {
+    for host_id in cpal::available_hosts() {
+        if host_id.name().to_lowercase().contains("jack") {
+            if let Ok(host) = cpal::host_from_id(host_id) {
+                return host;
+            }
+        }
+    }
+    cpal::default_host()
+}
+
 /// Returns the default CPAL host for the current platform.
 pub fn default_host() -> Host {
-    cpal::default_host()
+    preferred_host()
 }
 
 /// Lists all available output audio devices.

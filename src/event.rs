@@ -6,6 +6,7 @@ pub struct Event {
 
     // Timing
     pub time: Option<f64>,
+    pub delta: Option<f64>,
     pub repeat: Option<f32>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
@@ -36,6 +37,7 @@ pub struct Event {
     pub cut: Option<usize>,
     pub begin: Option<f32>,
     pub end: Option<f32>,
+    pub bank: Option<String>,
 
     // Web sample (WASM only - set by JavaScript)
     pub file_pcm: Option<usize>,
@@ -172,6 +174,7 @@ impl Event {
             match key {
                 "doux" | "dirt" => event.cmd = Some(val.to_string()),
                 "time" | "t" => event.time = val.parse().ok(),
+                "delta" => event.delta = val.parse().ok(),
                 "repeat" | "rep" => event.repeat = val.parse().ok(),
                 "duration" | "dur" | "d" => event.duration = val.parse().ok(),
                 "gate" => event.gate = val.parse().ok(),
@@ -197,6 +200,7 @@ impl Event {
                 "cut" => event.cut = val.parse::<f32>().ok().map(|f| f as usize),
                 "begin" => event.begin = val.parse().ok(),
                 "end" => event.end = val.parse().ok(),
+                "bank" => event.bank = Some(val.to_string()),
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = val.parse::<f32>().ok().map(|f| f as u8),
