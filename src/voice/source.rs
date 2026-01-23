@@ -41,8 +41,9 @@ impl Voice {
                             return false;
                         }
                         for c in 0..CHANNELS {
-                            self.ch[c] = fs.update(pool, info, self.params.speed, c) * 0.2;
+                            self.ch[c] = fs.read(pool, info, c) * 0.2;
                         }
+                        fs.advance(self.params.speed);
                         return true;
                     }
                 }
@@ -55,8 +56,9 @@ impl Voice {
                         return false;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = ws.update(web_pcm, self.params.speed, c) * 0.2;
+                        self.ch[c] = ws.read(web_pcm, c) * 0.2;
                     }
+                    ws.advance(self.params.speed);
                     return true;
                 }
                 self.ch[0] = 0.0;

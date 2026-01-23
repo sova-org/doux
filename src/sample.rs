@@ -148,22 +148,8 @@ impl FileSource {
         }
     }
 
-    /// Reads the next sample value and advances the playback position.
-    ///
-    /// Uses linear interpolation for fractional positions, enabling smooth
-    /// pitch shifting without stair-stepping artifacts.
-    ///
-    /// # Parameters
-    ///
-    /// - `pool`: The sample pool's data slice
-    /// - `info`: Sample metadata (offset, frames, channels)
-    /// - `speed`: Playback rate multiplier (1.0 = normal, 2.0 = double speed)
-    /// - `channel`: Which channel to read (clamped to available channels)
-    ///
-    /// # Returns
-    ///
-    /// The interpolated sample value, or `0.0` if past the end point.
-    pub fn update(&mut self, pool: &[f32], info: &SampleInfo, speed: f32, channel: usize) -> f32 {
+    /// Reads the interpolated sample value at the current position.
+    pub fn read(&self, pool: &[f32], info: &SampleInfo, channel: usize) -> f32 {
         let begin_frame = (self.begin * info.frames as f32) as usize;
         let end_frame = (self.end * info.frames as f32) as usize;
         let channels = info.channels as usize;
@@ -186,10 +172,12 @@ impl FileSource {
         let s0 = pool.get(idx0).copied().unwrap_or(0.0);
         let s1 = pool.get(idx1).copied().unwrap_or(0.0);
 
-        let sample = s0 + frac * (s1 - s0);
+        s0 + frac * (s1 - s0)
+    }
 
+    /// Advances the playback position by the given speed.
+    pub fn advance(&mut self, speed: f32) {
         self.pos += speed;
-        sample
     }
 
     /// Returns `true` if playback has reached or passed the end point.
@@ -233,12 +221,8 @@ impl WebSampleSource {
         }
     }
 
-    /// Advances playback and returns the next sample value.
-    ///
-    /// Returns 0.0 if playback has reached the end point. The `speed` parameter
-    /// controls playback rate (1.0 = normal, 2.0 = double speed, 0.5 = half speed).
-    /// The `channel` parameter selects which channel to read (clamped to available channels).
-    pub fn update(&mut self, pcm_buffer: &[f32], speed: f32, channel: usize) -> f32 {
+    /// Reads the sample value at the current position for the given channel.
+    pub fn read(&self, pcm_buffer: &[f32], channel: usize) -> f32 {
         let begin_frame = (self.begin * self.info.frames as f32) as usize;
         let end_frame = (self.end * self.info.frames as f32) as usize;
         let current = self.pos as usize + begin_frame;
@@ -249,9 +233,12 @@ impl WebSampleSource {
 
         let ch = channel.min(self.info.channels as usize - 1);
         let idx = self.info.offset + current * self.info.channels as usize + ch;
-        let sample = pcm_buffer.get(idx).copied().unwrap_or(0.0);
+        pcm_buffer.get(idx).copied().unwrap_or(0.0)
+    }
+
+    /// Advances the playback position by the given speed.
+    pub fn advance(&mut self, speed: f32) {
         self.pos += speed;
-        sample
     }
 
     /// Returns true if playback has reached or passed the end point.
