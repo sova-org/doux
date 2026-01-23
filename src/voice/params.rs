@@ -13,7 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::oscillator::PhaseShape;
-use crate::types::{DelayType, FilterSlope, LfoShape, Source, SubWave};
+use crate::types::{DelayType, FilterSlope, LfoShape, ReverbType, Source, SubWave};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -284,6 +284,8 @@ pub struct VoiceParams {
     pub delaytype: DelayType,
     /// Reverb send level (0.0 to 1.0).
     pub verb: f32,
+    /// Reverb algorithm type.
+    pub verbtype: ReverbType,
     /// Reverb decay time (overrides orbit default).
     pub verbdecay: f32,
     /// Reverb damping (overrides orbit default).
@@ -401,6 +403,7 @@ impl Default for VoiceParams {
             delayfeedback: 0.6,
             delaytype: DelayType::Standard,
             verb: 0.0,
+            verbtype: ReverbType::Dattorro,
             verbdecay: 0.75,
             verbdamp: 0.95,
             verbpredelay: 0.1,

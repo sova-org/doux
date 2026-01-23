@@ -1,4 +1,4 @@
-use crate::types::{midi2freq, DelayType, FilterSlope, LfoShape, SubWave};
+use crate::types::{midi2freq, DelayType, FilterSlope, LfoShape, ReverbType, SubWave};
 
 #[derive(Clone, Default, Debug)]
 pub struct Event {
@@ -160,6 +160,7 @@ pub struct Event {
 
     // Reverb
     pub verb: Option<f32>,
+    pub verbtype: Option<ReverbType>,
     pub verbdecay: Option<f32>,
     pub verbdamp: Option<f32>,
     pub verbpredelay: Option<f32>,
@@ -288,6 +289,7 @@ impl Event {
                 "delayfeedback" => event.delayfeedback = val.parse().ok(),
                 "delaytype" | "dtype" => event.delaytype = val.parse().ok(),
                 "verb" | "reverb" => event.verb = val.parse().ok(),
+                "verbtype" | "vtype" => event.verbtype = val.parse().ok(),
                 "verbdecay" => event.verbdecay = val.parse().ok(),
                 "verbdamp" => event.verbdamp = val.parse().ok(),
                 "verbpredelay" => event.verbpredelay = val.parse().ok(),

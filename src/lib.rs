@@ -35,7 +35,7 @@ use schedule::Schedule;
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
-use types::{DelayType, Source, BLOCK_SIZE, CHANNELS, MAX_ORBITS, MAX_VOICES};
+use types::{DelayType, ReverbType, Source, BLOCK_SIZE, CHANNELS, MAX_ORBITS, MAX_VOICES};
 use voice::{Voice, VoiceParams};
 
 pub struct Engine {
@@ -89,6 +89,7 @@ impl Engine {
                 delay_time: 0.333,
                 delay_feedback: 0.6,
                 delay_type: DelayType::Standard,
+                verb_type: ReverbType::Dattorro,
                 verb_decay: 0.75,
                 verb_damp: 0.95,
                 verb_predelay: 0.1,
@@ -131,6 +132,7 @@ impl Engine {
                 delay_time: 0.333,
                 delay_feedback: 0.6,
                 delay_type: DelayType::Standard,
+                verb_type: ReverbType::Dattorro,
                 verb_decay: 0.75,
                 verb_damp: 0.95,
                 verb_predelay: 0.1,
@@ -547,6 +549,7 @@ impl Engine {
             event,
             v.params,
             verb,
+            verbtype,
             verbdecay,
             verbdamp,
             verbpredelay,
@@ -650,6 +653,7 @@ impl Engine {
                         .add_verb_send(c, self.voices[i].ch[c] * self.voices[i].params.verb);
                 }
                 // Update orbit verb params from voice
+                self.effect_params.verb_type = self.voices[i].params.verbtype;
                 self.effect_params.verb_decay = self.voices[i].params.verbdecay;
                 self.effect_params.verb_damp = self.voices[i].params.verbdamp;
                 self.effect_params.verb_predelay = self.voices[i].params.verbpredelay;

@@ -132,6 +132,25 @@ impl FromStr for LfoShape {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum ReverbType {
+    #[default]
+    Dattorro,
+    Fdn,
+}
+
+impl FromStr for ReverbType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "dattorro" | "plate" | "0" => Ok(Self::Dattorro),
+            "fdn" | "hall" | "1" => Ok(Self::Fdn),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum DelayType {
     #[default]
     Standard,

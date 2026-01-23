@@ -1,5 +1,5 @@
-use crate::effects::{Comb, DattorroVerb, Delay, DelayParams};
-use crate::types::{DelayType, CHANNELS};
+use crate::effects::{Comb, DattorroVerb, Delay, DelayParams, FdnVerb};
+use crate::types::{DelayType, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
 const SILENCE_HOLDOFF: u32 = 48000;
@@ -9,6 +9,7 @@ pub struct EffectParams {
     pub delay_time: f32,
     pub delay_feedback: f32,
     pub delay_type: DelayType,
+    pub verb_type: ReverbType,
     pub verb_decay: f32,
     pub verb_damp: f32,
     pub verb_predelay: f32,
@@ -23,6 +24,7 @@ pub struct Orbit {
     pub delay_send: [f32; CHANNELS],
     pub delay_out: [f32; CHANNELS],
     pub verb: DattorroVerb,
+    pub fdn: FdnVerb,
     pub verb_send: [f32; CHANNELS],
     pub verb_out: [f32; CHANNELS],
     pub comb: Comb,
@@ -39,6 +41,7 @@ impl Orbit {
             delay_send: [0.0; CHANNELS],
             delay_out: [0.0; CHANNELS],
             verb: DattorroVerb::new(sr),
+            fdn: FdnVerb::new(sr),
             verb_send: [0.0; CHANNELS],
             verb_out: [0.0; CHANNELS],
             comb: Comb::default(),
@@ -95,14 +98,22 @@ impl Orbit {
         );
 
         let verb_input = (self.verb_send[0] + self.verb_send[1]) * 0.5;
-        let verb_stereo = self.verb.process(
-            verb_input,
-            p.verb_decay,
-            p.verb_damp,
-            p.verb_predelay,
-            p.verb_diff,
-        );
-        self.verb_out = verb_stereo;
+        self.verb_out = match p.verb_type {
+            ReverbType::Dattorro => self.verb.process(
+                verb_input,
+                p.verb_decay,
+                p.verb_damp,
+                p.verb_predelay,
+                p.verb_diff,
+            ),
+            ReverbType::Fdn => self.fdn.process(
+                verb_input,
+                p.verb_decay,
+                p.verb_damp,
+                p.verb_diff, // size
+                p.verb_predelay, // modulation
+            ),
+        };
 
         let comb_input = (self.comb_send[0] + self.comb_send[1]) * 0.5;
         let comb_out = self.comb.process(

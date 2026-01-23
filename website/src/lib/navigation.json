@@ -122,6 +122,7 @@
   { "name": "delaytime", "category": "delay", "group": "effects" },
   { "name": "delaytype", "category": "delay", "group": "effects" },
   { "name": "verb", "category": "reverb", "group": "effects" },
+  { "name": "verbtype", "category": "reverb", "group": "effects" },
   { "name": "verbdecay", "category": "reverb", "group": "effects" },
   { "name": "verbdamp", "category": "reverb", "group": "effects" },
   { "name": "verbpredelay", "category": "reverb", "group": "effects" },

@@ -10,7 +10,7 @@ order: 204
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-Dattorro plate reverb with 4 input diffusers and a cross-fed stereo tank.
+Send-effect reverb with two algorithms.
 
 <CommandEntry name="verb" type="number" min={0} max={1} default={0}>
 
@@ -20,34 +20,59 @@ Send level to the reverb bus.
 
 </CommandEntry>
 
+<CommandEntry name="verbtype" type="enum" default="dattorro" values={["dattorro", "fdn"]}>
+
+<ul>
+<li><strong>dattorro</strong> (or <code>plate</code>) — Plate reverb with input diffusers and stereo tank. Bright, metallic shimmer.</li>
+<li><strong>fdn</strong> (or <code>hall</code>) — Hall reverb. Dense, smooth, diffuse tail.</li>
+</ul>
+
+<CodeEditor code={`/sound/saw/verb/.6/verbtype/plate/verbdecay/.7/verbdamp/.3/d/.05`} rows={2} />
+
+<CodeEditor code={`/sound/saw/verb/.6/verbtype/fdn/verbdecay/.7/verbdamp/.3/d/.05`} rows={2} />
+
+</CommandEntry>
+
 <CommandEntry name="verbdecay" type="number" min={0} max={1} default={0.5}>
 
-Tank feedback amount (clamped to 0.99 max). Controls tail length.
+Controls tail length.
 
-<CodeEditor code={`/verb/0.8/verbdecay/0.9/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/.8/verbtype/plate/verbdecay/.9/duration/.1`} rows={2} />
+
+<CodeEditor code={`/verb/.8/verbtype/fdn/verbdecay/.9/duration/.1`} rows={2} />
 
 </CommandEntry>
 
 <CommandEntry name="verbdamp" type="number" min={0} max={1} default={0.5}>
 
-One-pole lowpass in the tank feedback path. Higher values darken the tail.
+High-frequency absorption. Higher values darken the tail. Both algorithms use a one-pole lowpass in the feedback path.
 
-<CodeEditor code={`/verb/0.7/verbdamp/0.5/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/.7/verbdamp/.7/duration/.1`} rows={2} />
 
 </CommandEntry>
 
 <CommandEntry name="verbpredelay" type="number" min={0} max={1} default={0}>
 
-Delay before the diffusers (0-1 of max ~100ms). Creates space before reverb onset.
+<ul>
+<li><strong>Dattorro</strong> — Pre-delay before the diffusers (0–1 scales up to ~100ms).</li>
+<li><strong>FDN</strong> — Modulation depth. Adds chorus-like movement to the tail.</li>
+</ul>
 
-<CodeEditor code={`/verb/0.6/verbpredelay/0.3/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/.6/verbtype/plate/verbpredelay/.4/duration/.1`} rows={2} />
+
+<CodeEditor code={`/verb/.6/verbtype/fdn/verbpredelay/.5/duration/.1`} rows={2} />
 
 </CommandEntry>
 
 <CommandEntry name="verbdiff" type="number" min={0} max={1} default={0.7}>
 
-Allpass coefficients in both input and tank diffusers. Higher values smear transients.
+<ul>
+<li><strong>Dattorro</strong> — Allpass diffusion amount. Higher values smear transients more.</li>
+<li><strong>FDN</strong> — Room size. Scales all delay line lengths (0.2–1.5x).</li>
+</ul>
 
-<CodeEditor code={`/verb/0.7/verbdiff/0.9/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/.6/verbtype/plate/verbdiff/.9/duration/.1`} rows={2} />
+
+<CodeEditor code={`/verb/.6/verbtype/fdn/verbdiff/.4/duration/.1`} rows={2} />
 
 </CommandEntry>
