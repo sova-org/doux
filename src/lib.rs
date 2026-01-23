@@ -381,6 +381,15 @@ impl Engine {
             v.params.sound = source;
         }
         copy_opt!(event, v.params, pw, spread);
+        if let Some(sub) = event.sub {
+            v.params.sub = sub.clamp(0.0, 1.0);
+        }
+        if let Some(sub_oct) = event.sub_oct {
+            v.params.sub_oct = sub_oct.clamp(1, 3);
+        }
+        if let Some(sub_wave) = event.sub_wave {
+            v.params.sub_wave = sub_wave;
+        }
         if let Some(size) = event.size {
             v.params.shape.size = size.min(256);
         }

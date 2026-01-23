@@ -4,21 +4,21 @@ use crate::fastmath::exp2f;
 use crate::oscillator::Phasor;
 use crate::plaits::PlaitsEngine;
 use crate::sample::SampleInfo;
-use crate::types::{freq2midi, Source, BLOCK_SIZE, CHANNELS};
+use crate::types::{freq2midi, Source, SubWave, BLOCK_SIZE, CHANNELS};
 use mi_plaits_dsp::engine::{EngineParameters, TriggerState};
 
 use super::Voice;
 
 impl Voice {
     #[inline]
-    pub(super) fn osc_at(&self, phasor: &Phasor, phase: f32) -> f32 {
+    pub(super) fn osc_at(&self, phase: f32, dt: f32) -> f32 {
         match self.params.sound {
-            Source::Tri => phasor.tri_at(phase, &self.params.shape),
-            Source::Sine => phasor.sine_at(phase, &self.params.shape),
-            Source::Saw => phasor.saw_at(phase, &self.params.shape),
-            Source::Zaw => phasor.zaw_at(phase, &self.params.shape),
-            Source::Pulse => phasor.pulse_at(phase, self.params.pw, &self.params.shape),
-            Source::Pulze => phasor.pulze_at(phase, self.params.pw, &self.params.shape),
+            Source::Tri => Phasor::tri_at(phase, &self.params.shape),
+            Source::Sine => Phasor::sine_at(phase, &self.params.shape),
+            Source::Saw => Phasor::saw_at(phase, dt, &self.params.shape),
+            Source::Zaw => Phasor::zaw_at(phase, &self.params.shape),
+            Source::Pulse => Phasor::pulse_at(phase, dt, self.params.pw, &self.params.shape),
+            Source::Pulze => Phasor::pulze_at(phase, self.params.pw, &self.params.shape),
             _ => 0.0,
         }
     }
@@ -141,6 +141,7 @@ impl Voice {
                 } else {
                     self.run_single_osc(freq, isr);
                 }
+                self.run_sub(freq, isr);
             }
         }
         true
@@ -152,9 +153,10 @@ impl Voice {
         const PAN: [f32; 3] = [0.3, 0.6, 0.9];
 
         // Center oscillator
+        let dt_c = freq * isr;
         let phase_c = self.spread_phasors[3].phase;
-        let center = self.osc_at(&self.spread_phasors[3], phase_c);
-        self.spread_phasors[3].phase = (phase_c + freq * isr) % 1.0;
+        let center = self.osc_at(phase_c, dt_c);
+        self.spread_phasors[3].phase = (phase_c + dt_c) % 1.0;
         left += center;
         right += center;
 
@@ -164,13 +166,15 @@ impl Voice {
             let ratio_up = exp2f(detune_cents / 1200.0);
             let ratio_down = exp2f(-detune_cents / 1200.0);
 
+            let dt_up = freq * ratio_up * isr;
             let phase_up = self.spread_phasors[3 + i].phase;
-            let voice_up = self.osc_at(&self.spread_phasors[3 + i], phase_up);
-            self.spread_phasors[3 + i].phase = (phase_up + freq * ratio_up * isr) % 1.0;
+            let voice_up = self.osc_at(phase_up, dt_up);
+            self.spread_phasors[3 + i].phase = (phase_up + dt_up) % 1.0;
 
+            let dt_down = freq * ratio_down * isr;
             let phase_down = self.spread_phasors[3 - i].phase;
-            let voice_down = self.osc_at(&self.spread_phasors[3 - i], phase_down);
-            self.spread_phasors[3 - i].phase = (phase_down + freq * ratio_down * isr) % 1.0;
+            let voice_down = self.osc_at(phase_down, dt_down);
+            self.spread_phasors[3 - i].phase = (phase_down + dt_down) % 1.0;
 
             let pan = PAN[i - 1];
             left += voice_down * (0.5 + pan * 0.5) + voice_up * (0.5 - pan * 0.5);
@@ -182,6 +186,19 @@ impl Voice {
         let side = (left - right) / 2.0;
         self.ch[0] = mid / 4.0 * 0.2;
         self.spread_side = side / 4.0 * 0.2;
+    }
+
+    fn run_sub(&mut self, freq: f32, isr: f32) {
+        if self.params.sub <= 0.0 {
+            return;
+        }
+        let sub_freq = freq / (1 << self.params.sub_oct as u32) as f32;
+        let sample = match self.params.sub_wave {
+            SubWave::Sine => self.sub_phasor.sine(sub_freq, isr),
+            SubWave::Tri => self.sub_phasor.tri(sub_freq, isr),
+            SubWave::Square => self.sub_phasor.pulse(sub_freq, 0.5, isr),
+        };
+        self.ch[0] = (self.ch[0] + sample * self.params.sub * 0.2) / (1.0 + self.params.sub);
     }
 
     fn run_single_osc(&mut self, freq: f32, isr: f32) {

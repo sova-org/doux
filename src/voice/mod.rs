@@ -35,6 +35,7 @@ fn apply_filter(
 pub struct Voice {
     pub params: VoiceParams,
     pub phasor: Phasor,
+    pub sub_phasor: Phasor,
     pub spread_phasors: [Phasor; 7],
     pub adsr: Adsr,
     pub lp_adsr: Adsr,
@@ -86,6 +87,7 @@ impl Default for Voice {
         Self {
             params: VoiceParams::default(),
             phasor: Phasor::default(),
+            sub_phasor: Phasor::default(),
             spread_phasors: std::array::from_fn(|i| {
                 let mut p = Phasor::default();
                 p.phase = i as f32 / 7.0;
@@ -134,6 +136,7 @@ impl Clone for Voice {
         Self {
             params: self.params,
             phasor: self.phasor,
+            sub_phasor: self.sub_phasor,
             spread_phasors: self.spread_phasors,
             adsr: self.adsr,
             lp_adsr: self.lp_adsr,

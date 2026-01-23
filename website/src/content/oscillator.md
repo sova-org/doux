@@ -61,3 +61,31 @@ Reflects the phase at the specified position. At 0.5, creates symmetric waveform
 <CodeEditor code={`/sound/saw/mirror/.5`} rows={2} />
 
 </CommandEntry>
+
+## Sub Oscillator
+
+A secondary oscillator tuned octaves below the main oscillator. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) and spread mode.
+
+<CommandEntry name="sub" type="number" min={0} max={1} default={0}>
+
+Mix level of the sub oscillator. At 0 the sub is silent, at 1 it matches the main oscillator volume.
+
+<CodeEditor code={`/sound/saw/sub/.5`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="suboct" type="number" min={1} max={3} default={1}>
+
+Octave offset below the main oscillator. 1 means one octave down, 2 means two octaves down, 3 means three octaves down.
+
+<CodeEditor code={`/sound/saw/sub/.5/suboct/2`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="subwave" type="enum" values={["tri", "sine", "square"]} default="tri">
+
+Waveform of the sub oscillator.
+
+<CodeEditor code={`/sound/saw/sub/.5/subwave/sine`} rows={2} />
+
+</CommandEntry>

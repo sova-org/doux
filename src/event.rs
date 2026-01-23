@@ -1,4 +1,4 @@
-use crate::types::{midi2freq, DelayType, FilterSlope, LfoShape};
+use crate::types::{midi2freq, DelayType, FilterSlope, LfoShape, SubWave};
 
 #[derive(Clone, Default, Debug)]
 pub struct Event {
@@ -38,6 +38,9 @@ pub struct Event {
     pub begin: Option<f32>,
     pub end: Option<f32>,
     pub bank: Option<String>,
+    pub sub: Option<f32>,
+    pub sub_oct: Option<u8>,
+    pub sub_wave: Option<SubWave>,
 
     // Web sample (WASM only - set by JavaScript)
     pub file_pcm: Option<usize>,
@@ -201,6 +204,9 @@ impl Event {
                 "begin" => event.begin = val.parse().ok(),
                 "end" => event.end = val.parse().ok(),
                 "bank" => event.bank = Some(val.to_string()),
+                "sub" => event.sub = val.parse().ok(),
+                "suboct" => event.sub_oct = val.parse::<f32>().ok().map(|f| f as u8),
+                "subwave" => event.sub_wave = val.parse().ok(),
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = val.parse::<f32>().ok().map(|f| f as u8),

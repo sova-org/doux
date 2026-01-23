@@ -13,7 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::oscillator::PhaseShape;
-use crate::types::{DelayType, FilterSlope, LfoShape, Source};
+use crate::types::{DelayType, FilterSlope, LfoShape, Source, SubWave};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -62,6 +62,12 @@ pub struct VoiceParams {
     pub morph: f32,
     /// Sample slice/cut index for sample playback.
     pub cut: Option<usize>,
+    /// Sub oscillator mix level (0.0 = off, 1.0 = full).
+    pub sub: f32,
+    /// Sub oscillator octave offset below main (1-3).
+    pub sub_oct: u8,
+    /// Sub oscillator waveform.
+    pub sub_wave: SubWave,
 
     // ─────────────────────────────────────────────────────────────────────
     // Amplitude Envelope (ADSR)
@@ -316,6 +322,9 @@ impl Default for VoiceParams {
             timbre: 0.5,
             morph: 0.5,
             cut: None,
+            sub: 0.0,
+            sub_oct: 1,
+            sub_wave: SubWave::Tri,
             attack: 0.001,
             decay: 0.0,
             sustain: 1.0,

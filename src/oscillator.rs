@@ -86,6 +86,19 @@ impl PhaseShape {
         self.size >= 2 || self.mult != 1.0 || self.warp != 0.0 || self.mirror > 0.0
     }
 
+    /// Returns the effective phase rate multiplier for PolyBLEP scaling.
+    ///
+    /// The shaped phase traverses faster when mult > 1, so the PolyBLEP
+    /// correction window must widen accordingly.
+    #[inline]
+    pub fn effective_mult(&self) -> f32 {
+        if self.mult > 1.0 {
+            self.mult
+        } else {
+            1.0
+        }
+    }
+
     /// Applies the full transformation chain to a phase value.
     ///
     /// Input and output are in the range `[0, 1)`.
@@ -291,13 +304,15 @@ impl Phasor {
         s
     }
 
-    /// Sawtooth with phase shaping. Falls back to raw saw when shaped.
+    /// Sawtooth with phase shaping and PolyBLEP anti-aliasing.
     pub fn saw_shaped(&mut self, freq: f32, isr: f32, shape: &PhaseShape) -> f32 {
         if !shape.is_active() {
             return self.saw(freq, isr);
         }
+        let dt = freq * isr;
         let p = shape.apply(self.phase);
-        let s = p * 2.0 - 1.0;
+        let blep = poly_blep(p, dt * shape.effective_mult());
+        let s = p * 2.0 - 1.0 - blep;
         self.update(freq, isr);
         s
     }
@@ -314,13 +329,20 @@ impl Phasor {
         s
     }
 
-    /// Pulse wave with phase shaping. Falls back to raw pulse when shaped.
+    /// Pulse wave with phase shaping and PolyBLEP anti-aliasing.
     pub fn pulse_shaped(&mut self, freq: f32, pw: f32, isr: f32, shape: &PhaseShape) -> f32 {
         if !shape.is_active() {
             return self.pulse(freq, pw, isr);
         }
+        let dt = freq * isr * shape.effective_mult();
         let p = shape.apply(self.phase);
-        let s = if p < pw { 1.0 } else { -1.0 };
+        let mut phi = p + pw;
+        if phi >= 1.0 {
+            phi -= 1.0;
+        }
+        let p1 = poly_blep(phi, dt);
+        let p2 = poly_blep(p, dt);
+        let s = 2.0 * (p - phi) - p2 + p1 + pw * 2.0 - 1.0;
         self.update(freq, isr);
         s
     }
@@ -343,7 +365,7 @@ impl Phasor {
 
     /// Sine at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn sine_at(&self, phase: f32, shape: &PhaseShape) -> f32 {
+    pub fn sine_at(phase: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {
@@ -354,7 +376,7 @@ impl Phasor {
 
     /// Triangle at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn tri_at(&self, phase: f32, shape: &PhaseShape) -> f32 {
+    pub fn tri_at(phase: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {
@@ -367,20 +389,21 @@ impl Phasor {
         }
     }
 
-    /// Sawtooth at arbitrary phase (stateless, for unison voices).
+    /// Band-limited sawtooth at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn saw_at(&self, phase: f32, shape: &PhaseShape) -> f32 {
+    pub fn saw_at(phase: f32, dt: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {
             phase
         };
-        p * 2.0 - 1.0
+        let blep = poly_blep(p, dt * shape.effective_mult());
+        p * 2.0 - 1.0 - blep
     }
 
     /// Raw sawtooth at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn zaw_at(&self, phase: f32, shape: &PhaseShape) -> f32 {
+    pub fn zaw_at(phase: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {
@@ -389,24 +412,27 @@ impl Phasor {
         p * 2.0 - 1.0
     }
 
-    /// Pulse at arbitrary phase (stateless, for unison voices).
+    /// Band-limited pulse at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn pulse_at(&self, phase: f32, pw: f32, shape: &PhaseShape) -> f32 {
+    pub fn pulse_at(phase: f32, dt: f32, pw: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {
             phase
         };
-        if p < pw {
-            1.0
-        } else {
-            -1.0
+        let dt_eff = dt * shape.effective_mult();
+        let mut phi = p + pw;
+        if phi >= 1.0 {
+            phi -= 1.0;
         }
+        let p1 = poly_blep(phi, dt_eff);
+        let p2 = poly_blep(p, dt_eff);
+        2.0 * (p - phi) - p2 + p1 + pw * 2.0 - 1.0
     }
 
     /// Raw pulse at arbitrary phase (stateless, for unison voices).
     #[inline]
-    pub fn pulze_at(&self, phase: f32, duty: f32, shape: &PhaseShape) -> f32 {
+    pub fn pulze_at(phase: f32, duty: f32, shape: &PhaseShape) -> f32 {
         let p = if shape.is_active() {
             shape.apply(phase)
         } else {

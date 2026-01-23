@@ -78,6 +78,27 @@ impl FromStr for Source {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum SubWave {
+    #[default]
+    Tri,
+    Sine,
+    Square,
+}
+
+impl FromStr for SubWave {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "tri" | "triangle" => Ok(Self::Tri),
+            "sine" | "sin" => Ok(Self::Sine),
+            "square" | "sq" => Ok(Self::Square),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum FilterSlope {
     #[default]
     Db12,
