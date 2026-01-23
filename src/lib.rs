@@ -410,6 +410,9 @@ impl Engine {
             let begin = event.begin.unwrap_or(0.0);
             let end = event.end.unwrap_or(1.0);
             v.file_source = Some(FileSource::new(sample_idx, begin, end));
+            if event.freq.is_none() {
+                v.params.freq = 261.626;
+            }
         } else if event.begin.is_some() || event.end.is_some() {
             // Update begin/end on existing file_source
             if let Some(ref mut fs) = v.file_source {
@@ -435,6 +438,9 @@ impl Engine {
                 event.begin.unwrap_or(0.0),
                 event.end.unwrap_or(1.0),
             ));
+            if event.freq.is_none() {
+                v.params.freq = 261.626;
+            }
         }
 
         // --- Gain ---

@@ -43,7 +43,7 @@ impl Voice {
                         for c in 0..CHANNELS {
                             self.ch[c] = fs.read(pool, info, c) * 0.2;
                         }
-                        fs.advance(self.params.speed);
+                        fs.advance(freq / 261.626);
                         return true;
                     }
                 }
@@ -58,7 +58,7 @@ impl Voice {
                     for c in 0..CHANNELS {
                         self.ch[c] = ws.read(web_pcm, c) * 0.2;
                     }
-                    ws.advance(self.params.speed);
+                    ws.advance(freq / 261.626);
                     return true;
                 }
                 self.ch[0] = 0.0;
