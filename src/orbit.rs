@@ -4,7 +4,7 @@ use crate::types::{DelayType, ReverbType, CHANNELS};
 const SILENCE_THRESHOLD: f32 = 1e-7;
 const SILENCE_HOLDOFF: u32 = 48000;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct EffectParams {
     pub delay_time: f32,
     pub delay_feedback: f32,
@@ -17,6 +17,24 @@ pub struct EffectParams {
     pub comb_freq: f32,
     pub comb_feedback: f32,
     pub comb_damp: f32,
+}
+
+impl Default for EffectParams {
+    fn default() -> Self {
+        Self {
+            delay_time: 0.333,
+            delay_feedback: 0.6,
+            delay_type: DelayType::Standard,
+            verb_type: ReverbType::Dattorro,
+            verb_decay: 0.75,
+            verb_damp: 0.95,
+            verb_predelay: 0.1,
+            verb_diff: 0.7,
+            comb_freq: 220.0,
+            comb_feedback: 0.9,
+            comb_damp: 0.1,
+        }
+    }
 }
 
 pub struct Orbit {

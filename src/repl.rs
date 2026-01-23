@@ -169,6 +169,10 @@ struct Args {
     /// Common values: 64, 128, 256, 512, 1024. Default: system choice.
     #[arg(short, long)]
     buffer_size: Option<u32>,
+
+    /// Maximum polyphony (number of simultaneous voices).
+    #[arg(long, default_value = "32")]
+    max_voices: usize,
 }
 
 /// Prints available audio input and output devices.
@@ -294,7 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!();
     }
 
-    let mut engine = Engine::new_with_channels(sample_rate, output_channels);
+    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
 
     if let Some(ref dir) = args.samples {
         let index = doux::loader::scan_samples_dir(dir);
@@ -396,7 +400,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let sched = e.metrics.schedule_depth.load(Ordering::Relaxed);
                         let mem = e.metrics.sample_pool_mb();
                         println!("CPU:      {cpu:5.1}%");
-                        println!("Voices:   {voices:3}/{}", doux::types::MAX_VOICES);
+                        println!("Voices:   {voices:3}/{}", e.max_voices);
                         println!("Peak:     {peak:3}");
                         println!("Schedule: {sched:3}");
                         println!("Samples:  {mem:.1} MB");

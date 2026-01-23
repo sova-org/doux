@@ -74,13 +74,17 @@ static mut INPUT_BUFFER: [f32; BLOCK_SIZE * CHANNELS] = [0.0; BLOCK_SIZE * CHANN
 // Lifecycle
 // =============================================================================
 
-/// Initializes the audio engine at the given sample rate.
+/// Initializes the audio engine at the given sample rate and max polyphony.
 ///
 /// Must be called once before any other functions.
 #[no_mangle]
-pub extern "C" fn doux_init(sample_rate: f32) {
+pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
     unsafe {
-        ENGINE = Some(Engine::new(sample_rate));
+        ENGINE = Some(Engine::new_with_channels(
+            sample_rate,
+            crate::types::CHANNELS,
+            max_voices,
+        ));
     }
 }
 

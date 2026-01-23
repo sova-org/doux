@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use crate::types::DEFAULT_MAX_VOICES;
+
 /// Configuration for the Doux audio engine.
 #[derive(Debug, Clone)]
 pub struct DouxConfig {
@@ -15,6 +17,8 @@ pub struct DouxConfig {
     pub sample_paths: Vec<PathBuf>,
     /// Audio buffer size in samples. None uses system default.
     pub buffer_size: Option<u32>,
+    /// Maximum polyphony (number of simultaneous voices).
+    pub max_voices: usize,
 }
 
 impl Default for DouxConfig {
@@ -25,6 +29,7 @@ impl Default for DouxConfig {
             channels: 2,
             sample_paths: Vec::new(),
             buffer_size: None,
+            max_voices: DEFAULT_MAX_VOICES,
         }
     }
 }
@@ -61,6 +66,11 @@ impl DouxConfig {
 
     pub fn with_buffer_size(mut self, size: u32) -> Self {
         self.buffer_size = Some(size);
+        self
+    }
+
+    pub fn with_max_voices(mut self, max_voices: usize) -> Self {
+        self.max_voices = max_voices;
         self
     }
 }

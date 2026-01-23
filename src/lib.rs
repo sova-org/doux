@@ -35,12 +35,13 @@ use schedule::Schedule;
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
-use types::{DelayType, ReverbType, Source, BLOCK_SIZE, CHANNELS, MAX_ORBITS, MAX_VOICES};
+use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
 use voice::{Voice, VoiceParams};
 
 pub struct Engine {
     pub sr: f32,
     pub isr: f32,
+    pub max_voices: usize,
     pub voices: Vec<Voice>,
     pub active_voices: usize,
     pub orbits: Vec<Orbit>,
@@ -62,10 +63,14 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(sample_rate: f32) -> Self {
-        Self::new_with_channels(sample_rate, CHANNELS)
+        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
     }
 
-    pub fn new_with_channels(sample_rate: f32, output_channels: usize) -> Self {
+    pub fn new_with_channels(
+        sample_rate: f32,
+        output_channels: usize,
+        max_voices: usize,
+    ) -> Self {
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
         for _ in 0..MAX_ORBITS {
             orbits.push(Orbit::new(sample_rate));
@@ -74,7 +79,8 @@ impl Engine {
         Self {
             sr: sample_rate,
             isr: 1.0 / sample_rate,
-            voices: vec![Voice::default(); MAX_VOICES],
+            max_voices,
+            voices: vec![Voice::default(); max_voices],
             active_voices: 0,
             orbits,
             schedule: Schedule::new(),
@@ -85,19 +91,7 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            effect_params: EffectParams {
-                delay_time: 0.333,
-                delay_feedback: 0.6,
-                delay_type: DelayType::Standard,
-                verb_type: ReverbType::Dattorro,
-                verb_decay: 0.75,
-                verb_damp: 0.95,
-                verb_predelay: 0.1,
-                verb_diff: 0.7,
-                comb_freq: 220.0,
-                comb_feedback: 0.9,
-                comb_damp: 0.1,
-            },
+            effect_params: EffectParams::default(),
             #[cfg(feature = "native")]
             metrics: Arc::new(EngineMetrics::default()),
         }
@@ -107,6 +101,7 @@ impl Engine {
     pub fn new_with_metrics(
         sample_rate: f32,
         output_channels: usize,
+        max_voices: usize,
         metrics: Arc<EngineMetrics>,
     ) -> Self {
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
@@ -117,7 +112,8 @@ impl Engine {
         Self {
             sr: sample_rate,
             isr: 1.0 / sample_rate,
-            voices: vec![Voice::default(); MAX_VOICES],
+            max_voices,
+            voices: vec![Voice::default(); max_voices],
             active_voices: 0,
             orbits,
             schedule: Schedule::new(),
@@ -128,19 +124,7 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            effect_params: EffectParams {
-                delay_time: 0.333,
-                delay_feedback: 0.6,
-                delay_type: DelayType::Standard,
-                verb_type: ReverbType::Dattorro,
-                verb_decay: 0.75,
-                verb_damp: 0.95,
-                verb_predelay: 0.1,
-                verb_diff: 0.7,
-                comb_freq: 220.0,
-                comb_feedback: 0.9,
-                comb_damp: 0.1,
-            },
+            effect_params: EffectParams::default(),
             metrics,
         }
     }
@@ -280,7 +264,7 @@ impl Engine {
     }
 
     pub fn play(&mut self, params: VoiceParams) -> Option<usize> {
-        if self.active_voices >= MAX_VOICES {
+        if self.active_voices >= self.max_voices {
             return None;
         }
         let i = self.active_voices;
@@ -308,7 +292,7 @@ impl Engine {
                 (v, false)
             } else {
                 // Voice index out of range - allocate new
-                if self.active_voices >= MAX_VOICES {
+                if self.active_voices >= self.max_voices {
                     return None;
                 }
                 let i = self.active_voices;
@@ -317,7 +301,7 @@ impl Engine {
             }
         } else {
             // No voice specified - allocate new
-            if self.active_voices >= MAX_VOICES {
+            if self.active_voices >= self.max_voices {
                 return None;
             }
             let i = self.active_voices;

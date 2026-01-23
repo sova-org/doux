@@ -47,6 +47,10 @@ struct Args {
     /// Common values: 64, 128, 256, 512, 1024. Default: system choice.
     #[arg(short, long)]
     buffer_size: Option<u32>,
+
+    /// Maximum polyphony (number of simultaneous voices).
+    #[arg(long, default_value = "32")]
+    max_voices: usize,
 }
 
 fn print_devices() {
@@ -109,7 +113,7 @@ fn main() {
     }
 
     // Initialize engine with sample index if provided
-    let mut engine = Engine::new_with_channels(sample_rate, output_channels);
+    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
 
     if let Some(ref dir) = args.samples {
         println!("\nScanning samples from: {}", dir.display());

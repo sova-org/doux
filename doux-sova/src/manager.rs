@@ -72,7 +72,7 @@ impl Default for AudioEngineState {
             error: None,
             cpu_load: 0.0,
             peak_voices: 0,
-            max_voices: doux::types::MAX_VOICES,
+            max_voices: doux::types::DEFAULT_MAX_VOICES,
             schedule_depth: 0,
             sample_pool_mb: 0.0,
         }
@@ -140,7 +140,7 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         // Create engine
-        let mut engine = Engine::new_with_channels(sample_rate, actual_channels);
+        let mut engine = Engine::new_with_channels(sample_rate, actual_channels, config.max_voices);
 
         // Load sample directories
         for path in &config.sample_paths {
@@ -307,7 +307,7 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         // Create new engine
-        let mut engine = Engine::new_with_channels(sample_rate, actual_channels);
+        let mut engine = Engine::new_with_channels(sample_rate, actual_channels, config.max_voices);
 
         for path in &config.sample_paths {
             let index = doux::loader::scan_samples_dir(path);
@@ -375,7 +375,7 @@ impl DouxManager {
             error: None,
             cpu_load,
             peak_voices,
-            max_voices: doux::types::MAX_VOICES,
+            max_voices: self.config.max_voices,
             schedule_depth,
             sample_pool_mb,
         }
