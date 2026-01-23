@@ -408,6 +408,12 @@ impl Engine {
             if event.freq.is_none() {
                 v.params.freq = 261.626;
             }
+            if let Some(target_dur) = event.fit {
+                if let Some(info) = self.samples.get(sample_idx) {
+                    let sample_dur = info.frames as f32 * (end - begin) / self.sr;
+                    v.params.speed = sample_dur / target_dur;
+                }
+            }
         } else if event.begin.is_some() || event.end.is_some() {
             // Update begin/end on existing file_source
             if let Some(ref mut fs) = v.file_source {

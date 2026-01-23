@@ -22,6 +22,9 @@ pub struct Event {
     pub speed: Option<f32>,
     pub glide: Option<f32>,
 
+    // Fit sample playback into a target duration (seconds)
+    pub fit: Option<f32>,
+
     // Source
     pub sound: Option<String>,
     pub pw: Option<f32>,
@@ -189,6 +192,7 @@ impl Event {
                 "note" => event.freq = val.parse().ok().map(midi2freq),
                 "detune" => event.detune = val.parse().ok(),
                 "speed" => event.speed = val.parse().ok(),
+                "fit" => event.fit = val.parse().ok(),
                 "glide" => event.glide = val.parse().ok(),
                 "sound" | "s" => event.sound = Some(val.to_string()),
                 "pw" => event.pw = val.parse().ok(),
