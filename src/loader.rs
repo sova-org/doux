@@ -128,14 +128,6 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
         }
     }
 
-    if !entries.is_empty() {
-        println!(
-            "  Found {} samples in {} folders",
-            entries.len(),
-            folder_count
-        );
-    }
-
     entries
 }
 
