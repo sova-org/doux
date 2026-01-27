@@ -43,3 +43,23 @@ Stereo position using constant-power panning: <code>left = cos(pan &#42; π/2)</
 <CodeEditor code={`/pan/0/freq/329\n\n/pan/1/freq/331`} rows={4} />
 
 </CommandEntry>
+
+<CommandEntry name="width" type="number" min={0} max={2} default={1}>
+
+Stereo width using mid-side processing. At 0 the signal collapses to mono, at 1 it is unchanged, above 1 the stereo image is exaggerated.
+
+<CodeEditor code={`/sound/saw/freq/50/spread/5/width/0`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/50/spread/5/width/2`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="haas" type="number" min={0} max={35} default={0} unit="ms">
+
+Haas effect. Delays the right channel by a short amount (1-35ms) to create spatial placement without changing volume. Small values (1-10ms) widen the image, larger values (10-35ms) create a distinct echo.
+
+<CodeEditor code={`/sound/saw/freq/50/haas/8`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/50/haas/25`} rows={2} />
+
+</CommandEntry>

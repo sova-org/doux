@@ -163,6 +163,10 @@ pub struct Event {
     pub distort: Option<f32>,
     pub distortvol: Option<f32>,
 
+    // Stereo
+    pub width: Option<f32>,
+    pub haas: Option<f32>,
+
     // EQ
     pub eqlo: Option<f32>,
     pub eqmid: Option<f32>,
@@ -308,6 +312,8 @@ impl Event {
                 "wrap" => event.wrap = val.parse().ok(),
                 "distort" => event.distort = val.parse().ok(),
                 "distortvol" => event.distortvol = val.parse().ok(),
+                "width" => event.width = val.parse().ok(),
+                "haas" => event.haas = val.parse().ok(),
                 "eqlo" => event.eqlo = val.parse().ok(),
                 "eqmid" => event.eqmid = val.parse().ok(),
                 "eqhi" => event.eqhi = val.parse().ok(),

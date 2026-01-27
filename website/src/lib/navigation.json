@@ -55,6 +55,8 @@
   { "name": "postgain", "category": "gain", "group": "synthesis" },
   { "name": "velocity", "category": "gain", "group": "synthesis" },
   { "name": "pan", "category": "gain", "group": "synthesis" },
+  { "name": "width", "category": "gain", "group": "synthesis" },
+  { "name": "haas", "category": "gain", "group": "synthesis" },
   { "name": "penv", "category": "pitch-env", "group": "synthesis" },
   { "name": "patt", "category": "pitch-env", "group": "synthesis" },
   { "name": "pdec", "category": "pitch-env", "group": "synthesis" },

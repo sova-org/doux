@@ -286,6 +286,14 @@ pub struct VoiceParams {
     pub distortvol: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Stereo
+    // ─────────────────────────────────────────────────────────────────────
+    /// Stereo width (0.0 = mono, 1.0 = unchanged, 2.0 = exaggerated).
+    pub width: f32,
+    /// Haas delay in ms (0.0 = off). Delays right channel for spatial placement.
+    pub haas: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // EQ
     // ─────────────────────────────────────────────────────────────────────
     /// 3-band EQ low shelf gain in dB. 0.0 = flat.
@@ -431,6 +439,8 @@ impl Default for VoiceParams {
             wrap: None,
             distort: None,
             distortvol: 1.0,
+            width: 1.0,
+            haas: 0.0,
             eqlo: 0.0,
             eqmid: 0.0,
             eqhi: 0.0,

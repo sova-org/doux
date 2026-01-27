@@ -8,8 +8,8 @@ pub use params::VoiceParams;
 use std::f32::consts::PI;
 
 use crate::effects::{
-    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, LadderFilter, LadderMode, Lag, Phaser,
-    Tilt,
+    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter, LadderMode, Lag,
+    Phaser, Tilt,
 };
 use crate::envelope::Adsr;
 use crate::fastmath::{cosf, exp2f, sinf};
@@ -70,6 +70,7 @@ pub struct Voice {
     pub coarse: Coarse,
     pub eq: Eq,
     pub tilt: Tilt,
+    pub haas: Haas,
     pub ladder_lp: LadderFilter,
     pub ladder_hp: LadderFilter,
     pub ladder_bp: LadderFilter,
@@ -126,6 +127,7 @@ impl Default for Voice {
             coarse: Coarse::default(),
             eq: Eq::default(),
             tilt: Tilt::default(),
+            haas: Haas::default(),
             ladder_lp: LadderFilter::default(),
             ladder_hp: LadderFilter::default(),
             ladder_bp: LadderFilter::default(),
@@ -176,6 +178,7 @@ impl Clone for Voice {
             coarse: self.coarse,
             eq: self.eq,
             tilt: self.tilt,
+            haas: self.haas,
             ladder_lp: self.ladder_lp,
             ladder_hp: self.ladder_hp,
             ladder_bp: self.ladder_bp,
@@ -544,6 +547,20 @@ impl Voice {
             );
             self.ch[0] = stereo[0];
             self.ch[1] = stereo[1];
+        }
+
+        // Stereo width (mid-side matrix)
+        if self.params.width != 1.0 {
+            let mid = (self.ch[0] + self.ch[1]) * 0.5;
+            let side = (self.ch[0] - self.ch[1]) * 0.5;
+            let w = self.params.width.max(0.0);
+            self.ch[0] = mid + side * w;
+            self.ch[1] = mid - side * w;
+        }
+
+        // Haas (delay right channel)
+        if self.params.haas > 0.0 {
+            self.ch[1] = self.haas.process(self.ch[1], self.params.haas, self.sr);
         }
 
         // Panning

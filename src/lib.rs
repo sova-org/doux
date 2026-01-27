@@ -527,6 +527,7 @@ impl Engine {
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
+        copy_opt!(event, v.params, width, haas);
         copy_opt!(event, v.params, eqlo, eqmid, eqhi, tilt);
 
         // --- Sends ---
