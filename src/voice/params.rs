@@ -286,6 +286,18 @@ pub struct VoiceParams {
     pub distortvol: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // EQ
+    // ─────────────────────────────────────────────────────────────────────
+    /// 3-band EQ low shelf gain in dB. 0.0 = flat.
+    pub eqlo: f32,
+    /// 3-band EQ mid peak gain in dB. 0.0 = flat.
+    pub eqmid: f32,
+    /// 3-band EQ high shelf gain in dB. 0.0 = flat.
+    pub eqhi: f32,
+    /// Tilt EQ (-1.0 = dark, 0.0 = flat, 1.0 = bright).
+    pub tilt: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // Routing / Sends
     // ─────────────────────────────────────────────────────────────────────
     /// Orbit index for effect bus routing (0 to MAX_ORBITS-1).
@@ -419,6 +431,10 @@ impl Default for VoiceParams {
             wrap: None,
             distort: None,
             distortvol: 1.0,
+            eqlo: 0.0,
+            eqmid: 0.0,
+            eqhi: 0.0,
+            tilt: 0.0,
             orbit: 0,
             delay: 0.0,
             delaytime: 0.333,

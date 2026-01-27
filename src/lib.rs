@@ -66,11 +66,7 @@ impl Engine {
         Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
     }
 
-    pub fn new_with_channels(
-        sample_rate: f32,
-        output_channels: usize,
-        max_voices: usize,
-    ) -> Self {
+    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
         for _ in 0..MAX_ORBITS {
             orbits.push(Orbit::new(sample_rate));
@@ -531,6 +527,7 @@ impl Engine {
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
+        copy_opt!(event, v.params, eqlo, eqmid, eqhi, tilt);
 
         // --- Sends ---
         copy_opt!(

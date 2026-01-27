@@ -31,6 +31,7 @@
         bandpass: "Bandpass Filter",
         ladder: "Ladder Filter",
         ftype: "Filter Type",
+        eq: "Equalizer",
     };
 
     function formatCategory(str: string): string {

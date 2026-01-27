@@ -7,7 +7,10 @@ pub use params::VoiceParams;
 
 use std::f32::consts::PI;
 
-use crate::effects::{crush, distort, fold, wrap, Chorus, Coarse, Flanger, Lag, LadderFilter, LadderMode, Phaser};
+use crate::effects::{
+    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, LadderFilter, LadderMode, Lag, Phaser,
+    Tilt,
+};
 use crate::envelope::Adsr;
 use crate::fastmath::{cosf, exp2f, sinf};
 use crate::filter::FilterState;
@@ -65,6 +68,8 @@ pub struct Voice {
     pub flanger: Flanger,
     pub chorus: Chorus,
     pub coarse: Coarse,
+    pub eq: Eq,
+    pub tilt: Tilt,
     pub ladder_lp: LadderFilter,
     pub ladder_hp: LadderFilter,
     pub ladder_bp: LadderFilter,
@@ -119,6 +124,8 @@ impl Default for Voice {
             flanger: Flanger::default(),
             chorus: Chorus::default(),
             coarse: Coarse::default(),
+            eq: Eq::default(),
+            tilt: Tilt::default(),
             ladder_lp: LadderFilter::default(),
             ladder_hp: LadderFilter::default(),
             ladder_bp: LadderFilter::default(),
@@ -167,6 +174,8 @@ impl Clone for Voice {
             flanger: self.flanger,
             chorus: self.chorus,
             coarse: self.coarse,
+            eq: self.eq,
+            tilt: self.tilt,
             ladder_lp: self.ladder_lp,
             ladder_hp: self.ladder_hp,
             ladder_bp: self.ladder_bp,
@@ -378,34 +387,64 @@ impl Voice {
             let mut cutoff = llpf;
             if self.params.lp_env_active {
                 let env = self.lp_adsr.update(
-                    self.time, self.params.gate,
-                    self.params.lpa, self.params.lpd, self.params.lps, self.params.lpr,
+                    self.time,
+                    self.params.gate,
+                    self.params.lpa,
+                    self.params.lpd,
+                    self.params.lps,
+                    self.params.lpr,
                 );
                 cutoff = self.params.lpe * env * llpf + llpf;
             }
-            self.ch[0] = self.ladder_lp.process(self.ch[0], cutoff, self.params.llpq, LadderMode::Lp, self.sr);
+            self.ch[0] = self.ladder_lp.process(
+                self.ch[0],
+                cutoff,
+                self.params.llpq,
+                LadderMode::Lp,
+                self.sr,
+            );
         }
         if let Some(lhpf) = self.params.lhpf {
             let mut cutoff = lhpf;
             if self.params.hp_env_active {
                 let env = self.hp_adsr.update(
-                    self.time, self.params.gate,
-                    self.params.hpa, self.params.hpd, self.params.hps, self.params.hpr,
+                    self.time,
+                    self.params.gate,
+                    self.params.hpa,
+                    self.params.hpd,
+                    self.params.hps,
+                    self.params.hpr,
                 );
                 cutoff = self.params.hpe * env * lhpf + lhpf;
             }
-            self.ch[0] = self.ladder_hp.process(self.ch[0], cutoff, self.params.lhpq, LadderMode::Hp, self.sr);
+            self.ch[0] = self.ladder_hp.process(
+                self.ch[0],
+                cutoff,
+                self.params.lhpq,
+                LadderMode::Hp,
+                self.sr,
+            );
         }
         if let Some(lbpf) = self.params.lbpf {
             let mut cutoff = lbpf;
             if self.params.bp_env_active {
                 let env = self.bp_adsr.update(
-                    self.time, self.params.gate,
-                    self.params.bpa, self.params.bpd, self.params.bps, self.params.bpr,
+                    self.time,
+                    self.params.gate,
+                    self.params.bpa,
+                    self.params.bpd,
+                    self.params.bps,
+                    self.params.bpr,
                 );
                 cutoff = self.params.bpe * env * lbpf + lbpf;
             }
-            self.ch[0] = self.ladder_bp.process(self.ch[0], cutoff, self.params.lbpq, LadderMode::Bp, self.sr);
+            self.ch[0] = self.ladder_bp.process(
+                self.ch[0],
+                cutoff,
+                self.params.lbpq,
+                LadderMode::Bp,
+                self.sr,
+            );
         }
 
         // Distortion effects
@@ -462,6 +501,22 @@ impl Voice {
                 self.sr,
                 isr,
             );
+        }
+
+        // EQ
+        if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
+            self.ch[0] = self.eq.process(
+                self.ch[0],
+                self.params.eqlo,
+                self.params.eqmid,
+                self.params.eqhi,
+                self.sr,
+            );
+        }
+
+        // Tilt
+        if self.params.tilt != 0.0 {
+            self.ch[0] = self.tilt.process(self.ch[0], self.params.tilt, self.sr);
         }
 
         // Apply gain envelope and postgain

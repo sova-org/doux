@@ -163,6 +163,12 @@ pub struct Event {
     pub distort: Option<f32>,
     pub distortvol: Option<f32>,
 
+    // EQ
+    pub eqlo: Option<f32>,
+    pub eqmid: Option<f32>,
+    pub eqhi: Option<f32>,
+    pub tilt: Option<f32>,
+
     // Delay
     pub delay: Option<f32>,
     pub delaytime: Option<f32>,
@@ -302,6 +308,10 @@ impl Event {
                 "wrap" => event.wrap = val.parse().ok(),
                 "distort" => event.distort = val.parse().ok(),
                 "distortvol" => event.distortvol = val.parse().ok(),
+                "eqlo" => event.eqlo = val.parse().ok(),
+                "eqmid" => event.eqmid = val.parse().ok(),
+                "eqhi" => event.eqhi = val.parse().ok(),
+                "tilt" => event.tilt = val.parse().ok(),
                 "delay" => event.delay = val.parse().ok(),
                 "delaytime" => event.delaytime = val.parse().ok(),
                 "delayfeedback" => event.delayfeedback = val.parse().ok(),
