@@ -29,6 +29,7 @@
         lowpass: "Lowpass Filter",
         highpass: "Highpass Filter",
         bandpass: "Bandpass Filter",
+        ladder: "Ladder Filter",
         ftype: "Filter Type",
     };
 

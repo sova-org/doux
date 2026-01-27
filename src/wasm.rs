@@ -22,7 +22,7 @@
 //! ```text
 //! JS                              WASM
 //! ──                              ────
-//! 1. doux_init(sampleRate)    →   Create engine
+//! 1. doux_init(sr, voices)    →   Create engine
 //! 2. get_*_pointer()          →   Get buffer addresses
 //! 3. Write command to EVENT_INPUT
 //! 4. evaluate()               →   Parse & execute command

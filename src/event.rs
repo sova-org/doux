@@ -90,6 +90,14 @@ pub struct Event {
     pub bps: Option<f32>,
     pub bpr: Option<f32>,
 
+    // Ladder filter
+    pub llpf: Option<f32>,
+    pub llpq: Option<f32>,
+    pub lhpf: Option<f32>,
+    pub lhpq: Option<f32>,
+    pub lbpf: Option<f32>,
+    pub lbpq: Option<f32>,
+
     // Filter type
     pub ftype: Option<FilterSlope>,
 
@@ -245,6 +253,12 @@ impl Event {
                 "bpd" | "bpdecay" => event.bpd = val.parse().ok(),
                 "bps" | "bpsustain" => event.bps = val.parse().ok(),
                 "bpr" | "bprelease" => event.bpr = val.parse().ok(),
+                "llpf" => event.llpf = val.parse().ok(),
+                "llpq" => event.llpq = val.parse().ok(),
+                "lhpf" => event.lhpf = val.parse().ok(),
+                "lhpq" => event.lhpq = val.parse().ok(),
+                "lbpf" => event.lbpf = val.parse().ok(),
+                "lbpq" => event.lbpq = val.parse().ok(),
                 "ftype" => event.ftype = val.parse().ok(),
                 "penv" => event.penv = val.parse().ok(),
                 "patt" => event.patt = val.parse().ok(),

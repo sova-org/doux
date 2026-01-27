@@ -491,6 +491,13 @@ impl Engine {
         copy_opt!(event, v.params, bpq);
         apply_env!(event, v.params, bpe, bpa, bpd, bps, bpr, bp_env_active);
 
+        copy_opt_some!(event, v.params, llpf);
+        copy_opt!(event, v.params, llpq);
+        copy_opt_some!(event, v.params, lhpf);
+        copy_opt!(event, v.params, lhpq);
+        copy_opt_some!(event, v.params, lbpf);
+        copy_opt!(event, v.params, lbpq);
+
         copy_opt!(event, v.params, ftype);
 
         // --- Modulation ---

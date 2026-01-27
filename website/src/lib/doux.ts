@@ -116,7 +116,7 @@ class DouxProcessor extends AudioWorkletProcessor {
         const { instance } = await WebAssembly.instantiate(wasm, {});
         wasmExports = instance.exports;
         wasmMemory = wasmExports.memory;
-        wasmExports.doux_init(sampleRate);
+        wasmExports.doux_init(sampleRate, 32);
         event_input_ptr = wasmExports.get_event_input_pointer();
         output = new Float32Array(
           wasmMemory.buffer,

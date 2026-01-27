@@ -142,6 +142,22 @@ pub struct VoiceParams {
     pub bp_env_active: bool,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Ladder Filter
+    // ─────────────────────────────────────────────────────────────────────
+    /// Ladder lowpass cutoff in Hz. `None` = bypassed.
+    pub llpf: Option<f32>,
+    /// Ladder lowpass resonance (0.0 to 1.0).
+    pub llpq: f32,
+    /// Ladder highpass cutoff in Hz. `None` = bypassed.
+    pub lhpf: Option<f32>,
+    /// Ladder highpass resonance (0.0 to 1.0).
+    pub lhpq: f32,
+    /// Ladder bandpass cutoff in Hz. `None` = bypassed.
+    pub lbpf: Option<f32>,
+    /// Ladder bandpass resonance (0.0 to 1.0).
+    pub lbpq: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // Filter Slope
     // ─────────────────────────────────────────────────────────────────────
     /// Filter slope (12/24/48 dB per octave) for all filters.
@@ -355,6 +371,12 @@ impl Default for VoiceParams {
             bps: 1.0,
             bpr: 0.005,
             bp_env_active: false,
+            llpf: None,
+            llpq: 0.2,
+            lhpf: None,
+            lhpq: 0.2,
+            lbpf: None,
+            lbpq: 0.2,
             ftype: FilterSlope::Db12,
             glide: None,
             penv: 1.0,
