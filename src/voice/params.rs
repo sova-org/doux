@@ -363,7 +363,7 @@ impl Default for VoiceParams {
             sub: 0.0,
             sub_oct: 1,
             sub_wave: SubWave::Tri,
-            attack: 0.001,
+            attack: 0.003,
             decay: 0.0,
             sustain: 1.0,
             release: 0.005,

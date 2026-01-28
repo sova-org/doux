@@ -282,6 +282,17 @@ impl Engine {
             }
         }
 
+        // If sound is specified but doesn't resolve to anything, play silence (skip)
+        if let Some(ref sound_str) = event.sound {
+            if sound_str.parse::<Source>().is_err() {
+                let effective_name = match &event.bank {
+                    Some(b) => format!("{sound_str}_{b}"),
+                    None => sound_str.clone(),
+                };
+                self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))?;
+            }
+        }
+
         let (voice_idx, is_new_voice) = if let Some(v) = event.voice {
             if v < self.active_voices {
                 // Voice exists - reuse it
@@ -342,7 +353,7 @@ impl Engine {
             } else {
                 // Combine sound name with bank suffix if present
                 let effective_name = match &event.bank {
-                    Some(b) => format!("{}_{}", sound_str, b),
+                    Some(b) => format!("{sound_str}_{b}"),
                     None => sound_str.clone(),
                 };
                 let sample = self.get_or_load_sample(&effective_name, event.n.unwrap_or(0));

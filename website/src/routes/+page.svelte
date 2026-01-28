@@ -65,8 +65,9 @@
         <CodeEditor code={`/freq/330`} rows={2} />
         <CodeEditor code={`/spread/5/decay/0.5`} rows={2} />
         <p>
-            The default voice is always a <code>tri</code> with sensible envelope
-            defaults.
+            If no sound source is specified, the voice defaults to
+            <code>tri</code> with sensible envelope defaults. If a sound name
+            is not recognized, the voice is silently skipped.
         </p>
     </section>
 

@@ -229,7 +229,7 @@ pub fn init_envelope(
     if env.is_none() && att.is_none() && dec.is_none() && sus.is_none() && rel.is_none() {
         return EnvelopeParams {
             env: 1.0,
-            att: 0.001,
+            att: 0.003,
             dec: 0.0,
             sus: 1.0,
             rel: 0.005,
@@ -247,7 +247,7 @@ pub fn init_envelope(
 
     EnvelopeParams {
         env: env.unwrap_or(1.0),
-        att: att.unwrap_or(0.001),
+        att: att.unwrap_or(0.003),
         dec: dec.unwrap_or(0.0),
         sus: sus_val,
         rel: rel.unwrap_or(0.005),

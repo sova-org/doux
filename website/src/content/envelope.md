@@ -17,7 +17,7 @@ The envelope parameters control the shape of the gain envelope over time. It use
 - **Sustain**: Holds at a constant level while the note is held.
 - **Release**: Falls from the sustain level to 0 when the note ends. Uses <code>1-(1-x)²</code> (fast drop, slow finish). 
 
-<CommandEntry name="attack" type="number" min={0} default={0.001} unit="s">
+<CommandEntry name="attack" type="number" min={0} default={0.003} unit="s">
 
 The duration (seconds) of the attack phase of the gain envelope.
 

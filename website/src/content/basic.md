@@ -24,7 +24,7 @@ Pure sine wave. The simplest waveform with no harmonics.
 
 <CommandEntry name="tri" type="source">
 
-Triangle wave. The default source. Contains only odd harmonics with gentle rolloff.
+Triangle wave. Contains only odd harmonics with gentle rolloff.
 
 <CodeEditor code={`/sound/tri`} rows={2} />
 
