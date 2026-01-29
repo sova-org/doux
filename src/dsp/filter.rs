@@ -20,7 +20,7 @@
 //!
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
-use crate::fastmath::{par_cosf, par_sinf, pow10};
+use super::fastmath::{par_cosf, par_sinf, pow10};
 use crate::types::FilterType;
 use std::f32::consts::PI;
 

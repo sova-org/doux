@@ -1,6 +1,6 @@
 //! Single-knob tilt EQ using a high shelf filter.
 
-use crate::filter::Biquad;
+use crate::dsp::Biquad;
 use crate::types::FilterType;
 
 const TILT_FREQ: f32 = 800.0;

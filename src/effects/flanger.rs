@@ -3,7 +3,7 @@
 //! Creates the characteristic "jet plane" sweep by mixing the input with a
 //! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
 
-use crate::oscillator::Phasor;
+use crate::dsp::Phasor;
 
 const BUFFER_SIZE: usize = 512;
 const MIN_DELAY_MS: f32 = 0.5;

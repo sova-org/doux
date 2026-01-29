@@ -10,7 +10,7 @@
 //! parameters. Positive exponents create convex curves (slow start, fast finish),
 //! while negative exponents create concave curves (fast start, slow finish).
 
-use crate::fastmath::powf;
+use super::fastmath::powf;
 
 /// Attempt to scale the input `x` from range `[0, 1]` to range `[y0, y1]` with an exponent `exp`.
 ///

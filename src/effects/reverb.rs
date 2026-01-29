@@ -1,4 +1,4 @@
-use crate::fastmath::ftz;
+use crate::dsp::ftz;
 
 const REVERB_SR_REF: f32 = 29761.0;
 

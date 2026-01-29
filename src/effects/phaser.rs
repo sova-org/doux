@@ -3,9 +3,7 @@
 //! Creates the sweeping, hollow sound by modulating two notch filters
 //! with an LFO. The notches are offset by ~282 Hz for a richer effect.
 
-use crate::fastmath::exp2f;
-use crate::filter::Biquad;
-use crate::oscillator::Phasor;
+use crate::dsp::{exp2f, Biquad, Phasor};
 use crate::types::FilterType;
 
 /// Frequency offset between the two notch filters (Hz).

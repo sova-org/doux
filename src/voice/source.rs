@@ -1,7 +1,6 @@
 //! Source generation - oscillators, samples, Plaits engines, spread mode.
 
-use crate::fastmath::exp2f;
-use crate::oscillator::Phasor;
+use crate::dsp::{exp2f, Phasor};
 use crate::plaits::PlaitsEngine;
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;

@@ -1,4 +1,4 @@
-use crate::fastmath::ftz;
+use crate::dsp::ftz;
 use crate::types::{DelayType, CHANNELS};
 
 const MAX_DELAY_SAMPLES: usize = 48000;

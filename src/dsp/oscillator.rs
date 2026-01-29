@@ -25,7 +25,7 @@
 //! - **mirror**: Reflection creates symmetrical waveforms
 //! - **size**: Step quantization for lo-fi/bitcrushed effects
 
-use crate::fastmath::{exp2f, powf, sinf};
+use super::fastmath::{exp2f, powf, sinf};
 use crate::types::LfoShape;
 use std::f32::consts::PI;
 

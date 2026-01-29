@@ -2,18 +2,14 @@
 pub mod audio;
 #[cfg(feature = "native")]
 pub mod config;
+pub mod dsp;
 pub mod effects;
-pub mod envelope;
 #[cfg(feature = "native")]
 pub mod error;
 pub mod event;
-pub mod fastmath;
-pub mod filter;
-pub mod noise;
 pub mod orbit;
 #[cfg(feature = "native")]
 pub mod osc;
-pub mod oscillator;
 pub mod plaits;
 pub mod sampling;
 pub mod schedule;
@@ -24,7 +20,7 @@ pub mod voice;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
-use envelope::init_envelope;
+use dsp::init_envelope;
 use event::Event;
 use orbit::{EffectParams, Orbit};
 #[cfg(feature = "native")]

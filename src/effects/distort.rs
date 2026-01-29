@@ -5,7 +5,7 @@
 //! - [`fold`]: Wavefolding (complex harmonics)
 //! - [`wrap`]: Phase wrapping (harsh, digital)
 
-use crate::fastmath::{expm1f, sinf};
+use crate::dsp::{expm1f, sinf};
 
 /// Soft-knee saturation with adjustable drive.
 ///

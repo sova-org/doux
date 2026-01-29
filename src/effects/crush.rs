@@ -4,7 +4,7 @@
 //! characteristic of early digital audio. Pair with [`super::coarse`] for
 //! full bitcrusher (sample rate + bit depth reduction).
 
-use crate::fastmath::exp2f;
+use crate::dsp::exp2f;
 
 /// Reduces bit depth by quantizing to `2^(bits-1)` levels.
 ///

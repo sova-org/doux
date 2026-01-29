@@ -7,15 +7,11 @@ pub use params::VoiceParams;
 
 use std::f32::consts::PI;
 
+use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, FilterState, Phasor, PinkNoise};
 use crate::effects::{
     crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter, LadderMode, Lag,
     Phaser, Tilt,
 };
-use crate::envelope::Adsr;
-use crate::fastmath::{cosf, exp2f, sinf};
-use crate::filter::FilterState;
-use crate::noise::{BrownNoise, PinkNoise};
-use crate::oscillator::Phasor;
 use crate::plaits::PlaitsEngine;
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;

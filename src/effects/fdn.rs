@@ -1,4 +1,4 @@
-use crate::fastmath::ftz;
+use crate::dsp::ftz;
 
 const NUM_LINES: usize = 8;
 

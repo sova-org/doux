@@ -16,7 +16,7 @@
 //! The three voices are phase-offset by 120° to avoid reinforcement artifacts.
 //! Left and right taps use opposite modulation polarity for stereo width.
 
-use crate::oscillator::Phasor;
+use crate::dsp::Phasor;
 
 /// Delay buffer size in samples (~42ms at 48kHz).
 const BUFFER_SIZE: usize = 2048;

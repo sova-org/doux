@@ -12,7 +12,7 @@
 //! - **Effects** - phaser, flanger, chorus, distortion
 //! - **Routing** - orbit assignment, effect sends
 
-use crate::oscillator::PhaseShape;
+use crate::dsp::PhaseShape;
 use crate::types::{DelayType, FilterSlope, LfoShape, ReverbType, Source, SubWave};
 
 /// All parameters that control a voice's sound generation.
