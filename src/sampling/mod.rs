@@ -1,5 +1,6 @@
 //! Sample storage, loading, and playback.
 
+mod cursor;
 #[cfg(feature = "native")]
 mod decode;
 #[cfg(feature = "native")]
@@ -7,7 +8,10 @@ mod loader;
 #[cfg(feature = "native")]
 mod registry;
 mod sample;
+#[cfg(feature = "native")]
+mod source;
 
+pub use cursor::Cursor;
 pub use sample::SampleEntry;
 #[cfg(not(feature = "native"))]
 pub use sample::{FileSource, SampleInfo, SamplePool};
@@ -19,3 +23,5 @@ pub use decode::{decode_sample_file, scan_samples_dir};
 pub use loader::SampleLoader;
 #[cfg(feature = "native")]
 pub use registry::{SampleData, SampleRegistry};
+#[cfg(feature = "native")]
+pub use source::RegistrySample;

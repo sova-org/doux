@@ -27,6 +27,8 @@ mod wasm;
 use envelope::init_envelope;
 use event::Event;
 use orbit::{EffectParams, Orbit};
+#[cfg(feature = "native")]
+use sampling::RegistrySample;
 use sampling::SampleEntry;
 #[cfg(feature = "native")]
 pub use sampling::SampleLoader;
@@ -40,8 +42,6 @@ use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
 use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
-#[cfg(feature = "native")]
-use voice::RegistrySample;
 use voice::{Voice, VoiceParams};
 
 pub struct Engine {
