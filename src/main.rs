@@ -4,10 +4,9 @@
 //! playback, multiple output channels, and live audio input processing.
 
 use clap::Parser;
-use cpal::traits::{DeviceTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use doux::audio::{
-    default_input_device, default_output_device, find_input_device, find_output_device,
-    list_input_devices, list_output_devices, max_output_channels,
+    get_host, list_hosts, max_output_channels, print_diagnostics, HostSelection,
 };
 use doux::Engine;
 use std::collections::VecDeque;
@@ -55,35 +54,111 @@ struct Args {
     /// Preload all samples at startup (blocks until complete).
     #[arg(long)]
     preload: bool,
+
+    /// Audio host backend: jack, alsa, or auto (default: auto).
+    /// On Linux with PipeWire, use 'jack' for best compatibility.
+    #[arg(long, default_value = "auto")]
+    host: String,
+
+    /// Run audio diagnostics and exit (useful for troubleshooting on Linux).
+    #[arg(long)]
+    diagnose: bool,
 }
 
-fn print_devices() {
-    println!("Input devices:");
-    for info in list_input_devices() {
-        let marker = if info.is_default { " *" } else { "" };
-        println!("  {}: {}{}", info.index, info.name, marker);
+fn print_devices(host: &cpal::Host) {
+    let default_in = host.default_input_device().and_then(|d| d.name().ok());
+    let default_out = host.default_output_device().and_then(|d| d.name().ok());
+
+    println!("Audio host: {}", host.id().name());
+
+    println!("\nInput devices:");
+    if let Ok(devices) = host.input_devices() {
+        for (i, d) in devices.enumerate() {
+            let name = d.name().unwrap_or_else(|_| "???".into());
+            let marker = if Some(&name) == default_in.as_ref() {
+                " *"
+            } else {
+                ""
+            };
+            println!("  {i}: {name}{marker}");
+        }
+    } else {
+        println!("  (no input devices available)");
     }
 
     println!("\nOutput devices:");
-    for info in list_output_devices() {
-        let marker = if info.is_default { " *" } else { "" };
-        println!("  {}: {}{}", info.index, info.name, marker);
+    if let Ok(devices) = host.output_devices() {
+        for (i, d) in devices.enumerate() {
+            let name = d.name().unwrap_or_else(|_| "???".into());
+            let marker = if Some(&name) == default_out.as_ref() {
+                " *"
+            } else {
+                ""
+            };
+            println!("  {i}: {name}{marker}");
+        }
+    } else {
+        println!("  (no output devices available)");
     }
+}
+
+fn print_hosts() {
+    println!("Available audio hosts:");
+    for h in list_hosts() {
+        let status = if h.available { "" } else { " (unavailable)" };
+        println!("  {}{}", h.name, status);
+    }
+}
+
+fn find_device<I>(devices: I, spec: &str) -> Option<cpal::Device>
+where
+    I: Iterator<Item = cpal::Device>,
+{
+    let devices: Vec<_> = devices.collect();
+    if let Ok(idx) = spec.parse::<usize>() {
+        return devices.into_iter().nth(idx);
+    }
+    let spec_lower = spec.to_lowercase();
+    devices.into_iter().find(|d| {
+        d.name()
+            .map(|n| n.to_lowercase().contains(&spec_lower))
+            .unwrap_or(false)
+    })
 }
 
 fn main() {
     let args = Args::parse();
 
+    // Parse host selection
+    let host_selection: HostSelection = args
+        .host
+        .parse()
+        .unwrap_or_else(|e| panic!("{e}"));
+
+    // Handle diagnose flag first
+    if args.diagnose {
+        print_hosts();
+        println!();
+        print_diagnostics();
+        return;
+    }
+
+    // Get the audio host
+    let host = get_host(host_selection).unwrap_or_else(|e| panic!("{e}"));
+
     if args.list_devices {
-        print_devices();
+        print_devices(&host);
         return;
     }
 
     // Resolve output device
     let device = match &args.output {
-        Some(spec) => find_output_device(spec)
+        Some(spec) => host
+            .output_devices()
+            .ok()
+            .and_then(|d| find_device(d, spec))
             .unwrap_or_else(|| panic!("output device '{spec}' not found")),
-        None => default_output_device().expect("no output device"),
+        None => host.default_output_device().expect("no output device"),
     };
 
     // Clamp channels to device maximum
@@ -108,9 +183,8 @@ fn main() {
             .unwrap_or(cpal::BufferSize::Default),
     };
 
-    println!("Output: {}", device.name().unwrap_or_default());
-    println!("Sample rate: {sample_rate}");
-    println!("Channels: {output_channels}");
+    println!("Audio host: {}", host.id().name());
+    println!("Output: {} @ {}Hz, {}ch", device.name().unwrap_or_default(), sample_rate as u32, output_channels);
     if let Some(buf) = args.buffer_size {
         let latency_ms = buf as f32 / sample_rate * 1000.0;
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
@@ -152,8 +226,8 @@ fn main() {
 
     // Set up input stream if device available
     let input_device = match &args.input {
-        Some(spec) => find_input_device(spec),
-        None => default_input_device(),
+        Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
+        None => host.default_input_device(),
     };
     let _input_stream = input_device.and_then(|input_device| {
         let input_config = input_device.default_input_config().ok()?;

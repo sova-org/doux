@@ -15,6 +15,12 @@ pub enum DouxError {
     InvalidChannelCount(u16),
     /// Failed to get device configuration.
     DeviceConfigError(String),
+    /// The specified audio host was not found.
+    HostNotFound(String),
+    /// No audio devices available on the specified host.
+    NoDevicesAvailable { host: String },
+    /// Permission denied when accessing audio.
+    PermissionDenied(String),
 }
 
 impl fmt::Display for DouxError {
@@ -34,6 +40,15 @@ impl fmt::Display for DouxError {
             }
             DouxError::DeviceConfigError(msg) => {
                 write!(f, "device configuration error: {msg}")
+            }
+            DouxError::HostNotFound(name) => {
+                write!(f, "audio host not found: {name}")
+            }
+            DouxError::NoDevicesAvailable { host } => {
+                write!(f, "no audio devices available on host: {host}")
+            }
+            DouxError::PermissionDenied(msg) => {
+                write!(f, "permission denied: {msg}")
             }
         }
     }

@@ -3,6 +3,7 @@
 //! Provides functions to list available audio devices and create audio streams
 //! with specific configurations.
 
+use crate::error::DouxError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host, SupportedStreamConfig};
 
@@ -13,6 +14,86 @@ pub struct AudioDeviceInfo {
     pub index: usize,
     pub max_channels: u16,
     pub is_default: bool,
+}
+
+/// Information about an available audio host.
+#[derive(Debug, Clone)]
+pub struct AudioHostInfo {
+    pub name: String,
+    pub available: bool,
+}
+
+/// Host selection mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HostSelection {
+    /// Try JACK first, fallback to ALSA (default behavior).
+    #[default]
+    Auto,
+    /// Use JACK backend explicitly.
+    Jack,
+    /// Use ALSA backend explicitly.
+    Alsa,
+}
+
+impl std::str::FromStr for HostSelection {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(HostSelection::Auto),
+            "jack" => Ok(HostSelection::Jack),
+            "alsa" => Ok(HostSelection::Alsa),
+            _ => Err(format!("unknown host: {s} (use: auto, jack, alsa)")),
+        }
+    }
+}
+
+impl std::fmt::Display for HostSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostSelection::Auto => write!(f, "auto"),
+            HostSelection::Jack => write!(f, "jack"),
+            HostSelection::Alsa => write!(f, "alsa"),
+        }
+    }
+}
+
+/// Lists available audio hosts on the system.
+pub fn list_hosts() -> Vec<AudioHostInfo> {
+    cpal::available_hosts()
+        .into_iter()
+        .map(|id| AudioHostInfo {
+            name: id.name().to_string(),
+            available: cpal::host_from_id(id).is_ok(),
+        })
+        .collect()
+}
+
+/// Gets an audio host by selection mode.
+pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
+    match selection {
+        HostSelection::Auto => Ok(preferred_host()),
+        HostSelection::Jack => {
+            for host_id in cpal::available_hosts() {
+                if host_id.name().to_lowercase().contains("jack") {
+                    if let Ok(host) = cpal::host_from_id(host_id) {
+                        return Ok(host);
+                    }
+                }
+            }
+            Err(DouxError::HostNotFound("jack".to_string()))
+        }
+        HostSelection::Alsa => {
+            for host_id in cpal::available_hosts() {
+                if host_id.name().to_lowercase().contains("alsa") {
+                    if let Ok(host) = cpal::host_from_id(host_id) {
+                        return Ok(host);
+                    }
+                }
+            }
+            Err(DouxError::HostNotFound("alsa".to_string()))
+        }
+    }
 }
 
 /// Returns the preferred audio host, trying JACK first (works with pipewire-jack on Linux).
@@ -150,4 +231,137 @@ pub fn max_output_channels(device: &Device) -> u16 {
         .supported_output_configs()
         .map(|configs| configs.map(|c| c.channels()).max().unwrap_or(2))
         .unwrap_or(2)
+}
+
+/// Diagnostic result for Linux audio setup.
+#[derive(Debug)]
+pub struct DiagnosticResult {
+    pub label: String,
+    pub status: DiagnosticStatus,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticStatus {
+    Ok,
+    Warn,
+    Error,
+}
+
+impl DiagnosticResult {
+    fn ok(label: &str, message: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            status: DiagnosticStatus::Ok,
+            message: message.to_string(),
+        }
+    }
+
+    fn warn(label: &str, message: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            status: DiagnosticStatus::Warn,
+            message: message.to_string(),
+        }
+    }
+
+    fn error(label: &str, message: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            status: DiagnosticStatus::Error,
+            message: message.to_string(),
+        }
+    }
+}
+
+/// Runs audio diagnostics (primarily useful on Linux).
+pub fn run_diagnostics() -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+
+    // Check available hosts
+    let hosts = list_hosts();
+    for host in &hosts {
+        if host.available {
+            results.push(DiagnosticResult::ok(
+                "Host",
+                &format!("{} available", host.name),
+            ));
+        } else {
+            results.push(DiagnosticResult::warn(
+                "Host",
+                &format!("{} not available", host.name),
+            ));
+        }
+    }
+
+    // Check default host and devices
+    let host = preferred_host();
+    let host_name = host.id().name();
+    results.push(DiagnosticResult::ok("Active host", host_name));
+
+    match host.default_output_device() {
+        Some(device) => {
+            let name = device.name().unwrap_or_else(|_| "unknown".to_string());
+            results.push(DiagnosticResult::ok("Default output", &name));
+        }
+        None => {
+            results.push(DiagnosticResult::error(
+                "Default output",
+                "no default output device",
+            ));
+        }
+    }
+
+    match host.default_input_device() {
+        Some(device) => {
+            let name = device.name().unwrap_or_else(|_| "unknown".to_string());
+            results.push(DiagnosticResult::ok("Default input", &name));
+        }
+        None => {
+            results.push(DiagnosticResult::warn(
+                "Default input",
+                "no default input device",
+            ));
+        }
+    }
+
+    // Linux-specific checks
+    #[cfg(target_os = "linux")]
+    {
+        results.extend(run_linux_diagnostics());
+    }
+
+    results
+}
+
+#[cfg(target_os = "linux")]
+fn run_linux_diagnostics() -> Vec<DiagnosticResult> {
+    let mut results = Vec::new();
+
+    if let Ok(output) = std::process::Command::new("jack_lsp").output() {
+        if output.status.success() {
+            results.push(DiagnosticResult::ok("JACK", "server reachable"));
+        }
+    }
+
+    if let Ok(output) = std::process::Command::new("pw-cli").arg("info").output() {
+        if output.status.success() {
+            results.push(DiagnosticResult::ok("PipeWire", "running"));
+        }
+    }
+
+    results
+}
+
+/// Prints diagnostic results to stdout.
+pub fn print_diagnostics() {
+    let results = run_diagnostics();
+    for r in results {
+        let prefix = match r.status {
+            DiagnosticStatus::Ok => "\x1b[32m[OK]\x1b[0m",
+            DiagnosticStatus::Warn => "\x1b[33m[WARN]\x1b[0m",
+            DiagnosticStatus::Error => "\x1b[31m[ERROR]\x1b[0m",
+        };
+        println!("{} {}: {}", prefix, r.label, r.message);
+    }
 }

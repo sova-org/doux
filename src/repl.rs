@@ -14,6 +14,8 @@
 //!   -o, --output <DEVICE>   Output device (name or index)
 //!       --channels <N>      Number of output channels (default: 2)
 //!       --list-devices      List available audio devices and exit
+//!       --host <HOST>       Audio host: jack, alsa, or auto (default: auto)
+//!       --diagnose          Run audio diagnostics and exit
 //! ```
 //!
 //! # REPL Commands
@@ -33,6 +35,7 @@
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host};
+use doux::audio::{get_host, list_hosts, print_diagnostics, HostSelection};
 use doux::Engine;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
@@ -173,6 +176,15 @@ struct Args {
     /// Maximum polyphony (number of simultaneous voices).
     #[arg(long, default_value = "32")]
     max_voices: usize,
+
+    /// Audio host backend: jack, alsa, or auto (default: auto).
+    /// On Linux with PipeWire, use 'jack' for best compatibility.
+    #[arg(long, default_value = "auto")]
+    host: String,
+
+    /// Run audio diagnostics and exit (useful for troubleshooting on Linux).
+    #[arg(long)]
+    diagnose: bool,
 }
 
 /// Prints available audio input and output devices.
@@ -241,9 +253,33 @@ fn print_help() {
     println!("Any other input is evaluated as a doux pattern.");
 }
 
+fn print_hosts() {
+    println!("Available audio hosts:");
+    for h in list_hosts() {
+        let status = if h.available { "" } else { " (unavailable)" };
+        println!("  {}{}", h.name, status);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let host = cpal::default_host();
+
+    // Parse host selection
+    let host_selection: HostSelection = args
+        .host
+        .parse()
+        .unwrap_or_else(|e| panic!("{e}"));
+
+    // Handle diagnose flag first
+    if args.diagnose {
+        print_hosts();
+        println!();
+        print_diagnostics();
+        return Ok(());
+    }
+
+    // Get the audio host
+    let host = get_host(host_selection).unwrap_or_else(|e| panic!("{e}"));
 
     if args.list_devices {
         list_devices(&host);
@@ -284,11 +320,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(cpal::BufferSize::Default),
     };
 
-    println!("doux-repl");
+    println!("doux-repl ({})", host.id().name());
     print!(
-        "Output: {} @ {}Hz, {} channels",
+        "Output: {} @ {}Hz, {}ch",
         device.name().unwrap_or_default(),
-        sample_rate,
+        sample_rate as u32,
         output_channels
     );
     if let Some(buf) = args.buffer_size {
