@@ -17,8 +17,68 @@ use crate::filter::FilterState;
 use crate::noise::{BrownNoise, PinkNoise};
 use crate::oscillator::Phasor;
 use crate::plaits::PlaitsEngine;
-use crate::sample::{FileSource, SampleInfo, WebSampleSource};
+#[cfg(not(feature = "native"))]
+use crate::sample::{FileSource, SampleInfo};
+use crate::sample::WebSampleSource;
+#[cfg(feature = "native")]
+use crate::sample_registry::SampleData;
+#[cfg(feature = "native")]
+use std::sync::Arc;
 use crate::types::{FilterSlope, FilterType, BLOCK_SIZE, CHANNELS};
+
+/// Sample playback from the lock-free registry.
+///
+/// Holds an `Arc` to the sample data, allowing lock-free access during playback.
+#[cfg(feature = "native")]
+pub struct RegistrySample {
+    /// Reference to the sample data (lock-free via Arc).
+    pub data: Arc<SampleData>,
+    /// Current playback position in frames.
+    pub pos: f32,
+    /// Start point as fraction of total length.
+    pub begin: f32,
+    /// End point as fraction of total length.
+    pub end: f32,
+}
+
+#[cfg(feature = "native")]
+impl RegistrySample {
+    pub fn new(data: Arc<SampleData>, begin: f32, end: f32) -> Self {
+        let begin = begin.clamp(0.0, 1.0);
+        Self {
+            data,
+            pos: 0.0,
+            begin,
+            end: end.clamp(begin, 1.0),
+        }
+    }
+
+    #[inline]
+    pub fn read(&self, channel: usize) -> f32 {
+        let begin_frame = (self.begin * self.data.frame_count as f32) as usize;
+        let end_frame = (self.end * self.data.frame_count as f32) as usize;
+        let current = self.pos as usize + begin_frame;
+
+        if current >= end_frame {
+            return 0.0;
+        }
+
+        self.data.read_interpolated(current as f32 + self.pos.fract(), channel)
+    }
+
+    #[inline]
+    pub fn advance(&mut self, speed: f32) {
+        self.pos += speed;
+    }
+
+    #[inline]
+    pub fn is_done(&self) -> bool {
+        let begin_frame = (self.begin * self.data.frame_count as f32) as usize;
+        let end_frame = (self.end * self.data.frame_count as f32) as usize;
+        let current = self.pos as usize + begin_frame;
+        current >= end_frame
+    }
+}
 
 fn apply_filter(
     signal: f32,
@@ -59,8 +119,12 @@ pub struct Voice {
     // Noise
     pub pink_noise: PinkNoise,
     pub brown_noise: BrownNoise,
-    // Sample playback (native)
+    // Sample playback (WASM legacy pool)
+    #[cfg(not(feature = "native"))]
     pub file_source: Option<FileSource>,
+    // Sample playback (native lock-free registry)
+    #[cfg(feature = "native")]
+    pub registry_sample: Option<RegistrySample>,
     // Sample playback (web)
     pub web_sample: Option<WebSampleSource>,
     // Effects
@@ -119,7 +183,10 @@ impl Default for Voice {
             current_freq: 330.0,
             pink_noise: PinkNoise::default(),
             brown_noise: BrownNoise::default(),
+            #[cfg(not(feature = "native"))]
             file_source: None,
+            #[cfg(feature = "native")]
+            registry_sample: None,
             web_sample: None,
             phaser: Phaser::default(),
             flanger: Flanger::default(),
@@ -170,7 +237,15 @@ impl Clone for Voice {
             current_freq: self.current_freq,
             pink_noise: self.pink_noise,
             brown_noise: self.brown_noise,
+            #[cfg(not(feature = "native"))]
             file_source: self.file_source,
+            #[cfg(feature = "native")]
+            registry_sample: self.registry_sample.as_ref().map(|rs| RegistrySample {
+                data: Arc::clone(&rs.data),
+                pos: rs.pos,
+                begin: rs.begin,
+                end: rs.end,
+            }),
             web_sample: self.web_sample,
             phaser: self.phaser,
             flanger: self.flanger,
@@ -279,6 +354,36 @@ impl Voice {
         }
     }
 
+    #[cfg(feature = "native")]
+    pub fn process(
+        &mut self,
+        isr: f32,
+        web_pcm: &[f32],
+        sample_idx: usize,
+        live_input: &[f32],
+    ) -> bool {
+        let env = self.adsr.update(
+            self.time,
+            self.params.gate,
+            self.params.attack,
+            self.params.decay,
+            self.params.sustain,
+            self.params.release,
+        );
+        if self.adsr.is_off() {
+            return false;
+        }
+
+        let freq = self.compute_freq(isr);
+        if !self.run_source(freq, isr, web_pcm, sample_idx, live_input) {
+            return false;
+        }
+
+        self.apply_filters_and_effects(env);
+        true
+    }
+
+    #[cfg(not(feature = "native"))]
     pub fn process(
         &mut self,
         isr: f32,
@@ -305,6 +410,12 @@ impl Voice {
             return false;
         }
 
+        self.apply_filters_and_effects(env);
+        true
+    }
+
+    fn apply_filters_and_effects(&mut self, env: f32) {
+        let isr = 1.0 / self.sr;
         // Update filter envelopes
         if let Some(lpf) = self.params.lpf {
             self.lp.cutoff = lpf;
@@ -576,6 +687,5 @@ impl Voice {
                 self.params.gate = 0.0;
             }
         }
-        true
     }
 }

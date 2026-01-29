@@ -21,7 +21,7 @@ required-features = ["native"]
 
 [features]
 default = ["native"]
-native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline"]
+native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline", "dep:arc-swap", "dep:crossbeam-channel"]
 
 [dependencies]
 clap = { version = "4", optional = true, features = ["derive"] }
@@ -29,6 +29,8 @@ cpal = { version = "0.15", optional = true, features = ["jack"] }
 rosc = { version = "0.10", optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["wav", "pcm", "mp3", "ogg", "flac", "aac"] }
 rustyline = { version = "14", optional = true }
+arc-swap = { version = "1.7", optional = true }
+crossbeam-channel = { version = "0.5", optional = true }
 mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4" }
 
 [profile.release]

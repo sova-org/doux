@@ -36,7 +36,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use crate::sample::SampleEntry;
-use crate::Engine;
+use crate::sample_registry::SampleData;
 
 /// Default base frequency assigned to loaded samples (C2 = 65.406 Hz).
 ///
@@ -68,7 +68,7 @@ fn is_audio_file(path: &Path) -> bool {
 /// Prints a summary of discovered samples and folders to stdout.
 pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
     let mut entries = Vec::new();
-    let mut folder_count = 0;
+    let mut _folder_count = 0;
 
     let items = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -102,16 +102,12 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
             files.sort();
 
             if !files.is_empty() {
-                folder_count += 1;
+                _folder_count += 1;
             }
 
             for (i, path) in files.into_iter().enumerate() {
                 let name = format!("{folder_name}/{i}");
-                entries.push(SampleEntry {
-                    path,
-                    name,
-                    loaded: None,
-                });
+                entries.push(SampleEntry { path, name });
             }
         } else if is_audio_file(&item) {
             let name = item
@@ -120,25 +116,17 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
                 .unwrap_or("unknown")
                 .to_string();
 
-            entries.push(SampleEntry {
-                path: item,
-                name,
-                loaded: None,
-            });
+            entries.push(SampleEntry { path: item, name });
         }
     }
 
     entries
 }
 
-/// Decodes an audio file and loads it into the engine's sample pool.
+/// Decodes an audio file into SampleData without loading into Engine.
 ///
 /// Handles format detection, decoding, and sample rate conversion automatically.
-/// The decoded audio is resampled to match the engine's sample rate if necessary.
-///
-/// # Returns
-///
-/// The sample pool index on success, or an error description on failure.
+/// Returns immutable SampleData suitable for the lock-free registry.
 ///
 /// # Errors
 ///
@@ -147,8 +135,7 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
 /// - Format is unsupported or corrupted
 /// - No audio track is found
 /// - Decoding fails completely (partial decode errors are skipped)
-/// - Sample pool is full
-pub fn load_sample_file(engine: &mut Engine, path: &Path) -> Result<usize, String> {
+pub fn decode_sample_file(path: &Path, target_sr: f32) -> Result<SampleData, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -219,16 +206,13 @@ pub fn load_sample_file(engine: &mut Engine, path: &Path) -> Result<usize, Strin
         return Err("No samples decoded".to_string());
     }
 
-    let target_sr = engine.sr;
     let resampled = if (sample_rate - target_sr).abs() > 1.0 {
         resample_linear(&samples, channels as usize, sample_rate, target_sr)
     } else {
         samples
     };
 
-    engine
-        .load_sample(&resampled, channels, DEFAULT_BASE_FREQ)
-        .ok_or_else(|| "Sample pool full".to_string())
+    Ok(SampleData::new(resampled, channels, DEFAULT_BASE_FREQ))
 }
 
 /// Resamples interleaved audio using linear interpolation.

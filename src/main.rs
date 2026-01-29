@@ -51,6 +51,10 @@ struct Args {
     /// Maximum polyphony (number of simultaneous voices).
     #[arg(long, default_value = "32")]
     max_voices: usize,
+
+    /// Preload all samples at startup (blocks until complete).
+    #[arg(long)]
+    preload: bool,
 }
 
 fn print_devices() {
@@ -118,7 +122,25 @@ fn main() {
     if let Some(ref dir) = args.samples {
         println!("\nScanning samples from: {}", dir.display());
         let index = doux::loader::scan_samples_dir(dir);
-        println!("Found {} samples (lazy loading enabled)\n", index.len());
+        let sample_count = index.len();
+
+        if args.preload {
+            println!("Preloading {sample_count} samples...");
+            for entry in &index {
+                match doux::loader::decode_sample_file(&entry.path, sample_rate) {
+                    Ok(data) => {
+                        engine.sample_registry.insert(entry.name.clone(), Arc::new(data));
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to preload {}: {e}", entry.name);
+                    }
+                }
+            }
+            println!("Preloaded {} samples\n", engine.sample_registry.len());
+        } else {
+            println!("Found {sample_count} samples (lazy loading enabled)\n");
+        }
+
         engine.sample_index = index;
     }
 

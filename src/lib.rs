@@ -11,6 +11,10 @@ pub mod fastmath;
 pub mod filter;
 #[cfg(feature = "native")]
 pub mod loader;
+#[cfg(feature = "native")]
+pub mod sample_loader;
+#[cfg(feature = "native")]
+pub mod sample_registry;
 pub mod noise;
 pub mod orbit;
 #[cfg(feature = "native")]
@@ -29,13 +33,21 @@ mod wasm;
 use envelope::init_envelope;
 use event::Event;
 use orbit::{EffectParams, Orbit};
-use sample::{FileSource, SampleEntry, SampleInfo, SamplePool, WebSampleSource};
+use sample::SampleEntry;
+#[cfg(not(feature = "native"))]
+use sample::{SampleInfo, SamplePool};
+#[cfg(feature = "native")]
+pub use sample_loader::SampleLoader;
+#[cfg(feature = "native")]
+pub use sample_registry::{SampleData, SampleRegistry};
 use schedule::Schedule;
 #[cfg(feature = "native")]
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
 use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
+#[cfg(feature = "native")]
+use voice::RegistrySample;
 use voice::{Voice, VoiceParams};
 
 pub struct Engine {
@@ -50,10 +62,18 @@ pub struct Engine {
     pub tick: u64,
     pub output_channels: usize,
     pub output: Vec<f32>,
-    // Sample storage
+    // Sample storage (WASM only)
+    #[cfg(not(feature = "native"))]
     pub sample_pool: SamplePool,
+    #[cfg(not(feature = "native"))]
     pub samples: Vec<SampleInfo>,
+    // Sample index (native uses registry, WASM uses pool)
     pub sample_index: Vec<SampleEntry>,
+    // Lock-free sample registry (native only)
+    #[cfg(feature = "native")]
+    pub sample_registry: Arc<SampleRegistry>,
+    #[cfg(feature = "native")]
+    pub sample_loader: SampleLoader,
     // Default orbit params (used when voice doesn't specify)
     pub effect_params: EffectParams,
     // Telemetry (native only)
@@ -62,10 +82,12 @@ pub struct Engine {
 }
 
 impl Engine {
+    #[cfg(not(feature = "native"))]
     pub fn new(sample_rate: f32) -> Self {
         Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
     }
 
+    #[cfg(not(feature = "native"))]
     pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
         for _ in 0..MAX_ORBITS {
@@ -88,18 +110,19 @@ impl Engine {
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
             effect_params: EffectParams::default(),
-            #[cfg(feature = "native")]
-            metrics: Arc::new(EngineMetrics::default()),
         }
     }
 
     #[cfg(feature = "native")]
-    pub fn new_with_metrics(
-        sample_rate: f32,
-        output_channels: usize,
-        max_voices: usize,
-        metrics: Arc<EngineMetrics>,
-    ) -> Self {
+    pub fn new(sample_rate: f32) -> Self {
+        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
+    }
+
+    #[cfg(feature = "native")]
+    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
+        let registry = Arc::new(SampleRegistry::new());
+        let loader = SampleLoader::new(Arc::clone(&registry));
+
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
         for _ in 0..MAX_ORBITS {
             orbits.push(Orbit::new(sample_rate));
@@ -117,14 +140,50 @@ impl Engine {
             tick: 0,
             output_channels,
             output: vec![0.0; BLOCK_SIZE * output_channels],
-            sample_pool: SamplePool::new(),
-            samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
+            sample_registry: registry,
+            sample_loader: loader,
+            effect_params: EffectParams::default(),
+            metrics: Arc::new(EngineMetrics::default()),
+        }
+    }
+
+    #[cfg(feature = "native")]
+    pub fn new_with_metrics(
+        sample_rate: f32,
+        output_channels: usize,
+        max_voices: usize,
+        metrics: Arc<EngineMetrics>,
+    ) -> Self {
+        let registry = Arc::new(SampleRegistry::new());
+        let loader = SampleLoader::new(Arc::clone(&registry));
+
+        let mut orbits = Vec::with_capacity(MAX_ORBITS);
+        for _ in 0..MAX_ORBITS {
+            orbits.push(Orbit::new(sample_rate));
+        }
+
+        Self {
+            sr: sample_rate,
+            isr: 1.0 / sample_rate,
+            max_voices,
+            voices: vec![Voice::default(); max_voices],
+            active_voices: 0,
+            orbits,
+            schedule: Schedule::new(),
+            time: 0.0,
+            tick: 0,
+            output_channels,
+            output: vec![0.0; BLOCK_SIZE * output_channels],
+            sample_index: Vec::new(),
+            sample_registry: registry,
+            sample_loader: loader,
             effect_params: EffectParams::default(),
             metrics,
         }
     }
 
+    #[cfg(not(feature = "native"))]
     pub fn load_sample(&mut self, samples: &[f32], channels: u8, freq: f32) -> Option<usize> {
         let info = self.sample_pool.add(samples, channels, freq)?;
         let idx = self.samples.len();
@@ -134,6 +193,7 @@ impl Engine {
 
     /// Look up sample by name (e.g., "wave_tek") and n (e.g., 0 for "wave_tek/0")
     /// n wraps around using modulo if it exceeds the folder count
+    #[cfg(feature = "native")]
     fn find_sample_index(&self, name: &str, n: usize) -> Option<usize> {
         let prefix = format!("{name}/");
         let count = self
@@ -149,48 +209,41 @@ impl Engine {
         self.sample_index.iter().position(|e| e.name == target)
     }
 
-    /// Get a loaded sample index, loading lazily if needed (native only)
-    fn get_or_load_sample(&mut self, name: &str, n: usize) -> Option<usize> {
-        // First check if this is a direct index into already-loaded samples (WASM path)
+    /// Get the sample name for a given base name and n index.
+    #[cfg(feature = "native")]
+    fn get_sample_name(&self, name: &str, n: usize) -> Option<String> {
+        let index_idx = self.find_sample_index(name, n)?;
+        Some(self.sample_index[index_idx].name.clone())
+    }
+
+    /// Try to get a sample from the registry, or request background loading.
+    #[cfg(feature = "native")]
+    fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<Arc<SampleData>> {
+        let sample_name = self.get_sample_name(name, n)?;
+
+        if let Some(data) = self.sample_registry.get(&sample_name) {
+            return Some(data);
+        }
+
+        // Request background loading
+        let index_idx = self.find_sample_index(name, n)?;
+        let path = self.sample_index[index_idx].path.clone();
+        self.sample_loader.request(sample_name, path, self.sr);
+
+        None
+    }
+
+    /// Get a loaded sample index (WASM only - uses legacy pool)
+    #[cfg(not(feature = "native"))]
+    fn get_or_load_sample(&mut self, name: &str, _n: usize) -> Option<usize> {
         // For WASM, treat `name` as numeric index if sample_index is empty
         if self.sample_index.is_empty() {
             let idx: usize = name.parse().ok()?;
             if idx < self.samples.len() {
                 return Some(idx);
             }
-            return None;
         }
-
-        // Find the sample in the index by name
-        let index_idx = self.find_sample_index(name, n)?;
-
-        // If already loaded, return the loaded index
-        if let Some(loaded_idx) = self.sample_index[index_idx].loaded {
-            return Some(loaded_idx);
-        }
-
-        // Load the sample now (native only)
-        #[cfg(feature = "native")]
-        {
-            let path = self.sample_index[index_idx].path.clone();
-            match loader::load_sample_file(self, &path) {
-                Ok(loaded_idx) => {
-                    self.sample_index[index_idx].loaded = Some(loaded_idx);
-                    Some(loaded_idx)
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Failed to load sample {}: {e}",
-                        self.sample_index[index_idx].name
-                    );
-                    None
-                }
-            }
-        }
-        #[cfg(not(feature = "native"))]
-        {
-            None
-        }
+        None
     }
 
     pub fn evaluate(&mut self, input: &str) -> Option<usize> {
@@ -282,14 +335,24 @@ impl Engine {
             }
         }
 
-        // If sound is specified but doesn't resolve to anything, play silence (skip)
+        // If sound is specified but doesn't resolve to anything, check availability
+        // Skip this check if WebSample data is already present (WASM with JS-loaded sample)
+        let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
         if let Some(ref sound_str) = event.sound {
-            if sound_str.parse::<Source>().is_err() {
+            if !has_web_sample && sound_str.parse::<Source>().is_err() {
                 let effective_name = match &event.bank {
                     Some(b) => format!("{sound_str}_{b}"),
                     None => sound_str.clone(),
                 };
-                self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))?;
+                // Check if sample is loaded. If not, request loading and skip this event.
+                #[cfg(feature = "native")]
+                {
+                    self.get_registry_sample(&effective_name, event.n.unwrap_or(0))?;
+                }
+                #[cfg(not(feature = "native"))]
+                {
+                    self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))?;
+                }
             }
         }
 
@@ -347,20 +410,40 @@ impl Engine {
         }
         // Resolve sound/sample first (before borrowing voice)
         // If sound parses as a Source, use it; otherwise treat as sample folder name
-        let (parsed_source, loaded_sample) = if let Some(ref sound_str) = event.sound {
-            if let Ok(source) = sound_str.parse::<Source>() {
-                (Some(source), None)
+        #[cfg(feature = "native")]
+        let registry_sample_data: Option<Arc<SampleData>> = if let Some(ref sound_str) = event.sound
+        {
+            if sound_str.parse::<Source>().is_ok() {
+                None
             } else {
-                // Combine sound name with bank suffix if present
                 let effective_name = match &event.bank {
                     Some(b) => format!("{sound_str}_{b}"),
                     None => sound_str.clone(),
                 };
-                let sample = self.get_or_load_sample(&effective_name, event.n.unwrap_or(0));
-                (None, sample)
+                self.get_registry_sample(&effective_name, event.n.unwrap_or(0))
             }
         } else {
-            (None, None)
+            None
+        };
+
+        let parsed_source = if let Some(ref sound_str) = event.sound {
+            sound_str.parse::<Source>().ok()
+        } else {
+            None
+        };
+        #[cfg(not(feature = "native"))]
+        let loaded_sample = if let Some(ref sound_str) = event.sound {
+            if sound_str.parse::<Source>().is_err() {
+                let effective_name = match &event.bank {
+                    Some(b) => format!("{sound_str}_{b}"),
+                    None => sound_str.clone(),
+                };
+                self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))
+            } else {
+                None
+            }
+        } else {
+            None
         };
 
         let v = &mut self.voices[idx];
@@ -406,8 +489,38 @@ impl Engine {
         }
         copy_opt_some!(event, v.params, cut);
 
-        // Sample playback (native)
+        // Sample playback via lock-free registry (native)
+        #[cfg(feature = "native")]
+        if let Some(sample_data) = registry_sample_data {
+            v.params.sound = Source::Sample;
+            let begin = event.begin.unwrap_or(0.0);
+            let end = event.end.unwrap_or(1.0);
+            let frame_count = sample_data.frame_count;
+            v.registry_sample = Some(RegistrySample::new(sample_data, begin, end));
+            if event.freq.is_none() {
+                v.params.freq = 261.626;
+            }
+            if let Some(target_dur) = event.fit {
+                let sample_dur = frame_count as f32 * (end - begin) / self.sr;
+                v.params.speed = sample_dur / target_dur;
+            }
+        } else if event.begin.is_some() || event.end.is_some() {
+            // Update begin/end on existing registry sample
+            #[cfg(feature = "native")]
+            if let Some(ref mut rs) = v.registry_sample {
+                if let Some(begin) = event.begin {
+                    rs.begin = begin.clamp(0.0, 1.0);
+                }
+                if let Some(end) = event.end {
+                    rs.end = end.clamp(rs.begin, 1.0);
+                }
+            }
+        }
+
+        // Sample playback via legacy pool (WASM only)
+        #[cfg(not(feature = "native"))]
         if let Some(sample_idx) = loaded_sample {
+            use sample::FileSource;
             v.params.sound = Source::Sample;
             let begin = event.begin.unwrap_or(0.0);
             let end = event.end.unwrap_or(1.0);
@@ -422,7 +535,7 @@ impl Engine {
                 }
             }
         } else if event.begin.is_some() || event.end.is_some() {
-            // Update begin/end on existing file_source
+            #[cfg(not(feature = "native"))]
             if let Some(ref mut fs) = v.file_source {
                 if let Some(begin) = event.begin {
                     fs.begin = begin.clamp(0.0, 1.0);
@@ -433,16 +546,15 @@ impl Engine {
             }
         }
 
-        // Web sample playback (WASM - set by JavaScript)
+        // Web sample playback (set by JavaScript)
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
+            use sample::WebSampleSource;
             v.params.sound = Source::WebSample;
             v.web_sample = Some(WebSampleSource::new(
-                SampleInfo {
-                    offset,
-                    frames: frames as u32,
-                    channels: event.file_channels.unwrap_or(1),
-                    freq: event.file_freq.unwrap_or(65.406),
-                },
+                offset,
+                frames as u32,
+                event.file_channels.unwrap_or(1),
+                event.file_freq.unwrap_or(65.406),
                 event.begin.unwrap_or(0.0),
                 event.end.unwrap_or(1.0),
             ));
@@ -623,11 +735,14 @@ impl Engine {
 
         let mut i = 0;
         while i < self.active_voices {
-            // Reborrow for each iteration to allow free_voice during loop
-            let pool = self.sample_pool.data.as_slice();
-            let samples = self.samples.as_slice();
-
-            let alive = self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input);
+            #[cfg(feature = "native")]
+            let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input);
+            #[cfg(not(feature = "native"))]
+            let alive = {
+                let pool = self.sample_pool.data.as_slice();
+                let samples = self.samples.as_slice();
+                self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input)
+            };
             if !alive {
                 self.free_voice(i);
                 // Match dough.c: increment i, skipping the swapped-in voice
