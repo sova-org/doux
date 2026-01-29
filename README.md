@@ -1,9 +1,8 @@
-<h1 align="center">doux</h1>
+<h1 align="center">Doux</h1>
 
 <p align="center"><em>A Software Synthesizer Engine for Live Coding</em></p>
 
-Written in Rust, initially ported from [Dough](https://dough.strudel.cc/) by Felix Roos and al.
-Documentation and live playground can be found on this page: [doux](https://doux.livecoding.fr).
+Written in Rust, initially ported from [Dough](https://dough.strudel.cc/) by Felix Roos and co. Online documentation and live playground are accessible through the demo website: [doux](https://doux.livecoding.fr). Doux uses a fixed architecture and provides various oscillators, filters and effects. It is both capable of synthesis and sampling. Doux is made to be integrated in other audio applications, both through its native or WASM version.
 
 ## CLI Flags
 
