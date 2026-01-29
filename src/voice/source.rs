@@ -4,7 +4,7 @@ use crate::fastmath::exp2f;
 use crate::oscillator::Phasor;
 use crate::plaits::PlaitsEngine;
 #[cfg(not(feature = "native"))]
-use crate::sample::SampleInfo;
+use crate::sampling::SampleInfo;
 use crate::types::{freq2midi, Source, SubWave, BLOCK_SIZE, CHANNELS};
 use mi_plaits_dsp::engine::{EngineParameters, TriggerState};
 

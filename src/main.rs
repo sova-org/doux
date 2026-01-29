@@ -5,9 +5,7 @@
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use doux::audio::{
-    get_host, list_hosts, max_output_channels, print_diagnostics, HostSelection,
-};
+use doux::audio::{get_host, list_hosts, max_output_channels, print_diagnostics, HostSelection};
 use doux::Engine;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -130,10 +128,7 @@ fn main() {
     let args = Args::parse();
 
     // Parse host selection
-    let host_selection: HostSelection = args
-        .host
-        .parse()
-        .unwrap_or_else(|e| panic!("{e}"));
+    let host_selection: HostSelection = args.host.parse().unwrap_or_else(|e| panic!("{e}"));
 
     // Handle diagnose flag first
     if args.diagnose {
@@ -184,7 +179,12 @@ fn main() {
     };
 
     println!("Audio host: {}", host.id().name());
-    println!("Output: {} @ {}Hz, {}ch", device.name().unwrap_or_default(), sample_rate as u32, output_channels);
+    println!(
+        "Output: {} @ {}Hz, {}ch",
+        device.name().unwrap_or_default(),
+        sample_rate as u32,
+        output_channels
+    );
     if let Some(buf) = args.buffer_size {
         let latency_ms = buf as f32 / sample_rate * 1000.0;
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
@@ -195,15 +195,17 @@ fn main() {
 
     if let Some(ref dir) = args.samples {
         println!("\nScanning samples from: {}", dir.display());
-        let index = doux::loader::scan_samples_dir(dir);
+        let index = doux::sampling::scan_samples_dir(dir);
         let sample_count = index.len();
 
         if args.preload {
             println!("Preloading {sample_count} samples...");
             for entry in &index {
-                match doux::loader::decode_sample_file(&entry.path, sample_rate) {
+                match doux::sampling::decode_sample_file(&entry.path, sample_rate) {
                     Ok(data) => {
-                        engine.sample_registry.insert(entry.name.clone(), Arc::new(data));
+                        engine
+                            .sample_registry
+                            .insert(entry.name.clone(), Arc::new(data));
                     }
                     Err(e) => {
                         eprintln!("Failed to preload {}: {e}", entry.name);

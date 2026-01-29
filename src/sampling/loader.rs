@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use crate::loader::decode_sample_file;
-use crate::sample_registry::SampleRegistry;
+use super::decode::decode_sample_file;
+use super::registry::SampleRegistry;
 
 /// Request to load a sample from disk.
 pub struct LoadRequest {

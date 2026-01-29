@@ -265,10 +265,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Parse host selection
-    let host_selection: HostSelection = args
-        .host
-        .parse()
-        .unwrap_or_else(|e| panic!("{e}"));
+    let host_selection: HostSelection = args.host.parse().unwrap_or_else(|e| panic!("{e}"));
 
     // Handle diagnose flag first
     if args.diagnose {
@@ -337,7 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
 
     if let Some(ref dir) = args.samples {
-        let index = doux::loader::scan_samples_dir(dir);
+        let index = doux::sampling::scan_samples_dir(dir);
         println!("Samples: {} from {}", index.len(), dir.display());
         engine.sample_index = index;
     }

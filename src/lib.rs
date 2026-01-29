@@ -9,19 +9,13 @@ pub mod error;
 pub mod event;
 pub mod fastmath;
 pub mod filter;
-#[cfg(feature = "native")]
-pub mod loader;
-#[cfg(feature = "native")]
-pub mod sample_loader;
-#[cfg(feature = "native")]
-pub mod sample_registry;
 pub mod noise;
 pub mod orbit;
 #[cfg(feature = "native")]
 pub mod osc;
 pub mod oscillator;
 pub mod plaits;
-pub mod sample;
+pub mod sampling;
 pub mod schedule;
 #[cfg(feature = "native")]
 pub mod telemetry;
@@ -33,13 +27,13 @@ mod wasm;
 use envelope::init_envelope;
 use event::Event;
 use orbit::{EffectParams, Orbit};
-use sample::SampleEntry;
+use sampling::SampleEntry;
+#[cfg(feature = "native")]
+pub use sampling::SampleLoader;
+#[cfg(feature = "native")]
+pub use sampling::{SampleData, SampleRegistry};
 #[cfg(not(feature = "native"))]
-use sample::{SampleInfo, SamplePool};
-#[cfg(feature = "native")]
-pub use sample_loader::SampleLoader;
-#[cfg(feature = "native")]
-pub use sample_registry::{SampleData, SampleRegistry};
+use sampling::{SampleInfo, SamplePool};
 use schedule::Schedule;
 #[cfg(feature = "native")]
 use std::sync::Arc;
@@ -515,7 +509,7 @@ impl Engine {
         #[cfg(not(feature = "native"))]
         if let Some(sample_idx) = loaded_sample {
             if let Some(info) = self.samples.get(sample_idx) {
-                use sample::FileSource;
+                use sampling::FileSource;
                 v.params.sound = Source::Sample;
                 let begin = event.begin.unwrap_or(0.0);
                 let end = event.end.unwrap_or(1.0);
@@ -539,7 +533,7 @@ impl Engine {
 
         // Web sample playback (set by JavaScript)
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
-            use sample::WebSampleSource;
+            use sampling::WebSampleSource;
             v.params.sound = Source::WebSample;
             v.web_sample = Some(WebSampleSource::new(
                 offset,

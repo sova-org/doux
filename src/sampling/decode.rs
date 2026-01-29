@@ -35,8 +35,8 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-use crate::sample::SampleEntry;
-use crate::sample_registry::SampleData;
+use super::registry::SampleData;
+use super::sample::SampleEntry;
 
 /// Default base frequency assigned to loaded samples (C2 = 65.406 Hz).
 ///

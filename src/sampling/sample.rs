@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 /// Index entry for a discoverable sample file.
 ///
-/// Created during directory scanning with [`crate::loader::scan_samples_dir`].
+/// Created during directory scanning with [`super::scan_samples_dir`].
 pub struct SampleEntry {
     /// Filesystem path to the audio file.
     pub path: PathBuf,
@@ -68,7 +68,11 @@ impl FileSource {
     pub fn new(sample_idx: usize, frames: u32, begin: f32, end: f32) -> Self {
         let begin = begin.clamp(0.0, 1.0);
         let end = end.clamp(0.0, 1.0);
-        let (lo, hi) = if begin <= end { (begin, end) } else { (end, begin) };
+        let (lo, hi) = if begin <= end {
+            (begin, end)
+        } else {
+            (end, begin)
+        };
         let fc = frames as f32;
         Self {
             sample_idx,
@@ -119,7 +123,11 @@ impl FileSource {
         let current_hi = current_lo + self.length / fc;
         let new_begin = begin.unwrap_or(current_lo).clamp(0.0, 1.0);
         let new_end = end.unwrap_or(current_hi).clamp(0.0, 1.0);
-        let (lo, hi) = if new_begin <= new_end { (new_begin, new_end) } else { (new_end, new_begin) };
+        let (lo, hi) = if new_begin <= new_end {
+            (new_begin, new_end)
+        } else {
+            (new_end, new_begin)
+        };
         self.start_pos = lo * fc;
         self.length = (hi - lo) * fc;
     }
@@ -148,7 +156,11 @@ impl WebSampleSource {
         let begin = begin.clamp(0.0, 1.0);
         let end = end.clamp(0.0, 1.0);
         let fc = frames as f32;
-        let (lo, hi) = if begin <= end { (begin, end) } else { (end, begin) };
+        let (lo, hi) = if begin <= end {
+            (begin, end)
+        } else {
+            (end, begin)
+        };
         let length = (hi - lo) * fc;
         Self {
             info: WebSampleInfo {

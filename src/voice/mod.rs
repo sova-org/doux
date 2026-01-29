@@ -17,14 +17,14 @@ use crate::filter::FilterState;
 use crate::noise::{BrownNoise, PinkNoise};
 use crate::oscillator::Phasor;
 use crate::plaits::PlaitsEngine;
-#[cfg(not(feature = "native"))]
-use crate::sample::{FileSource, SampleInfo};
-use crate::sample::WebSampleSource;
 #[cfg(feature = "native")]
-use crate::sample_registry::SampleData;
+use crate::sampling::SampleData;
+use crate::sampling::WebSampleSource;
+#[cfg(not(feature = "native"))]
+use crate::sampling::{FileSource, SampleInfo};
+use crate::types::{FilterSlope, FilterType, BLOCK_SIZE, CHANNELS};
 #[cfg(feature = "native")]
 use std::sync::Arc;
-use crate::types::{FilterSlope, FilterType, BLOCK_SIZE, CHANNELS};
 
 /// Sample playback from the lock-free registry.
 #[cfg(feature = "native")]
@@ -41,7 +41,11 @@ impl RegistrySample {
     pub fn new(data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let begin = begin.clamp(0.0, 1.0);
         let end = end.clamp(0.0, 1.0);
-        let (lo, hi) = if begin <= end { (begin, end) } else { (end, begin) };
+        let (lo, hi) = if begin <= end {
+            (begin, end)
+        } else {
+            (end, begin)
+        };
         let fc = data.frame_count as f32;
         Self {
             data,
@@ -58,7 +62,11 @@ impl RegistrySample {
         let current_hi = current_lo + self.length / fc;
         let new_begin = begin.unwrap_or(current_lo).clamp(0.0, 1.0);
         let new_end = end.unwrap_or(current_hi).clamp(0.0, 1.0);
-        let (lo, hi) = if new_begin <= new_end { (new_begin, new_end) } else { (new_end, new_begin) };
+        let (lo, hi) = if new_begin <= new_end {
+            (new_begin, new_end)
+        } else {
+            (new_end, new_begin)
+        };
         self.start_pos = lo * fc;
         self.length = (hi - lo) * fc;
     }
@@ -66,7 +74,8 @@ impl RegistrySample {
     #[inline]
     pub fn read(&self, channel: usize) -> f32 {
         let clamped = self.pos.clamp(0.0, (self.length - 1.0).max(0.0));
-        self.data.read_interpolated(self.start_pos + clamped, channel)
+        self.data
+            .read_interpolated(self.start_pos + clamped, channel)
     }
 
     #[inline]
