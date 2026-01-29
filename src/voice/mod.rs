@@ -27,56 +27,62 @@ use std::sync::Arc;
 use crate::types::{FilterSlope, FilterType, BLOCK_SIZE, CHANNELS};
 
 /// Sample playback from the lock-free registry.
-///
-/// Holds an `Arc` to the sample data, allowing lock-free access during playback.
 #[cfg(feature = "native")]
 pub struct RegistrySample {
-    /// Reference to the sample data (lock-free via Arc).
     pub data: Arc<SampleData>,
-    /// Current playback position in frames.
     pub pos: f32,
-    /// Start point as fraction of total length.
-    pub begin: f32,
-    /// End point as fraction of total length.
-    pub end: f32,
+    start_pos: f32,
+    length: f32,
+    started: bool,
 }
 
 #[cfg(feature = "native")]
 impl RegistrySample {
     pub fn new(data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let begin = begin.clamp(0.0, 1.0);
+        let end = end.clamp(0.0, 1.0);
+        let (lo, hi) = if begin <= end { (begin, end) } else { (end, begin) };
+        let fc = data.frame_count as f32;
         Self {
             data,
             pos: 0.0,
-            begin,
-            end: end.clamp(begin, 1.0),
+            start_pos: lo * fc,
+            length: (hi - lo) * fc,
+            started: false,
         }
+    }
+
+    pub fn update_range(&mut self, begin: Option<f32>, end: Option<f32>) {
+        let fc = self.data.frame_count as f32;
+        let current_lo = self.start_pos / fc;
+        let current_hi = current_lo + self.length / fc;
+        let new_begin = begin.unwrap_or(current_lo).clamp(0.0, 1.0);
+        let new_end = end.unwrap_or(current_hi).clamp(0.0, 1.0);
+        let (lo, hi) = if new_begin <= new_end { (new_begin, new_end) } else { (new_end, new_begin) };
+        self.start_pos = lo * fc;
+        self.length = (hi - lo) * fc;
     }
 
     #[inline]
     pub fn read(&self, channel: usize) -> f32 {
-        let begin_frame = (self.begin * self.data.frame_count as f32) as usize;
-        let end_frame = (self.end * self.data.frame_count as f32) as usize;
-        let current = self.pos as usize + begin_frame;
-
-        if current >= end_frame {
-            return 0.0;
-        }
-
-        self.data.read_interpolated(current as f32 + self.pos.fract(), channel)
+        let clamped = self.pos.clamp(0.0, (self.length - 1.0).max(0.0));
+        self.data.read_interpolated(self.start_pos + clamped, channel)
     }
 
     #[inline]
     pub fn advance(&mut self, speed: f32) {
+        if !self.started {
+            self.started = true;
+            if speed < 0.0 {
+                self.pos = self.length;
+            }
+        }
         self.pos += speed;
     }
 
     #[inline]
     pub fn is_done(&self) -> bool {
-        let begin_frame = (self.begin * self.data.frame_count as f32) as usize;
-        let end_frame = (self.end * self.data.frame_count as f32) as usize;
-        let current = self.pos as usize + begin_frame;
-        current >= end_frame
+        self.pos < 0.0 || self.pos >= self.length
     }
 }
 
@@ -243,8 +249,9 @@ impl Clone for Voice {
             registry_sample: self.registry_sample.as_ref().map(|rs| RegistrySample {
                 data: Arc::clone(&rs.data),
                 pos: rs.pos,
-                begin: rs.begin,
-                end: rs.end,
+                start_pos: rs.start_pos,
+                length: rs.length,
+                started: rs.started,
             }),
             web_sample: self.web_sample,
             phaser: self.phaser,

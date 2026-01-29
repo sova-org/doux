@@ -505,31 +505,25 @@ impl Engine {
                 v.params.speed = sample_dur / target_dur;
             }
         } else if event.begin.is_some() || event.end.is_some() {
-            // Update begin/end on existing registry sample
             #[cfg(feature = "native")]
             if let Some(ref mut rs) = v.registry_sample {
-                if let Some(begin) = event.begin {
-                    rs.begin = begin.clamp(0.0, 1.0);
-                }
-                if let Some(end) = event.end {
-                    rs.end = end.clamp(rs.begin, 1.0);
-                }
+                rs.update_range(event.begin, event.end);
             }
         }
 
         // Sample playback via legacy pool (WASM only)
         #[cfg(not(feature = "native"))]
         if let Some(sample_idx) = loaded_sample {
-            use sample::FileSource;
-            v.params.sound = Source::Sample;
-            let begin = event.begin.unwrap_or(0.0);
-            let end = event.end.unwrap_or(1.0);
-            v.file_source = Some(FileSource::new(sample_idx, begin, end));
-            if event.freq.is_none() {
-                v.params.freq = 261.626;
-            }
-            if let Some(target_dur) = event.fit {
-                if let Some(info) = self.samples.get(sample_idx) {
+            if let Some(info) = self.samples.get(sample_idx) {
+                use sample::FileSource;
+                v.params.sound = Source::Sample;
+                let begin = event.begin.unwrap_or(0.0);
+                let end = event.end.unwrap_or(1.0);
+                v.file_source = Some(FileSource::new(sample_idx, info.frames, begin, end));
+                if event.freq.is_none() {
+                    v.params.freq = 261.626;
+                }
+                if let Some(target_dur) = event.fit {
                     let sample_dur = info.frames as f32 * (end - begin) / self.sr;
                     v.params.speed = sample_dur / target_dur;
                 }
@@ -537,11 +531,8 @@ impl Engine {
         } else if event.begin.is_some() || event.end.is_some() {
             #[cfg(not(feature = "native"))]
             if let Some(ref mut fs) = v.file_source {
-                if let Some(begin) = event.begin {
-                    fs.begin = begin.clamp(0.0, 1.0);
-                }
-                if let Some(end) = event.end {
-                    fs.end = end.clamp(fs.begin, 1.0);
+                if let Some(info) = self.samples.get(fs.sample_idx) {
+                    fs.update_range(info.frames, event.begin, event.end);
                 }
             }
         }

@@ -36,13 +36,16 @@ impl Voice {
         match self.params.sound {
             Source::Sample => {
                 if let Some(ref mut rs) = self.registry_sample {
-                    if rs.is_done() {
-                        return false;
+                    let done = rs.is_done();
+                    if done {
+                        self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = rs.read(c) * 0.2;
                     }
-                    rs.advance(freq / 261.626);
+                    if !done {
+                        rs.advance(freq / 261.626);
+                    }
                     return true;
                 }
                 self.ch[0] = 0.0;
@@ -50,13 +53,16 @@ impl Voice {
             }
             Source::WebSample => {
                 if let Some(ref mut ws) = self.web_sample {
-                    if ws.is_done() {
-                        return false;
+                    let done = ws.is_done();
+                    if done {
+                        self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = ws.read(web_pcm, c) * 0.2;
                     }
-                    ws.advance(freq / 261.626);
+                    if !done {
+                        ws.advance(freq / 261.626);
+                    }
                     return true;
                 }
                 self.ch[0] = 0.0;
@@ -112,13 +118,17 @@ impl Voice {
             Source::Sample => {
                 if let Some(ref mut fs) = self.file_source {
                     if let Some(info) = samples.get(fs.sample_idx) {
-                        if fs.is_done(info) {
-                            return false;
+                        let done = fs.is_done();
+                        if done {
+                            self.params.gate = 0.0;
                         }
+                        let channels = info.channels as usize;
                         for c in 0..CHANNELS {
-                            self.ch[c] = fs.read(pool, info, c) * 0.2;
+                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.2;
                         }
-                        fs.advance(freq / 261.626);
+                        if !done {
+                            fs.advance(freq / 261.626);
+                        }
                         return true;
                     }
                 }
@@ -127,13 +137,16 @@ impl Voice {
             }
             Source::WebSample => {
                 if let Some(ref mut ws) = self.web_sample {
-                    if ws.is_done() {
-                        return false;
+                    let done = ws.is_done();
+                    if done {
+                        self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = ws.read(web_pcm, c) * 0.2;
                     }
-                    ws.advance(freq / 261.626);
+                    if !done {
+                        ws.advance(freq / 261.626);
+                    }
                     return true;
                 }
                 self.ch[0] = 0.0;
