@@ -373,16 +373,13 @@ impl Voice {
         }
     }
 
-    #[cfg(feature = "native")]
     fn get_modulated_scan(&mut self, isr: f32) -> f32 {
         let mut scan = self.params.scan;
 
-        // LFO contribution
         if self.params.scanlfo > 0.0 {
             let lfo = self
                 .scan_lfo
                 .lfo(self.params.scanshape, self.params.scanlfo, isr);
-            // LFO is -1 to 1, scale to ±depth/2
             scan += lfo * self.params.scandepth * 0.5;
         }
 
@@ -391,7 +388,7 @@ impl Voice {
 
     #[cfg(not(feature = "native"))]
     fn run_wavetable_wasm(&mut self, freq: f32, isr: f32, pool: &[f32], samples: &[SampleInfo]) {
-        let scan = self.get_modulated_scan_wasm(isr);
+        let scan = self.get_modulated_scan(isr);
 
         if let Some(ref fs) = self.file_source {
             if let Some(info) = samples.get(fs.sample_idx) {
@@ -439,7 +436,7 @@ impl Voice {
 
     #[cfg(not(feature = "native"))]
     fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) {
-        let scan = self.get_modulated_scan_wasm(isr);
+        let scan = self.get_modulated_scan(isr);
 
         if let Some(ref ws) = self.web_sample {
             let frame_count = ws.frame_count();
@@ -481,20 +478,6 @@ impl Voice {
         }
         self.ch[0] = 0.0;
         self.ch[1] = 0.0;
-    }
-
-    #[cfg(not(feature = "native"))]
-    fn get_modulated_scan_wasm(&mut self, isr: f32) -> f32 {
-        let mut scan = self.params.scan;
-
-        if self.params.scanlfo > 0.0 {
-            let lfo = self
-                .scan_lfo
-                .lfo(self.params.scanshape, self.params.scanlfo, isr);
-            scan += lfo * self.params.scandepth * 0.5;
-        }
-
-        scan.clamp(0.0, 1.0)
     }
 }
 
