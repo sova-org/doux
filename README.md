@@ -40,6 +40,20 @@ Doux-REPL is a small interpreter mostly used for debugging and testing.
 | `--host` | | Audio host: jack, alsa, auto | auto |
 | `--diagnose` | | Run audio diagnostics and exit | - |
 
+### doux-render (offline rendering)
+
+Doux-render renders audio synthesis to a WAV file instead of real-time playback.
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--duration` | `-d` | Duration to render in seconds | required |
+| `--eval` | `-e` | Command to evaluate (can be repeated) | - |
+| `--output` | `-o` | Output WAV file path | required |
+| `--samples` | `-s` | Directory containing audio samples | - |
+| `--sample-rate` | | Sample rate in Hz | 48000 |
+| `--channels` | | Number of output channels | 2 |
+| `--max-voices` | | Maximum polyphony | 64 |
+
 ## Linux Audio Setup
 
 On Linux, doux supports both JACK and ALSA backends. For systems using PipeWire (default on most modern distributions), the JACK backend via `pipewire-jack` provides the best compatibility.
