@@ -155,4 +155,10 @@ impl WebSampleSource {
     pub fn is_done(&self) -> bool {
         self.cursor.is_done()
     }
+
+    /// Returns the total frame count.
+    #[inline]
+    pub fn frame_count(&self) -> f32 {
+        self.cursor.length()
+    }
 }

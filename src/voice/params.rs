@@ -62,6 +62,16 @@ pub struct VoiceParams {
     pub morph: f32,
     /// Sample slice/cut index for sample playback.
     pub cut: Option<usize>,
+    /// Wavetable scan position (0.0 to 1.0) - morphs between cycles.
+    pub scan: f32,
+    /// Wavetable cycle length in samples (0 = use entire sample as one cycle).
+    pub wt_cycle_len: u32,
+    /// Scan LFO rate in Hz.
+    pub scanlfo: f32,
+    /// Scan LFO depth (0.0 to 1.0).
+    pub scandepth: f32,
+    /// Scan LFO waveform.
+    pub scanshape: LfoShape,
     /// Sub oscillator mix level (0.0 = off, 1.0 = full).
     pub sub: f32,
     /// Sub oscillator octave offset below main (1-3).
@@ -360,6 +370,11 @@ impl Default for VoiceParams {
             timbre: 0.5,
             morph: 0.5,
             cut: None,
+            scan: 0.0,
+            wt_cycle_len: 0,
+            scanlfo: 0.0,
+            scandepth: 0.0,
+            scanshape: LfoShape::Sine,
             sub: 0.0,
             sub_oct: 1,
             sub_wave: SubWave::Tri,

@@ -479,10 +479,26 @@ impl Engine {
         }
         copy_opt_some!(event, v.params, cut);
 
+        // Wavetable scan parameter
+        if let Some(scan) = event.scan {
+            v.params.scan = scan.clamp(0.0, 1.0);
+        }
+        if let Some(wtlen) = event.wtlen {
+            v.params.wt_cycle_len = wtlen;
+        }
+
+        // Scan LFO
+        copy_opt!(event, v.params, scanlfo, scandepth, scanshape);
+
         // Sample playback via lock-free registry (native)
         #[cfg(feature = "native")]
         if let Some(sample_data) = registry_sample_data {
-            v.params.sound = Source::Sample;
+            // Use Wavetable mode if scan param present, otherwise Sample
+            v.params.sound = if event.scan.is_some() {
+                Source::Wavetable
+            } else {
+                Source::Sample
+            };
             let begin = event.begin.unwrap_or(0.0);
             let end = event.end.unwrap_or(1.0);
             let frame_count = sample_data.frame_count;
@@ -506,7 +522,12 @@ impl Engine {
         if let Some(sample_idx) = loaded_sample {
             if let Some(info) = self.samples.get(sample_idx) {
                 use sampling::FileSource;
-                v.params.sound = Source::Sample;
+                // Use Wavetable mode if scan param present, otherwise Sample
+                v.params.sound = if event.scan.is_some() {
+                    Source::Wavetable
+                } else {
+                    Source::Sample
+                };
                 let begin = event.begin.unwrap_or(0.0);
                 let end = event.end.unwrap_or(1.0);
                 v.file_source = Some(FileSource::new(sample_idx, info.frames, begin, end));
@@ -530,7 +551,12 @@ impl Engine {
         // Web sample playback (set by JavaScript)
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
             use sampling::WebSampleSource;
-            v.params.sound = Source::WebSample;
+            // Use Wavetable mode if scan param present, otherwise WebSample
+            v.params.sound = if event.scan.is_some() {
+                Source::Wavetable
+            } else {
+                Source::WebSample
+            };
             v.web_sample = Some(WebSampleSource::new(
                 offset,
                 frames as u32,

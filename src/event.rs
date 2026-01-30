@@ -44,6 +44,11 @@ pub struct Event {
     pub sub: Option<f32>,
     pub sub_oct: Option<u8>,
     pub sub_wave: Option<SubWave>,
+    pub scan: Option<f32>,
+    pub wtlen: Option<u32>,
+    pub scanlfo: Option<f32>,
+    pub scandepth: Option<f32>,
+    pub scanshape: Option<LfoShape>,
 
     // Web sample (WASM only - set by JavaScript)
     pub file_pcm: Option<usize>,
@@ -230,6 +235,11 @@ impl Event {
                 "sub" => event.sub = val.parse().ok(),
                 "suboct" => event.sub_oct = val.parse::<f32>().ok().map(|f| f as u8),
                 "subwave" => event.sub_wave = val.parse().ok(),
+                "scan" => event.scan = val.parse().ok(),
+                "wtlen" => event.wtlen = val.parse().ok(),
+                "scanlfo" => event.scanlfo = val.parse().ok(),
+                "scandepth" => event.scandepth = val.parse().ok(),
+                "scanshape" => event.scanshape = val.parse().ok(),
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = val.parse::<f32>().ok().map(|f| f as u8),

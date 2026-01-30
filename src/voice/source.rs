@@ -50,6 +50,9 @@ impl Voice {
                 self.ch[0] = 0.0;
                 self.ch[1] = 0.0;
             }
+            Source::Wavetable => {
+                self.run_wavetable(freq, isr);
+            }
             Source::WebSample => {
                 if let Some(ref mut ws) = self.web_sample {
                     let done = ws.is_done();
@@ -133,6 +136,13 @@ impl Voice {
                 }
                 self.ch[0] = 0.0;
                 self.ch[1] = 0.0;
+            }
+            Source::Wavetable => {
+                if self.web_sample.is_some() {
+                    self.run_wavetable_web(freq, isr, web_pcm);
+                } else {
+                    self.run_wavetable_wasm(freq, isr, pool, samples);
+                }
             }
             Source::WebSample => {
                 if let Some(ref mut ws) = self.web_sample {
@@ -317,4 +327,195 @@ impl Voice {
             _ => 0.0,
         };
     }
+
+    #[cfg(feature = "native")]
+    fn run_wavetable(&mut self, freq: f32, isr: f32) {
+        // Compute modulated scan before borrowing registry_sample
+        let scan = self.get_modulated_scan(isr);
+
+        if let Some(ref rs) = self.registry_sample {
+            let frame_count = rs.data.frame_count as f32;
+
+            let cycle_len = if self.params.wt_cycle_len > 0 {
+                self.params.wt_cycle_len as f32
+            } else {
+                frame_count
+            };
+
+            let num_cycles = (frame_count / cycle_len).floor().max(1.0);
+
+            let phase = if self.params.shape.is_active() {
+                self.params.shape.apply(self.phasor.phase)
+            } else {
+                self.phasor.phase
+            };
+
+            let scan_pos = scan * (num_cycles - 1.0);
+            let cycle_a = scan_pos.floor() as usize;
+            let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
+            let blend = scan_pos.fract();
+
+            let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
+            let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
+
+            let channels = rs.data.channels as usize;
+            for c in 0..CHANNELS {
+                let ch = c.min(channels - 1);
+                let sample_a = rs.data.read_interpolated(pos_a, ch);
+                let sample_b = rs.data.read_interpolated(pos_b, ch);
+                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+            }
+
+            self.phasor.update(freq, isr);
+        } else {
+            self.ch[0] = 0.0;
+            self.ch[1] = 0.0;
+        }
+    }
+
+    #[cfg(feature = "native")]
+    fn get_modulated_scan(&mut self, isr: f32) -> f32 {
+        let mut scan = self.params.scan;
+
+        // LFO contribution
+        if self.params.scanlfo > 0.0 {
+            let lfo = self
+                .scan_lfo
+                .lfo(self.params.scanshape, self.params.scanlfo, isr);
+            // LFO is -1 to 1, scale to ±depth/2
+            scan += lfo * self.params.scandepth * 0.5;
+        }
+
+        scan.clamp(0.0, 1.0)
+    }
+
+    #[cfg(not(feature = "native"))]
+    fn run_wavetable_wasm(&mut self, freq: f32, isr: f32, pool: &[f32], samples: &[SampleInfo]) {
+        let scan = self.get_modulated_scan_wasm(isr);
+
+        if let Some(ref fs) = self.file_source {
+            if let Some(info) = samples.get(fs.sample_idx) {
+                let frame_count = info.frames as f32;
+                let channels = info.channels as usize;
+                let offset = info.offset;
+
+                let cycle_len = if self.params.wt_cycle_len > 0 {
+                    self.params.wt_cycle_len as f32
+                } else {
+                    frame_count
+                };
+
+                let num_cycles = (frame_count / cycle_len).floor().max(1.0);
+
+                let phase = if self.params.shape.is_active() {
+                    self.params.shape.apply(self.phasor.phase)
+                } else {
+                    self.phasor.phase
+                };
+
+                let scan_pos = scan * (num_cycles - 1.0);
+                let cycle_a = scan_pos.floor() as usize;
+                let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
+                let blend = scan_pos.fract();
+
+                let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
+                let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
+
+                let frames = frame_count as usize;
+                for c in 0..CHANNELS {
+                    let ch = c.min(channels - 1);
+                    let sample_a = read_interpolated(pool, offset, channels, frames, pos_a, ch);
+                    let sample_b = read_interpolated(pool, offset, channels, frames, pos_b, ch);
+                    self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+                }
+
+                self.phasor.update(freq, isr);
+                return;
+            }
+        }
+        self.ch[0] = 0.0;
+        self.ch[1] = 0.0;
+    }
+
+    #[cfg(not(feature = "native"))]
+    fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) {
+        let scan = self.get_modulated_scan_wasm(isr);
+
+        if let Some(ref ws) = self.web_sample {
+            let frame_count = ws.frame_count();
+            let channels = ws.info.channels as usize;
+            let offset = ws.info.offset;
+
+            let cycle_len = if self.params.wt_cycle_len > 0 {
+                self.params.wt_cycle_len as f32
+            } else {
+                frame_count
+            };
+
+            let num_cycles = (frame_count / cycle_len).floor().max(1.0);
+
+            let phase = if self.params.shape.is_active() {
+                self.params.shape.apply(self.phasor.phase)
+            } else {
+                self.phasor.phase
+            };
+
+            let scan_pos = scan * (num_cycles - 1.0);
+            let cycle_a = scan_pos.floor() as usize;
+            let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
+            let blend = scan_pos.fract();
+
+            let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
+            let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
+
+            let frames = frame_count as usize;
+            for c in 0..CHANNELS {
+                let ch = c.min(channels - 1);
+                let sample_a = read_interpolated(web_pcm, offset, channels, frames, pos_a, ch);
+                let sample_b = read_interpolated(web_pcm, offset, channels, frames, pos_b, ch);
+                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+            }
+
+            self.phasor.update(freq, isr);
+            return;
+        }
+        self.ch[0] = 0.0;
+        self.ch[1] = 0.0;
+    }
+
+    #[cfg(not(feature = "native"))]
+    fn get_modulated_scan_wasm(&mut self, isr: f32) -> f32 {
+        let mut scan = self.params.scan;
+
+        if self.params.scanlfo > 0.0 {
+            let lfo = self
+                .scan_lfo
+                .lfo(self.params.scanshape, self.params.scanlfo, isr);
+            scan += lfo * self.params.scandepth * 0.5;
+        }
+
+        scan.clamp(0.0, 1.0)
+    }
+}
+
+#[cfg(not(feature = "native"))]
+#[inline]
+fn read_interpolated(
+    pool: &[f32],
+    offset: usize,
+    channels: usize,
+    frames: usize,
+    pos: f32,
+    channel: usize,
+) -> f32 {
+    let idx0 = pos.floor() as usize;
+    let idx1 = (idx0 + 1) % frames;
+    let frac = pos.fract();
+
+    let i0 = offset + idx0 * channels + channel;
+    let i1 = offset + idx1 * channels + channel;
+
+    let s0 = pool.get(i0).copied().unwrap_or(0.0);
+    let s1 = pool.get(i1).copied().unwrap_or(0.0);
+    s0 + frac * (s1 - s0)
 }

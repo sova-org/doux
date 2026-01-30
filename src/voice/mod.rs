@@ -50,6 +50,7 @@ pub struct Voice {
     // Modulation
     pub pitch_adsr: Adsr,
     pub fm_adsr: Adsr,
+    pub scan_lfo: Phasor,
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
     pub am_lfo: Phasor,
@@ -115,6 +116,7 @@ impl Default for Voice {
             bp: FilterState::default(),
             pitch_adsr: Adsr::default(),
             fm_adsr: Adsr::default(),
+            scan_lfo: Phasor::default(),
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
             am_lfo: Phasor::default(),
@@ -169,6 +171,7 @@ impl Clone for Voice {
             bp: self.bp,
             pitch_adsr: self.pitch_adsr,
             fm_adsr: self.fm_adsr,
+            scan_lfo: self.scan_lfo,
             vib_lfo: self.vib_lfo,
             fm_phasor: self.fm_phasor,
             am_lfo: self.am_lfo,

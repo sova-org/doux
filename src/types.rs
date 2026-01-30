@@ -19,6 +19,7 @@ pub enum Source {
     Pink,
     Brown,
     Sample,    // Native: disk-loaded samples via FileSource
+    Wavetable, // Sample played as wavetable oscillator with pitch tracking
     WebSample, // Web: inline PCM from JavaScript
     LiveInput, // Live audio input (microphone, line-in)
     PlModal,
@@ -57,6 +58,7 @@ impl FromStr for Source {
             "pink" => Ok(Self::Pink),
             "brown" => Ok(Self::Brown),
             "sample" => Ok(Self::Sample),
+            "wt" => Ok(Self::Wavetable),
             "websample" => Ok(Self::WebSample),
             "live" | "livein" | "mic" => Ok(Self::LiveInput),
             "plmodal" | "modal" => Ok(Self::PlModal),
