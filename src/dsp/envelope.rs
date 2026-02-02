@@ -129,12 +129,13 @@ impl Adsr {
             }
             AdsrState::Attack => {
                 let t = time - self.start_time;
-                if t > attack {
+                let val = lerp(t / attack, self.start_val, 1.0, self.attack_curve);
+                if val > 0.9999 {
                     self.state = AdsrState::Decay;
                     self.start_time = time;
                     return 1.0;
                 }
-                lerp(t / attack, self.start_val, 1.0, self.attack_curve)
+                val
             }
             AdsrState::Decay => {
                 let t = time - self.start_time;
@@ -145,7 +146,7 @@ impl Adsr {
                     self.start_val = val;
                     return val;
                 }
-                if t > decay {
+                if (val - sustain).abs() < 0.0001 {
                     self.state = AdsrState::Sustain;
                     self.start_time = time;
                     return sustain;
@@ -162,11 +163,11 @@ impl Adsr {
             }
             AdsrState::Release => {
                 let t = time - self.start_time;
-                if t > release {
+                let val = lerp(t / release, self.start_val, 0.0, -self.decay_curve);
+                if val < 0.0001 {
                     self.state = AdsrState::Off;
                     return 0.0;
                 }
-                let val = lerp(t / release, self.start_val, 0.0, -self.decay_curve);
                 if gate > 0.0 {
                     self.state = AdsrState::Attack;
                     self.start_time = time;
@@ -252,5 +253,92 @@ pub fn init_envelope(
         sus: sus_val,
         rel: rel.unwrap_or(0.005),
         active: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn max_discontinuity(samples: &[f32]) -> f32 {
+        samples
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn all_transitions_smooth() {
+        let mut adsr = Adsr::default();
+        let mut time = 0.0f32;
+        let dt = 1.0 / 44100.0;
+        let mut samples = Vec::new();
+
+        // Full ADSR cycle with decay to sustain=0.5
+        for _ in 0..10000 {
+            let val = adsr.update(time, 1.0, 0.01, 0.05, 0.5, 0.01);
+            samples.push(val);
+            time += dt;
+        }
+
+        // Release
+        while !adsr.is_off() {
+            let val = adsr.update(time, 0.0, 0.01, 0.05, 0.5, 0.01);
+            samples.push(val);
+            time += dt;
+        }
+
+        let max_delta = max_discontinuity(&samples);
+        assert!(max_delta < 0.01, "Discontinuity: max delta = {}", max_delta);
+    }
+
+    #[test]
+    fn short_attack_no_click() {
+        let mut adsr = Adsr::default();
+        let mut time = 0.0f32;
+        let dt = 1.0 / 44100.0;
+        let mut samples = Vec::new();
+
+        // Very short attack (1ms)
+        for _ in 0..500 {
+            let val = adsr.update(time, 1.0, 0.001, 0.0, 1.0, 0.01);
+            samples.push(val);
+            time += dt;
+        }
+
+        let max_delta = max_discontinuity(&samples);
+        assert!(
+            max_delta < 0.05,
+            "Attack discontinuity: max delta = {}",
+            max_delta
+        );
+    }
+
+    #[test]
+    fn short_release_no_click() {
+        let mut adsr = Adsr::default();
+        let mut time = 0.0f32;
+        let dt = 1.0 / 44100.0;
+        let mut samples = Vec::new();
+
+        // Attack to sustain
+        for _ in 0..500 {
+            adsr.update(time, 1.0, 0.01, 0.0, 1.0, 0.001);
+            time += dt;
+        }
+
+        // Very short release (1ms)
+        while !adsr.is_off() {
+            let val = adsr.update(time, 0.0, 0.01, 0.0, 1.0, 0.001);
+            samples.push(val);
+            time += dt;
+        }
+
+        let max_delta = max_discontinuity(&samples);
+        assert!(
+            max_delta < 0.05,
+            "Release discontinuity: max delta = {}",
+            max_delta
+        );
     }
 }
