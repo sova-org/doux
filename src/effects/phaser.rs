@@ -24,6 +24,7 @@ impl Phaser {
     /// - `depth`: Notch resonance (higher = more pronounced, max ~0.95)
     /// - `center`: Base frequency in Hz
     /// - `sweep`: Modulation range in cents (1200 = ±1 octave)
+    #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
         input: f32,

@@ -2,7 +2,7 @@
 //!
 //! Three flavors of nonlinear distortion:
 //! - [`distort`]: Soft saturation (tube-like warmth)
-//! - [`fold`]: Wavefolding (complex harmonics)
+//! - `fold`: Wavefolding (complex harmonics)
 //! - [`wrap`]: Phase wrapping (harsh, digital)
 
 use crate::dsp::{expm1f, sinf};

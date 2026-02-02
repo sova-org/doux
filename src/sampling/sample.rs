@@ -110,19 +110,10 @@ pub struct WebSampleInfo {
 }
 
 /// Simplified sample playback for WASM environments.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct WebSampleSource {
     pub info: WebSampleInfo,
     cursor: Cursor,
-}
-
-impl Default for WebSampleSource {
-    fn default() -> Self {
-        Self {
-            info: WebSampleInfo::default(),
-            cursor: Cursor::default(),
-        }
-    }
 }
 
 impl WebSampleSource {
