@@ -752,8 +752,6 @@ impl Engine {
             };
             if !alive {
                 self.free_voice(i);
-                // Match dough.c: increment i, skipping the swapped-in voice
-                i += 1;
                 continue;
             }
 
