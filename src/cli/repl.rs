@@ -191,13 +191,20 @@ struct Args {
 ///
 /// Default devices are marked with `*`.
 fn list_devices(host: &Host) {
-    let default_in = host.default_input_device().and_then(|d| d.name().ok());
-    let default_out = host.default_output_device().and_then(|d| d.name().ok());
+    let default_in = host
+        .default_input_device()
+        .and_then(|d| d.description().ok().map(|desc| desc.name().to_string()));
+    let default_out = host
+        .default_output_device()
+        .and_then(|d| d.description().ok().map(|desc| desc.name().to_string()));
 
     println!("Input devices:");
     if let Ok(devices) = host.input_devices() {
         for (i, d) in devices.enumerate() {
-            let name = d.name().unwrap_or_else(|_| "???".into());
+            let name = d
+                .description()
+                .map(|desc| desc.name().to_string())
+                .unwrap_or_else(|_| "???".into());
             let marker = if Some(&name) == default_in.as_ref() {
                 " *"
             } else {
@@ -210,7 +217,10 @@ fn list_devices(host: &Host) {
     println!("\nOutput devices:");
     if let Ok(devices) = host.output_devices() {
         for (i, d) in devices.enumerate() {
-            let name = d.name().unwrap_or_else(|_| "???".into());
+            let name = d
+                .description()
+                .map(|desc| desc.name().to_string())
+                .unwrap_or_else(|_| "???".into());
             let marker = if Some(&name) == default_out.as_ref() {
                 " *"
             } else {
@@ -232,8 +242,8 @@ where
     }
     let spec_lower = spec.to_lowercase();
     devices.into_iter().find(|d| {
-        d.name()
-            .map(|n| n.to_lowercase().contains(&spec_lower))
+        d.description()
+            .map(|desc| desc.name().to_lowercase().contains(&spec_lower))
             .unwrap_or(false)
     })
 }
@@ -306,7 +316,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let default_config = device.default_output_config()?;
-    let sample_rate = default_config.sample_rate().0 as f32;
+    let sample_rate = default_config.sample_rate() as f32;
 
     let config = cpal::StreamConfig {
         channels: output_channels as u16,
@@ -320,7 +330,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("doux-repl ({})", host.id().name());
     print!(
         "Output: {} @ {}Hz, {}ch",
-        device.name().unwrap_or_default(),
+        device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default(),
         sample_rate as u32,
         output_channels
     );
@@ -350,7 +363,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _input_stream = input_device.and_then(|input_device| {
         let input_config = input_device.default_input_config().ok()?;
-        println!("Input: {}", input_device.name().unwrap_or_default());
+        println!(
+            "Input: {}",
+            input_device
+                .description()
+                .map(|d| d.name().to_string())
+                .unwrap_or_default()
+        );
         let buf = Arc::clone(&input_buffer);
         let stream = input_device
             .build_input_stream(

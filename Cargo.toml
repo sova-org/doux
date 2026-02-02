@@ -31,7 +31,7 @@ render = ["dep:clap", "dep:symphonia", "dep:arc-swap", "dep:hound"]
 
 [dependencies]
 clap = { version = "4", optional = true, features = ["derive"] }
-cpal = { version = "0.15", optional = true, features = ["jack"] }
+cpal = { version = "0.17", optional = true, features = ["jack"] }
 rosc = { version = "0.10", optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["wav", "pcm", "mp3", "ogg", "flac", "aac"] }
 hound = { version = "3.5", optional = true }
