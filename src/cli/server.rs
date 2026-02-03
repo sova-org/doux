@@ -179,14 +179,20 @@ fn main() {
     let default_config = device.default_output_config().unwrap();
     let sample_rate = default_config.sample_rate() as f32;
 
+    let is_jack = doux::audio::is_jack_host();
+    let buffer_size = match args.buffer_size {
+        Some(buf) if !is_jack => cpal::BufferSize::Fixed(buf),
+        Some(_) => {
+            eprintln!("Note: JACK controls buffer size, ignoring -b flag");
+            cpal::BufferSize::Default
+        }
+        None => cpal::BufferSize::Default,
+    };
+
     let config = cpal::StreamConfig {
         channels: output_channels as u16,
         sample_rate: default_config.sample_rate(),
-        buffer_size: args
-            .buffer_size
-            .filter(|_| !doux::audio::is_jack_host())
-            .map(cpal::BufferSize::Fixed)
-            .unwrap_or(cpal::BufferSize::Default),
+        buffer_size,
     };
 
     println!("Audio host: {}", host.id().name());
