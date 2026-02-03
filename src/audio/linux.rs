@@ -2,7 +2,7 @@
 
 use super::common::{AudioHostInfo, DiagnosticResult};
 use crate::error::DouxError;
-use cpal::platform::{DeviceInner, JackDevice};
+use cpal::platform::JackHost;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host};
 
@@ -81,23 +81,23 @@ pub fn preferred_host() -> Host {
 }
 
 /// Creates a JACK output device with a custom client name.
-fn jack_output_device(client_name: &str, connect_automatically: bool) -> Option<Device> {
-    let jack_dev =
-        JackDevice::default_output_device(client_name, connect_automatically, false).ok()?;
-    Some(Device::from(DeviceInner::Jack(jack_dev)))
+fn jack_output_device(client_name: &str) -> Option<Device> {
+    let mut host = JackHost::new().ok()?;
+    let jack_dev = host.output_device_with_name(client_name)?;
+    Some(jack_dev.into())
 }
 
 /// Creates a JACK input device with a custom client name.
-fn jack_input_device(client_name: &str, connect_automatically: bool) -> Option<Device> {
-    let jack_dev =
-        JackDevice::default_input_device(client_name, connect_automatically, false).ok()?;
-    Some(Device::from(DeviceInner::Jack(jack_dev)))
+fn jack_input_device(client_name: &str) -> Option<Device> {
+    let mut host = JackHost::new().ok()?;
+    let jack_dev = host.input_device_with_name(client_name)?;
+    Some(jack_dev.into())
 }
 
 /// Returns the default output device.
 /// Uses JACK with "doux" as the client name if available.
 pub fn default_output_device() -> Option<Device> {
-    if let Some(device) = jack_output_device("doux", true) {
+    if let Some(device) = jack_output_device("doux") {
         return Some(device);
     }
     preferred_host().default_output_device()
@@ -106,7 +106,7 @@ pub fn default_output_device() -> Option<Device> {
 /// Returns the default input device.
 /// Uses JACK with "doux" as the client name if available.
 pub fn default_input_device() -> Option<Device> {
-    if let Some(device) = jack_input_device("doux", true) {
+    if let Some(device) = jack_input_device("doux") {
         return Some(device);
     }
     preferred_host().default_input_device()
