@@ -323,6 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_rate: default_config.sample_rate(),
         buffer_size: args
             .buffer_size
+            .filter(|_| !doux::audio::is_jack_host())
             .map(cpal::BufferSize::Fixed)
             .unwrap_or(cpal::BufferSize::Default),
     };

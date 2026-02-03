@@ -171,6 +171,12 @@ pub fn default_output_config(device: &Device) -> Option<SupportedStreamConfig> {
     device.default_output_config().ok()
 }
 
+/// Returns true if the preferred audio host is JACK.
+/// JACK enforces its own buffer size, so user-specified buffer sizes should be ignored.
+pub fn is_jack_host() -> bool {
+    preferred_host().id().name().to_lowercase().contains("jack")
+}
+
 /// Gets the maximum number of output channels supported by a device.
 pub fn max_output_channels(device: &Device) -> u16 {
     device
