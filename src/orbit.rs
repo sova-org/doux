@@ -48,6 +48,7 @@ pub struct Orbit {
     pub comb: Comb,
     pub comb_send: [f32; CHANNELS],
     pub comb_out: [f32; CHANNELS],
+    pub params: EffectParams,
     pub sr: f32,
     silent_samples: u32,
 }
@@ -65,6 +66,7 @@ impl Orbit {
             comb: Comb::default(),
             comb_send: [0.0; CHANNELS],
             comb_out: [0.0; CHANNELS],
+            params: EffectParams::default(),
             sr,
             silent_samples: SILENCE_HOLDOFF + 1,
         }
@@ -88,7 +90,8 @@ impl Orbit {
         self.comb_send[ch] += value;
     }
 
-    pub fn process(&mut self, p: &EffectParams) {
+    pub fn process(&mut self) {
+        let p = &self.params;
         let has_input = self.delay_send[0] != 0.0
             || self.delay_send[1] != 0.0
             || self.verb_send[0] != 0.0

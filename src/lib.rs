@@ -22,7 +22,7 @@ mod wasm;
 
 use dsp::init_envelope;
 use event::Event;
-use orbit::{EffectParams, Orbit};
+use orbit::Orbit;
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
 use sampling::SampleEntry;
@@ -64,8 +64,6 @@ pub struct Engine {
     pub sample_registry: Arc<SampleRegistry>,
     #[cfg(feature = "native")]
     pub sample_loader: SampleLoader,
-    // Default orbit params (used when voice doesn't specify)
-    pub effect_params: EffectParams,
     // Telemetry (native only)
     #[cfg(feature = "native")]
     pub metrics: Arc<EngineMetrics>,
@@ -99,7 +97,6 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            effect_params: EffectParams::default(),
         }
     }
 
@@ -133,7 +130,6 @@ impl Engine {
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
-            effect_params: EffectParams::default(),
             metrics: Arc::new(EngineMetrics::default()),
         }
     }
@@ -168,7 +164,6 @@ impl Engine {
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
-            effect_params: EffectParams::default(),
             metrics,
         }
     }
@@ -768,39 +763,36 @@ impl Engine {
                     self.orbits[orbit_idx]
                         .add_delay_send(c, self.voices[i].ch[c] * self.voices[i].params.delay);
                 }
-                // Update orbit delay params from voice
-                self.effect_params.delay_time = self.voices[i].params.delaytime;
-                self.effect_params.delay_feedback = self.voices[i].params.delayfeedback;
-                self.effect_params.delay_type = self.voices[i].params.delaytype;
+                self.orbits[orbit_idx].params.delay_time = self.voices[i].params.delaytime;
+                self.orbits[orbit_idx].params.delay_feedback = self.voices[i].params.delayfeedback;
+                self.orbits[orbit_idx].params.delay_type = self.voices[i].params.delaytype;
             }
             if self.voices[i].params.verb > 0.0 {
                 for c in 0..CHANNELS {
                     self.orbits[orbit_idx]
                         .add_verb_send(c, self.voices[i].ch[c] * self.voices[i].params.verb);
                 }
-                // Update orbit verb params from voice
-                self.effect_params.verb_type = self.voices[i].params.verbtype;
-                self.effect_params.verb_decay = self.voices[i].params.verbdecay;
-                self.effect_params.verb_damp = self.voices[i].params.verbdamp;
-                self.effect_params.verb_predelay = self.voices[i].params.verbpredelay;
-                self.effect_params.verb_diff = self.voices[i].params.verbdiff;
+                self.orbits[orbit_idx].params.verb_type = self.voices[i].params.verbtype;
+                self.orbits[orbit_idx].params.verb_decay = self.voices[i].params.verbdecay;
+                self.orbits[orbit_idx].params.verb_damp = self.voices[i].params.verbdamp;
+                self.orbits[orbit_idx].params.verb_predelay = self.voices[i].params.verbpredelay;
+                self.orbits[orbit_idx].params.verb_diff = self.voices[i].params.verbdiff;
             }
             if self.voices[i].params.comb > 0.0 {
                 for c in 0..CHANNELS {
                     self.orbits[orbit_idx]
                         .add_comb_send(c, self.voices[i].ch[c] * self.voices[i].params.comb);
                 }
-                // Update orbit comb params from voice
-                self.effect_params.comb_freq = self.voices[i].params.combfreq;
-                self.effect_params.comb_feedback = self.voices[i].params.combfeedback;
-                self.effect_params.comb_damp = self.voices[i].params.combdamp;
+                self.orbits[orbit_idx].params.comb_freq = self.voices[i].params.combfreq;
+                self.orbits[orbit_idx].params.comb_feedback = self.voices[i].params.combfeedback;
+                self.orbits[orbit_idx].params.comb_damp = self.voices[i].params.combdamp;
             }
 
             i += 1;
         }
 
         for (orbit_idx, orbit) in self.orbits.iter_mut().enumerate() {
-            orbit.process(&self.effect_params);
+            orbit.process();
 
             let out_pair = orbit_idx % num_pairs;
             let pair_offset = out_pair * 2;

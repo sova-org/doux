@@ -3,7 +3,7 @@ use std::str::FromStr;
 pub const BLOCK_SIZE: usize = 128;
 pub const CHANNELS: usize = 2;
 pub const DEFAULT_MAX_VOICES: usize = 32;
-pub const MAX_EVENTS: usize = 64;
+pub const MAX_EVENTS: usize = 256;
 pub const MAX_ORBITS: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
