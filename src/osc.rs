@@ -83,39 +83,42 @@ fn handle_message(engine: &Arc<Mutex<Engine>>, msg: &OscMessage) {
 /// Converts OSC message arguments to a slash-separated path string.
 ///
 /// Arguments are processed as key-value pairs. Keys must be strings;
-/// non-string keys cause the pair to be skipped. Values are converted
-/// to their string representation.
+/// non-string keys cause the pair to be skipped. Values are written
+/// directly into a single String without intermediate allocations.
 fn osc_to_path(msg: &OscMessage) -> String {
-    let mut parts: Vec<String> = Vec::new();
     let args = &msg.args;
+    let mut path = String::with_capacity(args.len() * 8);
     let mut i = 0;
 
     while i + 1 < args.len() {
         let key = match &args[i] {
-            OscType::String(s) => s.clone(),
+            OscType::String(s) => s.as_str(),
             _ => {
                 i += 1;
                 continue;
             }
         };
-        let val = arg_to_string(&args[i + 1]);
-        parts.push(key);
-        parts.push(val);
+        if !path.is_empty() {
+            path.push('/');
+        }
+        path.push_str(key);
+        path.push('/');
+        push_osc_arg(&mut path, &args[i + 1]);
         i += 2;
     }
 
-    parts.join("/")
+    path
 }
 
-/// Converts an OSC type to its string representation.
-fn arg_to_string(arg: &OscType) -> String {
+fn push_osc_arg(buf: &mut String, arg: &OscType) {
+    use std::fmt::Write;
     match arg {
-        OscType::Int(v) => v.to_string(),
-        OscType::Float(v) => v.to_string(),
-        OscType::Double(v) => v.to_string(),
-        OscType::Long(v) => v.to_string(),
-        OscType::String(s) => s.clone(),
-        OscType::Bool(b) => if *b { "1" } else { "0" }.to_string(),
-        _ => String::new(),
+        OscType::Int(v) => write!(buf, "{v}").unwrap(),
+        OscType::Float(v) => write!(buf, "{v}").unwrap(),
+        OscType::Double(v) => write!(buf, "{v}").unwrap(),
+        OscType::Long(v) => write!(buf, "{v}").unwrap(),
+        OscType::String(s) => buf.push_str(s),
+        OscType::Bool(b) => buf.push(if *b { '1' } else { '0' }),
+        _ => {}
     }
 }

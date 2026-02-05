@@ -256,24 +256,24 @@ impl Voice {
         let dt_c = freq * isr;
         let phase_c = self.spread_phasors[3].phase;
         let center = self.osc_at(phase_c, dt_c);
-        self.spread_phasors[3].phase = (phase_c + dt_c) % 1.0;
+        self.spread_phasors[3].phase = (phase_c + dt_c).fract();
         left += center;
         right += center;
 
         for i in 1..=3 {
             let detune_cents = (i * i) as f32 * self.params.spread;
             let ratio_up = exp2f(detune_cents / 1200.0);
-            let ratio_down = exp2f(-detune_cents / 1200.0);
+            let ratio_down = 1.0 / ratio_up;
 
             let dt_up = freq * ratio_up * isr;
             let phase_up = self.spread_phasors[3 + i].phase;
             let voice_up = self.osc_at(phase_up, dt_up);
-            self.spread_phasors[3 + i].phase = (phase_up + dt_up) % 1.0;
+            self.spread_phasors[3 + i].phase = (phase_up + dt_up).fract();
 
             let dt_down = freq * ratio_down * isr;
             let phase_down = self.spread_phasors[3 - i].phase;
             let voice_down = self.osc_at(phase_down, dt_down);
-            self.spread_phasors[3 - i].phase = (phase_down + dt_down) % 1.0;
+            self.spread_phasors[3 - i].phase = (phase_down + dt_down).fract();
 
             let pan = PAN[i - 1];
             left += voice_down * (0.5 + pan * 0.5) + voice_up * (0.5 - pan * 0.5);

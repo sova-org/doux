@@ -19,37 +19,42 @@ pub fn payload_to_command(
     timetag: Option<SyncTime>,
     time_converter: &TimeConverter,
 ) -> String {
-    let mut parts = Vec::new();
+    use std::fmt::Write;
+    let mut cmd = String::with_capacity(args.len() * 16 + 32);
 
     if let Some(tt) = timetag {
         let engine_time = time_converter.sync_to_engine_time(tt);
-        parts.push("time".to_string());
-        parts.push(engine_time.to_string());
+        write!(cmd, "/time/{engine_time}").unwrap();
     }
 
     for (key, value) in args {
-        parts.push(key.clone());
-        parts.push(value_to_string(value));
+        cmd.push('/');
+        cmd.push_str(key);
+        cmd.push('/');
+        push_value(&mut cmd, value);
     }
 
-    format!("/{}", parts.join("/"))
+    if cmd.is_empty() {
+        cmd.push('/');
+    }
+    cmd
 }
 
-/// Converts a Sova variable value to a string for Doux.
-fn value_to_string(v: &VariableValue) -> String {
+fn push_value(buf: &mut String, v: &VariableValue) {
+    use std::fmt::Write;
     match v {
-        VariableValue::Integer(i) => i.to_string(),
-        VariableValue::Float(f) => f.to_string(),
+        VariableValue::Integer(i) => write!(buf, "{i}").unwrap(),
+        VariableValue::Float(f) => write!(buf, "{f}").unwrap(),
         VariableValue::Decimal(sign, num, den) => {
             let f = (*num as f64) / (*den as f64);
             if *sign < 0 {
-                format!("-{f}")
+                write!(buf, "-{f}").unwrap();
             } else {
-                f.to_string()
+                write!(buf, "{f}").unwrap();
             }
         }
-        VariableValue::Str(s) => s.clone(),
-        VariableValue::Bool(b) => if *b { "1" } else { "0" }.to_string(),
-        _ => String::new(),
+        VariableValue::Str(s) => buf.push_str(s),
+        VariableValue::Bool(b) => buf.push(if *b { '1' } else { '0' }),
+        _ => {}
     }
 }
