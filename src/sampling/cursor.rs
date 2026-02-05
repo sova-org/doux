@@ -81,6 +81,16 @@ impl Cursor {
         self.length = length;
     }
 
+    /// Recomputes the playback range for a new frame count, preserving position.
+    pub fn upgrade_frame_count(&mut self, old_frame_count: u32, new_frame_count: u32) {
+        let fc_old = old_frame_count as f32;
+        let begin = self.start_pos / fc_old;
+        let end = begin + self.length / fc_old;
+        let (start_pos, length) = Self::compute_range(new_frame_count, begin, end);
+        self.start_pos = start_pos;
+        self.length = length;
+    }
+
     /// Advances the cursor by the given speed (frames per sample).
     ///
     /// On first call, if speed is negative, position jumps to end for reverse playback.

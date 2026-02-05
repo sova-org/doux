@@ -18,8 +18,10 @@ pub struct SampleData {
     pub channels: u8,
     /// Base frequency in Hz for pitch calculations.
     pub freq: f32,
-    /// Total number of frames (samples per channel).
+    /// Number of frames in the PCM buffer.
     pub frame_count: u32,
+    /// Total frames in the original file (may differ from frame_count for head preloads).
+    pub total_frames: u32,
 }
 
 impl SampleData {
@@ -31,6 +33,19 @@ impl SampleData {
             channels,
             freq,
             frame_count,
+            total_frames: frame_count,
+        }
+    }
+
+    /// Creates sample data for a head preload where total_frames may exceed frame_count.
+    pub fn new_head(samples: Vec<f32>, channels: u8, freq: f32, total_frames: u32) -> Self {
+        let frame_count = (samples.len() / channels as usize) as u32;
+        Self {
+            frames: samples.into_boxed_slice(),
+            channels,
+            freq,
+            frame_count,
+            total_frames,
         }
     }
 

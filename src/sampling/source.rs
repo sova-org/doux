@@ -12,20 +12,32 @@ use super::registry::SampleData;
 /// Holds an Arc to immutable sample data and a cursor for position tracking.
 /// Safe to clone and use across threads.
 pub struct RegistrySample {
+    pub name: String,
     pub data: Arc<SampleData>,
     cursor: Cursor,
 }
 
 impl RegistrySample {
     /// Creates a new sample playback source.
-    ///
-    /// # Arguments
-    /// * `data` - Arc to the sample data
-    /// * `begin` - Start position as normalized value (0.0-1.0)
-    /// * `end` - End position as normalized value (0.0-1.0)
-    pub fn new(data: Arc<SampleData>, begin: f32, end: f32) -> Self {
+    pub fn new(name: String, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let cursor = Cursor::new(data.frame_count, begin, end);
-        Self { data, cursor }
+        Self { name, data, cursor }
+    }
+
+    /// Returns true if this is a head preload (not fully decoded yet).
+    #[inline]
+    pub fn is_head(&self) -> bool {
+        self.data.frame_count < self.data.total_frames
+    }
+
+    /// Upgrades to full sample data, preserving cursor position.
+    pub fn upgrade(&mut self, new_data: Arc<SampleData>) {
+        let old_fc = self.data.frame_count;
+        let new_fc = new_data.frame_count;
+        self.data = new_data;
+        if new_fc != old_fc {
+            self.cursor.upgrade_frame_count(old_fc, new_fc);
+        }
     }
 
     /// Updates the playback range.
@@ -58,6 +70,7 @@ impl RegistrySample {
 impl Clone for RegistrySample {
     fn clone(&self) -> Self {
         Self {
+            name: self.name.clone(),
             data: Arc::clone(&self.data),
             cursor: self.cursor,
         }

@@ -251,6 +251,7 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
     let codec_params = &track.codec_params;
     let channels = codec_params.channels.map(|c| c.count()).unwrap_or(1) as u8;
     let sample_rate = codec_params.sample_rate.unwrap_or(44100) as f32;
+    let file_n_frames = codec_params.n_frames;
     let max_interleaved = HEAD_FRAMES * channels as usize;
 
     let mut decoder = symphonia::default::get_codecs()
@@ -305,13 +306,32 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
         samples.truncate(max_interleaved);
     }
 
-    let resampled = if (sample_rate - target_sr).abs() > 1.0 {
+    let resample = (sample_rate - target_sr).abs() > 1.0;
+    let resampled = if resample {
         resample_linear(&samples, channels as usize, sample_rate, target_sr)
     } else {
         samples
     };
 
-    Ok(SampleData::new(resampled, channels, DEFAULT_BASE_FREQ))
+    let decoded_frames = (resampled.len() / channels as usize) as u32;
+    let total_frames = match file_n_frames {
+        Some(n) => {
+            let n = if resample {
+                (n as f32 * target_sr / sample_rate) as u32
+            } else {
+                n as u32
+            };
+            n.max(decoded_frames)
+        }
+        None => decoded_frames,
+    };
+
+    Ok(SampleData::new_head(
+        resampled,
+        channels,
+        DEFAULT_BASE_FREQ,
+        total_frames,
+    ))
 }
 
 /// Resamples interleaved audio using linear interpolation.

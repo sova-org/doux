@@ -203,14 +203,19 @@ impl Engine {
 
     /// Try to get a sample from the registry, or request background loading.
     #[cfg(feature = "native")]
-    fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<Arc<SampleData>> {
+    fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<(String, Arc<SampleData>)> {
         let sample_name = self.get_sample_name(name, n)?;
 
         if let Some(data) = self.sample_registry.get(&sample_name) {
-            return Some(data);
+            if data.frame_count < data.total_frames {
+                let index_idx = self.find_sample_index(name, n)?;
+                let path = self.sample_index[index_idx].path.clone();
+                self.sample_loader
+                    .request(sample_name.clone(), path, self.sr);
+            }
+            return Some((sample_name, data));
         }
 
-        // Request background loading
         let index_idx = self.find_sample_index(name, n)?;
         let path = self.sample_index[index_idx].path.clone();
         self.sample_loader.request(sample_name, path, self.sr);
@@ -396,20 +401,20 @@ impl Engine {
         // Resolve sound/sample first (before borrowing voice)
         // If sound parses as a Source, use it; otherwise treat as sample folder name
         #[cfg(feature = "native")]
-        let registry_sample_data: Option<Arc<SampleData>> = if let Some(ref sound_str) = event.sound
-        {
-            if sound_str.parse::<Source>().is_ok() {
-                None
+        let registry_sample_data: Option<(String, Arc<SampleData>)> =
+            if let Some(ref sound_str) = event.sound {
+                if sound_str.parse::<Source>().is_ok() {
+                    None
+                } else {
+                    let effective_name = match &event.bank {
+                        Some(b) => format!("{sound_str}_{b}"),
+                        None => sound_str.clone(),
+                    };
+                    self.get_registry_sample(&effective_name, event.n.unwrap_or(0))
+                }
             } else {
-                let effective_name = match &event.bank {
-                    Some(b) => format!("{sound_str}_{b}"),
-                    None => sound_str.clone(),
-                };
-                self.get_registry_sample(&effective_name, event.n.unwrap_or(0))
-            }
-        } else {
-            None
-        };
+                None
+            };
 
         let parsed_source = if let Some(ref sound_str) = event.sound {
             sound_str.parse::<Source>().ok()
@@ -487,7 +492,7 @@ impl Engine {
 
         // Sample playback via lock-free registry (native)
         #[cfg(feature = "native")]
-        if let Some(sample_data) = registry_sample_data {
+        if let Some((sample_name, sample_data)) = registry_sample_data {
             // Use Wavetable mode if scan param present, otherwise Sample
             v.params.sound = if event.scan.is_some() {
                 Source::Wavetable
@@ -496,8 +501,8 @@ impl Engine {
             };
             let begin = event.begin.unwrap_or(0.0);
             let end = event.end.unwrap_or(1.0);
-            let frame_count = sample_data.frame_count;
-            v.registry_sample = Some(RegistrySample::new(sample_data, begin, end));
+            let frame_count = sample_data.total_frames;
+            v.registry_sample = Some(RegistrySample::new(sample_name, sample_data, begin, end));
             if event.freq.is_none() {
                 v.params.freq = 261.626;
             }
@@ -735,6 +740,16 @@ impl Engine {
 
         let mut i = 0;
         while i < self.active_voices {
+            #[cfg(feature = "native")]
+            if let Some(ref mut rs) = self.voices[i].registry_sample {
+                if rs.is_head() {
+                    if let Some(full) = self.sample_registry.get(&rs.name) {
+                        if full.frame_count >= full.total_frames {
+                            rs.upgrade(full);
+                        }
+                    }
+                }
+            }
             #[cfg(feature = "native")]
             let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input);
             #[cfg(not(feature = "native"))]

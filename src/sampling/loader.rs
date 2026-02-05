@@ -86,8 +86,13 @@ fn loader_thread(rx: Receiver<LoadRequest>, registry: Arc<SampleRegistry>) {
     let mut pending: HashSet<String> = HashSet::new();
 
     for request in rx {
-        if registry.contains(&request.name) || pending.contains(&request.name) {
+        if pending.contains(&request.name) {
             continue;
+        }
+        if let Some(data) = registry.get(&request.name) {
+            if data.frame_count >= data.total_frames {
+                continue;
+            }
         }
 
         pending.insert(request.name.clone());
