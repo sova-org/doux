@@ -633,7 +633,7 @@ impl Engine {
             pitch_env_active
         );
         copy_opt!(event, v.params, vib, vibmod, vibshape);
-        copy_opt!(event, v.params, fm, fmh, fmshape);
+        copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmalgo, fmfb);
         apply_env!(event, v.params, fme, fma, fmd, fms, fmr, fm_env_active);
         copy_opt!(event, v.params, am, amdepth, amshape);
         copy_opt!(event, v.params, rm, rmdepth, rmshape);
@@ -695,9 +695,7 @@ impl Engine {
             let diff = self.time - t;
             let mut event = self.schedule.pop_front().unwrap();
 
-            // Fire only if event is fresh (within 1ms) - matches dough.c WASM
-            // Old events are silently rescheduled to catch up
-            if diff < 0.001 {
+            if diff < 0.02 {
                 self.process_event(&event);
             }
 

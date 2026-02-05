@@ -53,6 +53,9 @@ pub struct Voice {
     pub scan_lfo: Phasor,
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
+    pub fm2_phasor: Phasor,
+    pub fm_fb_prev: f32,
+    pub fm_fb_prev2: f32,
     pub am_lfo: Phasor,
     pub rm_lfo: Phasor,
     pub glide_lag: Lag,
@@ -119,6 +122,9 @@ impl Default for Voice {
             scan_lfo: Phasor::default(),
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
+            fm2_phasor: Phasor::default(),
+            fm_fb_prev: 0.0,
+            fm_fb_prev2: 0.0,
             am_lfo: Phasor::default(),
             rm_lfo: Phasor::default(),
             glide_lag: Lag::default(),
@@ -174,6 +180,9 @@ impl Clone for Voice {
             scan_lfo: self.scan_lfo,
             vib_lfo: self.vib_lfo,
             fm_phasor: self.fm_phasor,
+            fm2_phasor: self.fm2_phasor,
+            fm_fb_prev: self.fm_fb_prev,
+            fm_fb_prev2: self.fm_fb_prev2,
             am_lfo: self.am_lfo,
             rm_lfo: self.rm_lfo,
             glide_lag: self.glide_lag,
@@ -236,10 +245,9 @@ impl Voice {
             freq = self.glide_lag.update(freq, glide_time, self.lag_unit);
         }
 
-        // FM synthesis
-        if self.params.fm > 0.0 {
-            let mut fm_amount = self.params.fm;
-            if self.params.fm_env_active {
+        // FM synthesis (3-operator)
+        if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
+            let env_scale = if self.params.fm_env_active {
                 let env = self.fm_adsr.update(
                     self.time,
                     self.params.gate,
@@ -248,12 +256,59 @@ impl Voice {
                     self.params.fms,
                     self.params.fmr,
                 );
-                fm_amount = self.params.fme * env * fm_amount + fm_amount;
+                self.params.fme * env + 1.0
+            } else {
+                1.0
+            };
+
+            let fm1 = self.params.fm * env_scale;
+            let fm2 = self.params.fm2 * env_scale;
+            let shape = self.params.fmshape;
+            let fb = (self.fm_fb_prev + self.fm_fb_prev2) * 0.5 * self.params.fmfb;
+
+            if fm2 > 0.0 {
+                match self.params.fmalgo {
+                    // Cascade: fm2 -> fm1 -> carrier
+                    0 => {
+                        let mod2_freq = freq * self.params.fm2h;
+                        let mod2 = self.fm2_phasor.lfo(shape, mod2_freq + fb * mod2_freq, isr);
+                        self.fm_fb_prev2 = self.fm_fb_prev;
+                        self.fm_fb_prev = mod2;
+                        let mod1_base = freq * self.params.fmh;
+                        let mod1_freq = mod1_base + mod2 * mod2_freq * fm2;
+                        let mod1 = self.fm_phasor.lfo(shape, mod1_freq, isr);
+                        freq += mod1 * mod1_base * fm1;
+                    }
+                    // Parallel: fm1 + fm2 both modulate carrier
+                    1 => {
+                        let mf1 = freq * self.params.fmh;
+                        freq += self.fm_phasor.lfo(shape, mf1, isr) * mf1 * fm1;
+                        let mf2 = freq * self.params.fm2h;
+                        let mod2 = self.fm2_phasor.lfo(shape, mf2 + fb * mf2, isr);
+                        self.fm_fb_prev2 = self.fm_fb_prev;
+                        self.fm_fb_prev = mod2;
+                        freq += mod2 * mf2 * fm2;
+                    }
+                    // Branch: fm2 -> fm1 -> carrier AND fm2 -> carrier
+                    _ => {
+                        let mod2_freq = freq * self.params.fm2h;
+                        let mod2 = self.fm2_phasor.lfo(shape, mod2_freq + fb * mod2_freq, isr);
+                        self.fm_fb_prev2 = self.fm_fb_prev;
+                        self.fm_fb_prev = mod2;
+                        let mod1_base = freq * self.params.fmh;
+                        let mod1_freq = mod1_base + mod2 * mod2_freq * fm2;
+                        let mod1 = self.fm_phasor.lfo(shape, mod1_freq, isr);
+                        freq += mod1 * mod1_base * fm1;
+                        freq += mod2 * mod2_freq * fm2;
+                    }
+                }
+            } else {
+                let mod1_freq = freq * self.params.fmh;
+                let mod1 = self.fm_phasor.lfo(shape, mod1_freq + fb * mod1_freq, isr);
+                self.fm_fb_prev2 = self.fm_fb_prev;
+                self.fm_fb_prev = mod1;
+                freq += mod1 * mod1_freq * fm1;
             }
-            let mod_freq = freq * self.params.fmh;
-            let mod_gain = mod_freq * fm_amount;
-            let modulator = self.fm_phasor.lfo(self.params.fmshape, mod_freq, isr);
-            freq += modulator * mod_gain;
         }
 
         // Pitch envelope

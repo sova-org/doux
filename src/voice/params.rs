@@ -226,6 +226,14 @@ pub struct VoiceParams {
     pub fmr: f32,
     /// Enable FM envelope modulation.
     pub fm_env_active: bool,
+    /// FM operator 2 modulation index (depth). 0 = off.
+    pub fm2: f32,
+    /// FM operator 2 harmonic ratio (mod2 freq = carrier freq * fm2h).
+    pub fm2h: f32,
+    /// FM algorithm (0=cascade, 1=parallel, 2=branch).
+    pub fmalgo: u8,
+    /// FM feedback amount on the topmost operator.
+    pub fmfb: f32,
 
     // ─────────────────────────────────────────────────────────────────────
     // Amplitude Modulation
@@ -432,6 +440,10 @@ impl Default for VoiceParams {
             fms: 1.0,
             fmr: 0.005,
             fm_env_active: false,
+            fm2: 0.0,
+            fm2h: 1.0,
+            fmalgo: 0,
+            fmfb: 0.0,
             am: 0.0,
             amdepth: 0.5,
             amshape: LfoShape::Sine,

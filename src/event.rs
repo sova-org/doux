@@ -127,6 +127,10 @@ pub struct Event {
     pub fmd: Option<f32>,
     pub fms: Option<f32>,
     pub fmr: Option<f32>,
+    pub fm2: Option<f32>,
+    pub fm2h: Option<f32>,
+    pub fmalgo: Option<u8>,
+    pub fmfb: Option<f32>,
 
     // AM
     pub am: Option<f32>,
@@ -296,6 +300,10 @@ impl Event {
                 "fmd" => event.fmd = val.parse().ok(),
                 "fms" => event.fms = val.parse().ok(),
                 "fmr" => event.fmr = val.parse().ok(),
+                "fm2" => event.fm2 = val.parse().ok(),
+                "fm2h" => event.fm2h = val.parse().ok(),
+                "fmalgo" => event.fmalgo = val.parse::<f32>().ok().map(|f| f as u8),
+                "fmfb" => event.fmfb = val.parse().ok(),
                 "am" => event.am = val.parse().ok(),
                 "amdepth" => event.amdepth = val.parse().ok(),
                 "amshape" => event.amshape = val.parse().ok(),
