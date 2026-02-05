@@ -18,7 +18,7 @@ pub use sample::{FileSource, SampleInfo, SamplePool};
 pub use sample::{WebSampleInfo, WebSampleSource};
 
 #[cfg(feature = "native")]
-pub use decode::{decode_sample_file, scan_samples_dir};
+pub use decode::{decode_sample_file, decode_sample_head, scan_samples_dir, HEAD_FRAMES};
 #[cfg(feature = "native")]
 pub use loader::SampleLoader;
 #[cfg(feature = "native")]

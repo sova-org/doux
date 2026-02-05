@@ -215,6 +215,105 @@ pub fn decode_sample_file(path: &Path, target_sr: f32) -> Result<SampleData, Str
     Ok(SampleData::new(resampled, channels, DEFAULT_BASE_FREQ))
 }
 
+/// Maximum frames to decode for head preloading (~93ms at 44.1kHz).
+pub const HEAD_FRAMES: usize = 4096;
+
+/// Decodes only the first [`HEAD_FRAMES`] of an audio file.
+///
+/// If the file is shorter than HEAD_FRAMES, the entire file is decoded.
+/// Used for head-preloading: the attack portion lives in RAM so playback
+/// can start instantly while the rest streams from disk on demand.
+pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|e| format!("Failed to probe format: {e}"))?;
+
+    let mut format = probed.format;
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        .ok_or("No audio track found")?;
+
+    let codec_params = &track.codec_params;
+    let channels = codec_params.channels.map(|c| c.count()).unwrap_or(1) as u8;
+    let sample_rate = codec_params.sample_rate.unwrap_or(44100) as f32;
+    let max_interleaved = HEAD_FRAMES * channels as usize;
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make(codec_params, &DecoderOptions::default())
+        .map_err(|e| format!("Failed to create decoder: {e}"))?;
+
+    let track_id = track.id;
+    let mut samples: Vec<f32> = Vec::new();
+    let mut sample_buf: Option<SampleBuffer<f32>> = None;
+
+    loop {
+        if samples.len() >= max_interleaved {
+            samples.truncate(max_interleaved);
+            break;
+        }
+
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(symphonia::core::errors::Error::IoError(e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(e) => return Err(format!("Failed to read packet: {e}")),
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let decoded = match decoder.decode(&packet) {
+            Ok(d) => d,
+            Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
+            Err(e) => return Err(format!("Decode error: {e}")),
+        };
+
+        let spec = *decoded.spec();
+        let duration = decoded.capacity() as u64;
+
+        let buf = sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration, spec));
+        buf.copy_interleaved_ref(decoded);
+
+        samples.extend_from_slice(buf.samples());
+    }
+
+    if samples.is_empty() {
+        return Err("No samples decoded".to_string());
+    }
+
+    // Truncate to exact head limit after final packet
+    if samples.len() > max_interleaved {
+        samples.truncate(max_interleaved);
+    }
+
+    let resampled = if (sample_rate - target_sr).abs() > 1.0 {
+        resample_linear(&samples, channels as usize, sample_rate, target_sr)
+    } else {
+        samples
+    };
+
+    Ok(SampleData::new(resampled, channels, DEFAULT_BASE_FREQ))
+}
+
 /// Resamples interleaved audio using linear interpolation.
 ///
 /// Simple but fast resampling suitable for non-critical applications.

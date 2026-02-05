@@ -94,6 +94,15 @@ impl SampleRegistry {
         self.samples.store(Arc::new(new_map));
     }
 
+    /// Inserts many samples in a single atomic swap.
+    pub fn insert_batch(&self, entries: impl IntoIterator<Item = (String, Arc<SampleData>)>) {
+        let mut new_map = HashMap::clone(&self.samples.load());
+        for (name, data) in entries {
+            new_map.insert(name, data);
+        }
+        self.samples.store(Arc::new(new_map));
+    }
+
     /// Checks if a sample exists (lock-free).
     #[inline]
     pub fn contains(&self, name: &str) -> bool {
