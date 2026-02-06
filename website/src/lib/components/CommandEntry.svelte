@@ -23,6 +23,8 @@
         children,
     }: Props = $props();
 
+    let detailsEl: HTMLDetailsElement;
+
     function formatRange(): string | null {
         if (min !== undefined && max !== undefined) {
             return `${min}–${max}`;
@@ -35,9 +37,18 @@
         }
         return null;
     }
+
+    function onToggle() {
+        if (!detailsEl.open) return;
+        const section = detailsEl.closest("section.category");
+        if (!section) return;
+        for (const d of section.querySelectorAll("details")) {
+            if (d !== detailsEl) d.open = false;
+        }
+    }
 </script>
 
-<details id={name}>
+<details id={name} bind:this={detailsEl} ontoggle={onToggle}>
     <summary>
         <span class="name">{name}</span>
         {#if type && type !== "source"}
@@ -60,20 +71,18 @@
             </span>
         {/if}
     </summary>
-    <div class="content">
+    <div class="entry-content">
         {@render children()}
     </div>
 </details>
 
 <style>
     details {
-        margin: 16px 0;
-        background: #f5f5f5;
-        border: 1px solid #ccc;
+        border-bottom: 1px solid #ddd;
     }
 
     summary {
-        padding: 10px 14px;
+        padding: 8px 0;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -108,7 +117,7 @@
 
     .meta span {
         padding: 2px 6px;
-        background: #eee;
+        background: #f5f5f5;
         color: #666;
     }
 
@@ -124,8 +133,7 @@
         color: #999 !important;
     }
 
-    .content {
-        padding: 0 14px 14px;
-        border-top: 1px solid #ddd;
+    .entry-content {
+        padding: 0 0 12px 16px;
     }
 </style>

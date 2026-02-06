@@ -1,123 +1,80 @@
 <script lang="ts">
-    interface NavItem {
-        name: string;
-        category: string;
+    interface Category {
+        slug: string;
+        title: string;
         group: string;
     }
 
     interface Props {
-        items: NavItem[];
+        categories: Category[];
     }
 
-    let { items }: Props = $props();
+    let { categories }: Props = $props();
 
-    let expanded = $state<Record<string, boolean>>({});
+    let activeSlug = $state("");
 
-    function toggleCategory(category: string) {
-        expanded[category] = !expanded[category];
+    function grouped(group: string): Category[] {
+        return categories.filter((c) => c.group === group);
     }
 
-    function capitalize(str: string): string {
-        return str.charAt(0).toUpperCase() + str.slice(1);
-    }
+    $effect(() => {
+        const sections = document.querySelectorAll<HTMLElement>("section.category");
+        let ticking = false;
 
-    const categoryNames: Record<string, string> = {
-        plaits: "Complex",
-        io: "Audio Input",
-        am: "Amplitude Modulation",
-        rm: "Ring Modulation",
-        lowpass: "Lowpass Filter",
-        highpass: "Highpass Filter",
-        bandpass: "Bandpass Filter",
-        ladder: "Ladder Filter",
-        ftype: "Filter Type",
-        eq: "Equalizer",
-    };
-
-    function formatCategory(str: string): string {
-        return categoryNames[str] ?? capitalize(str);
-    }
-
-    const grouped = $derived.by(() => {
-        const groups: Record<string, Record<string, NavItem[]>> = {
-            sources: {},
-            synthesis: {},
-            effects: {},
-        };
-
-        for (const item of items) {
-            const group = item.group;
-            const category = item.category;
-            if (!groups[group]) continue;
-            if (!groups[group][category]) {
-                groups[group][category] = [];
+        function update() {
+            let current = "";
+            for (const section of sections) {
+                if (section.getBoundingClientRect().top <= 80) {
+                    current = section.id;
+                }
             }
-            groups[group][category].push(item);
+            activeSlug = current;
+            ticking = false;
         }
 
-        return groups;
+        function onScroll() {
+            if (!ticking) {
+                requestAnimationFrame(update);
+                ticking = true;
+            }
+        }
+
+        window.addEventListener("scroll", onScroll, { passive: true });
+        update();
+
+        return () => window.removeEventListener("scroll", onScroll);
     });
 </script>
 
 <aside class="sidebar">
     {#each ["sources", "synthesis", "effects"] as group (group)}
-        <div class="sidebar-section">{capitalize(group)}</div>
-        {#each Object.entries(grouped[group]) as [category, navItems] (category)}
-            <button
-                class="category-toggle"
-                onclick={() => toggleCategory(category)}
+        <div class="sidebar-section">{group}</div>
+        {#each grouped(group) as cat (cat.slug)}
+            <a
+                href="#{cat.slug}"
+                class="category-link"
+                class:active={activeSlug === cat.slug}
             >
-                {formatCategory(category)}
-            </button>
-            {#if expanded[category]}
-                <div class="commands">
-                    {#each navItems as item (item.name)}
-                        <a href="#{item.name}" class="command-link"
-                            >{item.name}</a
-                        >
-                    {/each}
-                </div>
-            {/if}
+                {cat.title}
+            </a>
         {/each}
     {/each}
 </aside>
 
 <style>
-    .sidebar-section {
-        margin-top: 16px;
-    }
-
-    .category-toggle {
+    .category-link {
         display: block;
-        width: 100%;
-        background: none;
-        border: none;
+        padding: 4px 16px;
         color: #666;
-        cursor: pointer;
-        padding: 4px 8px;
-        font-size: inherit;
-        font-family: inherit;
-        text-align: left;
+        text-decoration: none;
     }
 
-    .category-toggle:hover {
+    .category-link:hover {
         color: #000;
         background: #f5f5f5;
     }
 
-    .commands {
-        padding-left: 18px;
-    }
-
-    .command-link {
-        display: block;
-        color: #666;
-        text-decoration: none;
-        padding: 2px 8px;
-        font-size: 0.9em;
-    }
-
-    .command-link:hover {
+    .category-link.active {
         color: #000;
         background: #f5f5f5;
     }

@@ -11,23 +11,31 @@
         component: Component;
     }
 
-    interface NavItem {
-        name: string;
-        category: string;
-        group: string;
-    }
-
     interface Props {
         data: {
             categories: Category[];
-            navigation: NavItem[];
         };
     }
 
     let { data }: Props = $props();
+
+    function openHashTarget() {
+        const hash = location.hash.slice(1);
+        if (!hash) return;
+        const el = document.getElementById(hash);
+        if (el instanceof HTMLDetailsElement) {
+            el.open = true;
+        }
+    }
+
+    $effect(() => {
+        openHashTarget();
+        window.addEventListener("hashchange", openHashTarget);
+        return () => window.removeEventListener("hashchange", openHashTarget);
+    });
 </script>
 
-<Sidebar items={data.navigation} />
+<Sidebar categories={data.categories} />
 
 <main class="content">
     {#each data.categories as category}
@@ -40,19 +48,44 @@
 </main>
 
 <style>
+    .category {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        column-gap: 32px;
+    }
+
     .category-title {
+        grid-column: 1 / -1;
         border-bottom: 1px solid #ccc;
         padding-bottom: 8px;
-        margin-bottom: 24px;
+        margin-top: 2em;
+        margin-bottom: 16px;
         font-size: 1.2em;
     }
 
+    .category:first-of-type .category-title {
+        margin-top: 0;
+    }
+
+    .category :global(p),
+    .category :global(h2:not(.category-title)),
+    .category :global(ul),
+    .category :global(ol) {
+        grid-column: 1 / -1;
+    }
+
     .category :global(h2:not(.category-title)) {
-        background: #f5f5f5;
-        border: 1px solid #ccc;
         font-size: 1em;
         font-weight: normal;
-        margin: 24px 0 8px;
-        padding: 8px 12px;
+        margin: 2em 0 8px;
+        padding: 6px 0;
+        border-bottom: 1px solid #ddd;
+        color: #666;
+    }
+
+    @media (max-width: 768px) {
+        .category {
+            grid-template-columns: 1fr;
+        }
     }
 </style>

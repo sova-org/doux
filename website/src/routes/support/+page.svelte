@@ -1,7 +1,7 @@
 <script>
 </script>
 
-<main class="support-page">
+<main class="page">
     <h1>License & Support</h1>
 
     <section>
@@ -64,28 +64,20 @@
 </main>
 
 <style>
-    .support-page {
-        max-width: 650px;
-        margin: 0 auto;
-        padding: 20px 20px 60px;
-        overflow-y: auto;
-        height: 100%;
-    }
-
-    .support-page h1 {
-        font-size: 18px;
+    main h1 {
+        font-size: 1.4em;
         margin-top: 0;
         margin-bottom: 1.5em;
         color: #000;
     }
 
-    .support-page h2 {
+    main h2 {
         margin-top: 2em;
         margin-bottom: 0.5em;
         color: #000;
     }
 
-    .support-page section:first-of-type h2 {
+    main section:first-of-type h2 {
         margin-top: 0;
     }
 

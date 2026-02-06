@@ -657,7 +657,7 @@ dependencies = [
 
 [[package]]
 name = "doux"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "arc-swap",
  "clap",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "doux-sova"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "core",
  "cpal 0.15.3",

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { version } from '$app/environment';
 	import { doux } from '$lib/doux';
 	import { Home, FileText, LifeBuoy, Terminal } from 'lucide-svelte';
 	import Scope from './Scope.svelte';
@@ -20,7 +21,7 @@
 </script>
 
 <nav>
-	<a href="/" class="nav-title"><h1>Doux</h1></a>
+	<a href="/" class="nav-title"><h1>Doux</h1><span class="nav-version">v{version}</span></a>
 	<div class="nav-links">
 		<a href="/" class="nav-link"><Home size={16} /> Home</a>
 		<a href="/reference" class="nav-link"><FileText size={16} /> Reference</a>
@@ -57,10 +58,19 @@
 	.nav-title {
 		text-decoration: none;
 		margin-right: 16px;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		line-height: 1;
 	}
 
 	.nav-title h1 {
 		margin: 0;
+	}
+
+	.nav-version {
+		font-size: 0.7em;
+		color: #999;
 	}
 
 	.nav-link {

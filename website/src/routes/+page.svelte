@@ -2,35 +2,31 @@
     import CodeEditor from "$lib/components/CodeEditor.svelte";
 </script>
 
-<main class="tutorial">
+<main class="page">
     <section class="intro">
         <p>
-            A monolithic audio engine for live coding ported from C to Rust by <a
-                href="https://raphaelforment.fr">BuboBubo</a
-            >. The initial project is called
-            <a href="https://dough.strudel.cc/">Dough</a>, designed by
+            A monolithic audio engine for live coding ported from C to Rust and
+            then extended by <a href="https://raphaelforment.fr">BuboBubo</a>.
+            The initial project is called
+            <a href="https://dough.strudel.cc/">Dough</a> and was designed by
             <a href="https://eddyflux.cc/">Felix Roos</a>
             and al. Doux can run in a web browser via
             <a href="https://webassembly.org/">WebAssembly</a>, or natively
             using an an OSC server and/or a REPL. Doux is an opinionated, fixed
             path, semi-modular synth that is remote-controlled via messages. It
-            was designed to be used with
-            <a href="https://strudel.cc">Strudel</a> and
-            <a href="https://tidalcycles.org">TidalCycles</a>.
-            <b
-                >This fork is a bit special: it adapts and specialize the engine
-                for integration with
-                <a href="https://sova.livecoding.fr">Sova</a>, a live coding
-                environment built in Rust</b
-            >.
+            has been designed initially to be used with
+            <a href="https://strudel.cc">Strudel</a>. This fork is a bit
+            special: it adapts and specialize the engine for integration with
+            <a href="https://sova.livecoding.fr">Sova</a> and
+            <a href="https://cagire.raphaelforment.fr">Cagire</a>, two live
+            coding environments built with Rust.
         </p>
         <p>
-            <b>Important note</b>: this project is AGPL 3.0 licensed. We
-            encourage you to support the development of the original version
-            through the
+            This project is AGPL 3.0 licensed. We encourage you to support the
+            development of the original version through the
             <a href="https://opencollective.com/tidalcycles"
                 >TidalCycles Open Collective</a
-            >. See the license page for more information.
+            >. Consult the support page for more information.
         </p>
         <a href="/support" class="support-link">License & Support</a>
     </section>
@@ -40,8 +36,10 @@
         <p>
             Click anywhere on the page to start the audio context. Then click
             inside a code block and press <code>Ctrl+Enter</code> to run it, or
-            <code>Escape</code> to stop. The easiest way to start is just to
-            specify a <code>sound</code> to use:
+            <code>Escape</code> to stop. You can also press the play button if
+            you don't want to edit and just want to preview. The easiest way to
+            start making sound with Doux is just to specify a <code>sound</code>
+            to use:
         </p>
         <CodeEditor code={`/sound/sine`} rows={2} />
         <p>
@@ -58,16 +56,16 @@
     <section>
         <h2>Omitting parameters</h2>
         <p>
-            It is possible to omit a large number of parameters or to
-            under-specify a voice. Doux has preconfigured defaults for most of
-            the core parameters.
+            It is possible to omit pretty much all parameters or to
+            under-specify the parameters a synthesis voice you wish to play.
+            Doux has preconfigured defaults for most of the core parameters.
         </p>
         <CodeEditor code={`/freq/330`} rows={2} />
         <CodeEditor code={`/spread/5/decay/0.5`} rows={2} />
         <p>
             If no sound source is specified, the voice defaults to
-            <code>tri</code> with sensible envelope defaults. If a sound name
-            is not recognized, the voice is silently skipped.
+            <code>tri</code> with sensible envelope defaults. If a sound name is
+            not recognized, the voice is silently skipped.
         </p>
     </section>
 
@@ -112,15 +110,13 @@
     <section>
         <h2>Filters</h2>
         <p>
-            Most of the default sources are producing very rich timbres, full of
-            harmonics. You are likely to play a lot with filters to remove some
-            components of the spectrum. Doux has all the basic filters needed:
+            Most of the default sources are producing rich timbres full of
+            harmonics. Use filters to remove some components of the spectrum.
+            Doux has all the basic filters you need:
         </p>
         <CodeEditor code={`/sound/saw/lpf/800`} rows={2} />
         <p>
-            All the basic filters come with a control over resonance <code
-                >/..q</code
-            >:
+            All filters come with a control over resonance <code>/..q</code>:
         </p>
         <CodeEditor code={`/sound/saw/lpf/800/lpq/10`} rows={2} />
         <CodeEditor code={`/sound/white/hpf/2000`} rows={2} />
@@ -129,36 +125,28 @@
 
     <section>
         <h2>Effects</h2>
-        <p>Doux includes several effects. Here's a sound with reverb:</p>
+        <p>Doux includes several effects. Here is a sound with reverb:</p>
         <CodeEditor code={`/sound/saw/note/48/reverb/0.8/decay/0.2`} rows={2} />
-        <p>And now another sound with a delay:</p>
+        <p>And another sound with delay:</p>
         <CodeEditor
             code={`/sound/saw/note/60/delay/0.5/delaytime/0.3/delayfeedback/0.6/decay/0.5`}
             rows={2}
         />
         <p>If you stack up effects, it can become quite crazy:</p>
         <CodeEditor
-            code={`/sound/saw/note/48/delay/0.5/delaytime/0.1/delayfeedback/0.8/decay/1.5/fanger/0.5/coarse/12/phaser/0.9/gain/1/phaserfeedback/0.9`}
+            code={`/sound/saw/note/48/delay/0.5/delaytime/0.1/delayfeedback/0.8/decay/1.5/fanger/0.5/coarse/12/phaser/0.9/gain/1/phaserfeedback/0.9/width/2`}
             rows={2}
         />
 
         <p>
-            Note that the order in which the effects is applied is fixed by
-            default!
+            Note that the order in which the effects are applied is fixed by
+            default! You cannot re-order the synthesis chain.
         </p>
     </section>
 </main>
 
 <style>
-    .tutorial {
-        max-width: 650px;
-        margin: 0 auto;
-        padding: 20px 20px 60px;
-        overflow-y: auto;
-        height: 100%;
-    }
-
-    .tutorial h2 {
+    main h2 {
         margin-top: 2.5em;
         margin-bottom: 0.5em;
         color: #000;

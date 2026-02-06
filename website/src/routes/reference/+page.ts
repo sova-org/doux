@@ -1,5 +1,4 @@
 import type { Component } from "svelte";
-import navigation from "$lib/navigation.json";
 
 const contentModules = import.meta.glob("/src/content/*.md", { eager: true });
 
@@ -34,8 +33,5 @@ export function load() {
     return a.order - b.order;
   });
 
-  return {
-    categories,
-    navigation,
-  };
+  return { categories };
 }
