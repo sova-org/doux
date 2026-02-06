@@ -44,7 +44,7 @@ impl LadderFilter {
         let x = (PI * cutoff as f64) / sr as f64;
         let g = 4.0 * PI * VT * cutoff as f64 * (1.0 - x) / (1.0 + x);
 
-        let res = (resonance * 4.0) as f64;
+        let res = (resonance.clamp(0.0, 1.0) * 4.0) as f64;
         let sr64 = sr as f64;
         let inp = input as f64;
 

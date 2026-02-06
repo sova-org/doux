@@ -95,7 +95,8 @@ impl SvfState {
     ) -> f32 {
         let freq = self.cutoff.clamp(1.0, sr * 0.45);
         let g = (PI * freq / sr).tan();
-        let k = 1.0 / pow10(q.clamp(0.0, 40.0) / 20.0);
+        let q = q.clamp(0.0, 1.0);
+        let k = 2.0 * pow10(-2.0 * q);
         let mut out = input;
         for i in 0..num_stages {
             out = self.stages[i].tick(out, g, k, mode);
