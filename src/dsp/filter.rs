@@ -20,9 +20,89 @@
 //!
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
-use super::fastmath::{par_cosf, par_sinf, pow10};
+use super::fastmath::{ftz, par_cosf, par_sinf, pow10};
 use crate::types::FilterType;
 use std::f32::consts::PI;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum SvfMode {
+    Lp,
+    Hp,
+    Bp,
+}
+
+#[derive(Clone, Copy)]
+pub struct Svf {
+    ic1eq: f32,
+    ic2eq: f32,
+}
+
+impl Default for Svf {
+    fn default() -> Self {
+        Self {
+            ic1eq: 0.0,
+            ic2eq: 0.0,
+        }
+    }
+}
+
+impl Svf {
+    #[inline]
+    pub fn tick(&mut self, input: f32, g: f32, k: f32, mode: SvfMode) -> f32 {
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        let a2 = g * a1;
+        let a3 = g * a2;
+
+        let v3 = input - self.ic2eq;
+        let v1 = a1 * self.ic1eq + a2 * v3;
+        let v2 = self.ic2eq + a2 * self.ic1eq + a3 * v3;
+
+        self.ic1eq = ftz(2.0 * v1 - self.ic1eq, 1e-20);
+        self.ic2eq = ftz(2.0 * v2 - self.ic2eq, 1e-20);
+
+        match mode {
+            SvfMode::Lp => v2,
+            SvfMode::Bp => v1,
+            SvfMode::Hp => input - k * v1 - v2,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct SvfState {
+    pub cutoff: f32,
+    pub stages: [Svf; 4],
+}
+
+impl Default for SvfState {
+    fn default() -> Self {
+        Self {
+            cutoff: 0.0,
+            stages: [Svf::default(); 4],
+        }
+    }
+}
+
+impl SvfState {
+    #[inline]
+    pub fn process(
+        &mut self,
+        input: f32,
+        mode: SvfMode,
+        q: f32,
+        num_stages: usize,
+        sr: f32,
+    ) -> f32 {
+        let freq = self.cutoff.clamp(1.0, sr * 0.45);
+        let g = (PI * freq / sr).tan();
+        let k = 1.0 / pow10(q.clamp(0.0, 40.0) / 20.0);
+        let mut out = input;
+        for i in 0..num_stages {
+            out = self.stages[i].tick(out, g, k, mode);
+        }
+        out
+    }
+}
 
 /// Second-order IIR (biquad) filter with coefficient caching.
 ///

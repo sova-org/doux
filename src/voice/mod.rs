@@ -7,7 +7,7 @@ pub use params::VoiceParams;
 
 use std::f32::consts::PI;
 
-use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, FilterState, Phasor, PinkNoise};
+use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, Phasor, PinkNoise, SvfMode, SvfState};
 use crate::effects::{
     crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter, LadderMode, Lag,
     Phaser, Tilt,
@@ -18,22 +18,7 @@ use crate::sampling::RegistrySample;
 use crate::sampling::WebSampleSource;
 #[cfg(not(feature = "native"))]
 use crate::sampling::{FileSource, SampleInfo};
-use crate::types::{FilterSlope, FilterType, BLOCK_SIZE, CHANNELS};
-
-fn apply_filter(
-    signal: f32,
-    filter: &mut FilterState,
-    ftype: FilterType,
-    q: f32,
-    num_stages: usize,
-    sr: f32,
-) -> f32 {
-    let mut out = signal;
-    for stage in 0..num_stages {
-        out = filter.biquads[stage].process(out, ftype, filter.cutoff, q, sr);
-    }
-    out
-}
+use crate::types::{FilterSlope, BLOCK_SIZE, CHANNELS};
 
 pub struct Voice {
     pub params: VoiceParams,
@@ -44,9 +29,9 @@ pub struct Voice {
     pub lp_adsr: Adsr,
     pub hp_adsr: Adsr,
     pub bp_adsr: Adsr,
-    pub lp: FilterState,
-    pub hp: FilterState,
-    pub bp: FilterState,
+    pub lp: SvfState,
+    pub hp: SvfState,
+    pub bp: SvfState,
     // Modulation
     pub pitch_adsr: Adsr,
     pub fm_adsr: Adsr,
@@ -114,9 +99,9 @@ impl Default for Voice {
             lp_adsr: Adsr::default(),
             hp_adsr: Adsr::default(),
             bp_adsr: Adsr::default(),
-            lp: FilterState::default(),
-            hp: FilterState::default(),
-            bp: FilterState::default(),
+            lp: SvfState::default(),
+            hp: SvfState::default(),
+            bp: SvfState::default(),
             pitch_adsr: Adsr::default(),
             fm_adsr: Adsr::default(),
             scan_lfo: Phasor::default(),
@@ -459,34 +444,19 @@ impl Voice {
         // Apply filters (LP -> HP -> BP)
         let num_stages = self.num_stages();
         if self.params.lpf.is_some() {
-            self.ch[0] = apply_filter(
-                self.ch[0],
-                &mut self.lp,
-                FilterType::Lowpass,
-                self.params.lpq,
-                num_stages,
-                self.sr,
-            );
+            self.ch[0] =
+                self.lp
+                    .process(self.ch[0], SvfMode::Lp, self.params.lpq, num_stages, self.sr);
         }
         if self.params.hpf.is_some() {
-            self.ch[0] = apply_filter(
-                self.ch[0],
-                &mut self.hp,
-                FilterType::Highpass,
-                self.params.hpq,
-                num_stages,
-                self.sr,
-            );
+            self.ch[0] =
+                self.hp
+                    .process(self.ch[0], SvfMode::Hp, self.params.hpq, num_stages, self.sr);
         }
         if self.params.bpf.is_some() {
-            self.ch[0] = apply_filter(
-                self.ch[0],
-                &mut self.bp,
-                FilterType::Bandpass,
-                self.params.bpq,
-                num_stages,
-                self.sr,
-            );
+            self.ch[0] =
+                self.bp
+                    .process(self.ch[0], SvfMode::Bp, self.params.bpq, num_stages, self.sr);
         }
 
         // Ladder filters (compute envelope independently from biquad filters)

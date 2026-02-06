@@ -10,7 +10,7 @@ order: 113
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-A Moog-style ladder filter with self-oscillation and analog-modeled nonlinear saturation. Produces a warmer, more aggressive character than the standard biquad filters. Based on the improved virtual analog model by Stefano D'Angelo and Vesa Välimäki. Available as lowpass (`llpf`), highpass (`lhpf`), and bandpass (`lbpf`). Filter envelope parameters are shared with the standard filters (`lpe`/`lpa`/`lpd`/`lps`/`lpr` for lowpass, etc.).
+A Moog-style ladder filter with self-oscillation and analog-modeled nonlinear saturation. Produces a warmer, more aggressive character than the standard filters. Based on the improved virtual analog model by Stefano D'Angelo and Vesa Välimäki. Available as lowpass (`llpf`), highpass (`lhpf`), and bandpass (`lbpf`). Filter envelope parameters are shared with the standard filters (`lpe`/`lpa`/`lpd`/`lps`/`lpr` for lowpass, etc.).
 
 <CommandEntry name="llpf" type="number" min={20} max={20000} unit="Hz">
 

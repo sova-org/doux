@@ -8,8 +8,9 @@ pub mod oscillator;
 
 pub use envelope::{init_envelope, Adsr, AdsrState, EnvelopeParams};
 pub use fastmath::{
-    cosf, exp2f, expm1f, ftz, log2f, modpi, par_cosf, par_sinf, pow10, pow1half, powf, sinf,
+    cosf, exp2f, expm1f, fast_tanh, ftz, log2f, modpi, par_cosf, par_sinf, pow10, pow1half, powf,
+    sinf,
 };
-pub use filter::{Biquad, FilterState};
+pub use filter::{Biquad, FilterState, Svf, SvfMode, SvfState};
 pub use noise::{BrownNoise, PinkNoise};
 pub use oscillator::{PhaseShape, Phasor};

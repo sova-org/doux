@@ -10,7 +10,7 @@ order: 110
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-A lowpass filter attenuates frequencies above the cutoff. Each filter has its own ADSR envelope that modulates the cutoff frequency.
+A state variable lowpass filter (TPT/SVF) that attenuates frequencies above the cutoff. Each filter has its own ADSR envelope that modulates the cutoff frequency.
 
 <CommandEntry name="lpf" type="number" min={20} max={20000} unit="Hz">
 

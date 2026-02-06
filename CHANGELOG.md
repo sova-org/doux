@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Replaced biquad voice filters (lpf/hpf/bpf) with TPT state variable filters for stable audio-rate modulation
+- Replaced `tanh()` with fast approximation in ladder filter, removed coefficient cache
 - Upgraded `cpal` from 0.15 to 0.17
 - Renamed `loader` module to `sampling`
 - Simplified `clear_samples()` internals

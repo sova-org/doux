@@ -10,7 +10,7 @@ order: 112
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-A bandpass filter attenuates frequencies outside a band around the center frequency. Each filter has its own ADSR envelope that modulates the center frequency.
+A state variable bandpass filter (TPT/SVF) that attenuates frequencies outside a band around the center frequency. Each filter has its own ADSR envelope that modulates the center frequency.
 
 <CommandEntry name="bpf" type="number" min={20} max={20000} unit="Hz">
 

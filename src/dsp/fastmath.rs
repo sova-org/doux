@@ -195,6 +195,17 @@ pub fn ftz(x: f32, limit: f32) -> f32 {
     }
 }
 
+/// Fast hyperbolic tangent approximation (f64).
+///
+/// Rational cubic preserving odd symmetry. Replaces expensive `f64::tanh()`
+/// in the ladder filter (~5 cycles vs ~20-50).
+#[inline]
+pub fn fast_tanh(x: f64) -> f64 {
+    let x = x.clamp(-3.0, 3.0);
+    let x2 = x * x;
+    x * (27.0 + x2) / (27.0 + 9.0 * x2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +243,17 @@ mod tests {
                 (fast - std).abs() / std < 0.01,
                 "pow10({x}) = {fast} vs std {std}"
             );
+        }
+    }
+
+    #[test]
+    fn test_fast_tanh() {
+        for i in -30..=30 {
+            let x = i as f64 * 0.1;
+            let fast = fast_tanh(x);
+            let std = x.tanh();
+            let err = (fast - std).abs();
+            assert!(err < 0.03, "fast_tanh({x}) = {fast} vs std {std}, err={err}");
         }
     }
 }
