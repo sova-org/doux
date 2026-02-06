@@ -1,21 +1,10 @@
-//! Payload conversion from Sova to Doux command format.
-//!
-//! Converts Sova's `AudioEnginePayload` (HashMap of parameters) into
-//! Doux's slash-separated command strings (e.g., `/sound/sine/freq/440`).
-
 use std::collections::HashMap;
 
-use sova_core::clock::SyncTime;
-use sova_core::vm::variable::VariableValue;
-
 use crate::time::TimeConverter;
+use crate::types::{ParamValue, SyncTime};
 
-/// Converts a Sova payload to a Doux command string.
-///
-/// The resulting string has the format `/key/value/key/value/...`.
-/// If a timetag is present, it's converted to engine time and prepended.
 pub fn payload_to_command(
-    args: &HashMap<String, VariableValue>,
+    args: &HashMap<String, ParamValue>,
     timetag: Option<SyncTime>,
     time_converter: &TimeConverter,
 ) -> String {
@@ -40,12 +29,12 @@ pub fn payload_to_command(
     cmd
 }
 
-fn push_value(buf: &mut String, v: &VariableValue) {
+fn push_value(buf: &mut String, v: &ParamValue) {
     use std::fmt::Write;
     match v {
-        VariableValue::Integer(i) => write!(buf, "{i}").unwrap(),
-        VariableValue::Float(f) => write!(buf, "{f}").unwrap(),
-        VariableValue::Decimal(sign, num, den) => {
+        ParamValue::Integer(i) => write!(buf, "{i}").unwrap(),
+        ParamValue::Float(f) => write!(buf, "{f}").unwrap(),
+        ParamValue::Decimal(sign, num, den) => {
             let f = (*num as f64) / (*den as f64);
             if *sign < 0 {
                 write!(buf, "-{f}").unwrap();
@@ -53,8 +42,7 @@ fn push_value(buf: &mut String, v: &VariableValue) {
                 write!(buf, "{f}").unwrap();
             }
         }
-        VariableValue::Str(s) => buf.push_str(s),
-        VariableValue::Bool(b) => buf.push(if *b { '1' } else { '0' }),
-        _ => {}
+        ParamValue::Str(s) => buf.push_str(s),
+        ParamValue::Bool(b) => buf.push(if *b { '1' } else { '0' }),
     }
 }
