@@ -655,6 +655,7 @@ impl Engine {
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
         copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
+        copy_opt!(event, v.params, feedback, fbtime, fbdamp, fblfo, fblfodepth, fblfoshape);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
         copy_opt!(event, v.params, width, haas);
@@ -800,6 +801,18 @@ impl Engine {
                 self.orbits[orbit_idx].params.comb_feedback = self.voices[i].params.combfeedback;
                 self.orbits[orbit_idx].params.comb_damp = self.voices[i].params.combdamp;
             }
+            if self.voices[i].params.feedback > 0.0 {
+                for c in 0..CHANNELS {
+                    self.orbits[orbit_idx]
+                        .add_fb_send(c, self.voices[i].ch[c] * self.voices[i].params.feedback);
+                }
+                self.orbits[orbit_idx].fb_level = self.voices[i].params.feedback;
+                self.orbits[orbit_idx].params.fb_time = self.voices[i].params.fbtime;
+                self.orbits[orbit_idx].params.fb_damp = self.voices[i].params.fbdamp;
+                self.orbits[orbit_idx].params.fb_lfo = self.voices[i].params.fblfo;
+                self.orbits[orbit_idx].params.fb_lfo_depth = self.voices[i].params.fblfodepth;
+                self.orbits[orbit_idx].params.fb_lfo_shape = self.voices[i].params.fblfoshape;
+            }
 
             i += 1;
         }
@@ -810,9 +823,9 @@ impl Engine {
             let out_pair = orbit_idx % num_pairs;
             let pair_offset = out_pair * 2;
             output[base_idx + pair_offset] +=
-                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0];
+                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0] + orbit.fb_out[0];
             output[base_idx + pair_offset + 1] +=
-                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1];
+                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1] + orbit.fb_out[1];
         }
 
         for c in 0..self.output_channels {

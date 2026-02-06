@@ -356,6 +356,18 @@ pub struct VoiceParams {
     pub combfeedback: f32,
     /// Comb filter damping.
     pub combdamp: f32,
+    /// Feedback delay send level (0.0 to 1.0). Also controls re-injection amount.
+    pub feedback: f32,
+    /// Feedback delay time in ms (overrides orbit default).
+    pub fbtime: f32,
+    /// Feedback delay damping (overrides orbit default).
+    pub fbdamp: f32,
+    /// Feedback LFO rate in Hz.
+    pub fblfo: f32,
+    /// Feedback LFO depth (0.0 to 1.0).
+    pub fblfodepth: f32,
+    /// Feedback LFO waveform.
+    pub fblfoshape: LfoShape,
 }
 
 impl Default for VoiceParams {
@@ -487,6 +499,12 @@ impl Default for VoiceParams {
             combfreq: 220.0,
             combfeedback: 0.9,
             combdamp: 0.1,
+            feedback: 0.0,
+            fbtime: 10.0,
+            fbdamp: 0.0,
+            fblfo: 0.0,
+            fblfodepth: 0.5,
+            fblfoshape: LfoShape::Sine,
         }
     }
 }

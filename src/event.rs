@@ -153,6 +153,14 @@ pub struct Event {
     pub flangerdepth: Option<f32>,
     pub flangerfeedback: Option<f32>,
 
+    // Feedback delay
+    pub feedback: Option<f32>,
+    pub fbtime: Option<f32>,
+    pub fbdamp: Option<f32>,
+    pub fblfo: Option<f32>,
+    pub fblfodepth: Option<f32>,
+    pub fblfoshape: Option<LfoShape>,
+
     // Chorus
     pub chorus: Option<f32>,
     pub chorusdepth: Option<f32>,
@@ -317,6 +325,12 @@ impl Event {
                 "flanger" | "flangerrate" => event.flanger = val.parse().ok(),
                 "flangerdepth" => event.flangerdepth = val.parse().ok(),
                 "flangerfeedback" => event.flangerfeedback = val.parse().ok(),
+                "feedback" | "fb" => event.feedback = val.parse().ok(),
+                "fbtime" | "fbt" => event.fbtime = val.parse().ok(),
+                "fbdamp" | "fbd" => event.fbdamp = val.parse().ok(),
+                "fblfo" => event.fblfo = val.parse().ok(),
+                "fblfodepth" => event.fblfodepth = val.parse().ok(),
+                "fblfoshape" => event.fblfoshape = val.parse().ok(),
                 "chorus" | "chorusrate" => event.chorus = val.parse().ok(),
                 "chorusdepth" => event.chorusdepth = val.parse().ok(),
                 "chorusdelay" => event.chorusdelay = val.parse().ok(),
