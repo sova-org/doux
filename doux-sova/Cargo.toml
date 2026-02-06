@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 doux = { path = "..", features = ["native"] }
 crossbeam-channel = "0.5"
-cpal = "0.15"
+cpal = "0.17"
 serde = { version = "1", features = ["derive"] }
 
 [dependencies.sova_core]

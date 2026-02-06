@@ -119,7 +119,7 @@ fn get_device_config(device: &Device) -> Result<(SupportedStreamConfig, f32), Do
     let config = device
         .default_output_config()
         .map_err(|e| DouxError::DeviceConfigError(e.to_string()))?;
-    let sample_rate = config.sample_rate().0 as f32;
+    let sample_rate = config.sample_rate() as f32;
     Ok((config, sample_rate))
 }
 
@@ -144,7 +144,7 @@ impl DouxManager {
 
         // Load sample directories
         for path in &config.sample_paths {
-            let index = doux::loader::scan_samples_dir(path);
+            let index = doux::sampling::scan_samples_dir(path);
             engine.sample_index.extend(index);
         }
 
@@ -310,7 +310,7 @@ impl DouxManager {
         let mut engine = Engine::new_with_channels(sample_rate, actual_channels, config.max_voices);
 
         for path in &config.sample_paths {
-            let index = doux::loader::scan_samples_dir(path);
+            let index = doux::sampling::scan_samples_dir(path);
             engine.sample_index.extend(index);
         }
 
@@ -383,7 +383,7 @@ impl DouxManager {
 
     /// Adds a sample directory and scans it.
     pub fn add_sample_path(&mut self, path: std::path::PathBuf) {
-        let index = doux::loader::scan_samples_dir(&path);
+        let index = doux::sampling::scan_samples_dir(&path);
         if let Ok(mut engine) = self.engine.lock() {
             engine.sample_index.extend(index);
         }
@@ -395,7 +395,7 @@ impl DouxManager {
         if let Ok(mut engine) = self.engine.lock() {
             engine.sample_index.clear();
             for path in &self.config.sample_paths {
-                let index = doux::loader::scan_samples_dir(path);
+                let index = doux::sampling::scan_samples_dir(path);
                 engine.sample_index.extend(index);
             }
         }
@@ -405,8 +405,6 @@ impl DouxManager {
     pub fn clear_samples(&mut self) {
         if let Ok(mut engine) = self.engine.lock() {
             engine.sample_index.clear();
-            engine.samples.clear();
-            engine.sample_pool = doux::sample::SamplePool::new();
         }
     }
 

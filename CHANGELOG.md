@@ -3,6 +3,14 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- Upgraded `cpal` from 0.15 to 0.17
+- Renamed `loader` module to `sampling`
+- Simplified `clear_samples()` internals
+
 ## [0.0.1] - 2026-02-06
 
 Initial versioned release of doux — a software synthesizer engine for live coding.
