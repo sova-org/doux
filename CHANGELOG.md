@@ -5,17 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-02-07
+
 ### Added
 
+- Audio-rate parameter modulation system with LFO, envelope, random, and sequence chains
+- Modulation shapes: sine, triangle, saw, square, hold, random, drunk walk
+- Modulation curves: linear, exponential, smooth
 - Per-orbit feedback delay with LFO time modulation (`feedback`, `fbtime`, `fbdamp`, `fblfo`, `fblfodepth`, `fblfoshape`)
+- Fast math module (`dsp/fastmath`) with SIMD-friendly approximations for `exp2f`, `log2f`, `sinf`, `cosf`, `powf`, `tanh`
 
 ### Changed
 
 - Replaced biquad voice filters (lpf/hpf/bpf) with TPT state variable filters for stable audio-rate modulation
 - Replaced `tanh()` with fast approximation in ladder filter, removed coefficient cache
-- Upgraded `cpal` from 0.15 to 0.17
-- Renamed `loader` module to `sampling`
-- Simplified `clear_samples()` internals
+- Normalized filter resonance to `[0.0, 1.0]` range
+- Normalized `fold` distortion parameter to `[0.0, 1.0]` range
+- Removed dedicated scan LFO parameters (`scanlfo`, `scandepth`, `scanshape`) in favor of generic modulation system
+- Removed `sova_core` dependency from `doux-sova`, bridge types defined locally
 
 ## [0.0.1] - 2026-02-06
 
