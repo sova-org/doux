@@ -18,6 +18,8 @@ The pulse width (between 0 and 1) of the pulse oscillator. The default is 0.5 (s
 
 <CodeEditor code={`/sound/pulse/pw/.1`} rows={2} />
 
+<CodeEditor code={`/sound/pulse/pw/0.1~0.9:1/freq/100/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="spread" type="number" min={0} max={100} default={0}>
@@ -71,6 +73,8 @@ A secondary oscillator tuned octaves below the main oscillator. Works with all b
 Mix level of the sub oscillator. At 0 the sub is silent, at 1 it matches the main oscillator volume.
 
 <CodeEditor code={`/sound/saw/sub/.5`} rows={2} />
+
+<CodeEditor code={`/sound/saw/sub/0>1:2/freq/55/decay/2/dur/3`} rows={2} />
 
 </CommandEntry>
 

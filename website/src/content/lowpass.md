@@ -18,6 +18,8 @@ Cutoff frequency in Hz. Frequencies above this are attenuated.
 
 <CodeEditor code={`/sound/saw/lpf/200`} rows={2} />
 
+<CodeEditor code={`/sound/saw/lpf/200~4000:2/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="lpq" type="number" min={0} max={1} default={0.2} mod>

@@ -156,6 +156,7 @@ fn parse_duration_curve(s: &str) -> Option<(f32, ModCurve)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ParamId {
+    Freq,
     Gain,
     Postgain,
     Pan,

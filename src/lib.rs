@@ -487,9 +487,6 @@ impl Engine {
             v.params.wt_cycle_len = wtlen;
         }
 
-        // Scan LFO
-        copy_opt!(event, v.params, scanlfo, scandepth, scanshape);
-
         // Sample playback via lock-free registry (native)
         #[cfg(feature = "native")]
         if let Some((sample_name, sample_data)) = registry_sample_data {

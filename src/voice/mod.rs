@@ -39,7 +39,6 @@ pub struct Voice {
     // Modulation
     pub pitch_adsr: Adsr,
     pub fm_adsr: Adsr,
-    pub scan_lfo: Phasor,
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
     pub fm2_phasor: Phasor,
@@ -112,7 +111,6 @@ impl Default for Voice {
             bp: SvfState::default(),
             pitch_adsr: Adsr::default(),
             fm_adsr: Adsr::default(),
-            scan_lfo: Phasor::default(),
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
             fm2_phasor: Phasor::default(),
@@ -172,7 +170,6 @@ impl Clone for Voice {
             bp: self.bp,
             pitch_adsr: self.pitch_adsr,
             fm_adsr: self.fm_adsr,
-            scan_lfo: self.scan_lfo,
             vib_lfo: self.vib_lfo,
             fm_phasor: self.fm_phasor,
             fm2_phasor: self.fm2_phasor,
@@ -252,6 +249,7 @@ impl Voice {
 
     fn write_param(&mut self, id: ParamId, val: f32) {
         match id {
+            ParamId::Freq => self.params.freq = val,
             ParamId::Gain => self.params.gain = val,
             ParamId::Postgain => self.params.postgain = val,
             ParamId::Pan => self.params.pan = val,

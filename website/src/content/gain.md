@@ -18,6 +18,8 @@ Pre-filter gain multiplier. Applied before filters and distortion, combined with
 
 <CodeEditor code={`/sound/saw/gain/0.2`} rows={2} />
 
+<CodeEditor code={`/sound/saw/freq/200/gain/0.2~1:0.25/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="postgain" type="number" min={0} default={1} mod>
@@ -42,6 +44,8 @@ Stereo position using constant-power panning: <code>left = cos(pan &#42; π/2)</
 
 <CodeEditor code={`/pan/0/freq/329\n\n/pan/1/freq/331`} rows={4} />
 
+<CodeEditor code={`/sound/saw/freq/200/pan/0~1:0.5/decay/1/dur/2`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="width" type="number" min={0} max={2} default={1} mod>
@@ -51,6 +55,8 @@ Stereo width using mid-side processing. At 0 the signal collapses to mono, at 1 
 <CodeEditor code={`/sound/saw/freq/50/spread/5/width/0`} rows={2} />
 
 <CodeEditor code={`/sound/saw/freq/50/spread/5/width/2`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/50/spread/5/width/0~2:1s/decay/2/dur/3`} rows={2} />
 
 </CommandEntry>
 

@@ -12,7 +12,7 @@ order: 100
 
 Pitch control for all sources, including audio samples.
 
-<CommandEntry name="freq" type="number" min={20} max={20000} default={330} unit="Hz">
+<CommandEntry name="freq" type="number" min={20} max={20000} default={330} unit="Hz" mod>
 
 The frequency of the sound. Has no effect on noise.
 
@@ -21,6 +21,10 @@ The frequency of the sound. Has no effect on noise.
 <CodeEditor code={`/freq/800`} rows={2} />
 
 <CodeEditor code={`/freq/1200`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/220>880:1/decay/1.5/dur/2`} rows={2} />
+
+<CodeEditor code={`/sound/sine/freq/330~340:0.2/decay/2/dur/2`} rows={2} />
 
 </CommandEntry>
 
@@ -52,6 +56,8 @@ Shifts the pitch by the given amount in cents. 100 cents = 1 semitone.
 <CodeEditor code={`/freq/440/detune/50`} rows={2} />
 
 <CodeEditor code={`/freq/440/detune/-50`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/440/detune/0>100:1/decay/1/dur/1.5`} rows={2} />
 
 </CommandEntry>
 

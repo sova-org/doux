@@ -331,7 +331,7 @@ impl Voice {
     #[cfg(feature = "native")]
     fn run_wavetable(&mut self, freq: f32, isr: f32) {
         // Compute modulated scan before borrowing registry_sample
-        let scan = self.get_modulated_scan(isr);
+        let scan = self.get_modulated_scan();
 
         if let Some(ref rs) = self.registry_sample {
             let frame_count = rs.data.frame_count as f32;
@@ -373,22 +373,13 @@ impl Voice {
         }
     }
 
-    fn get_modulated_scan(&mut self, isr: f32) -> f32 {
-        let mut scan = self.params.scan;
-
-        if self.params.scanlfo > 0.0 {
-            let lfo = self
-                .scan_lfo
-                .lfo(self.params.scanshape, self.params.scanlfo, isr);
-            scan += lfo * self.params.scandepth * 0.5;
-        }
-
-        scan.clamp(0.0, 1.0)
+    fn get_modulated_scan(&self) -> f32 {
+        self.params.scan.clamp(0.0, 1.0)
     }
 
     #[cfg(not(feature = "native"))]
     fn run_wavetable_wasm(&mut self, freq: f32, isr: f32, pool: &[f32], samples: &[SampleInfo]) {
-        let scan = self.get_modulated_scan(isr);
+        let scan = self.get_modulated_scan();
 
         if let Some(ref fs) = self.file_source {
             if let Some(info) = samples.get(fs.sample_idx) {
@@ -436,7 +427,7 @@ impl Voice {
 
     #[cfg(not(feature = "native"))]
     fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) {
-        let scan = self.get_modulated_scan(isr);
+        let scan = self.get_modulated_scan();
 
         if let Some(ref ws) = self.web_sample {
             let frame_count = ws.frame_count();

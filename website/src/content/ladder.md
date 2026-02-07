@@ -18,6 +18,8 @@ Ladder lowpass cutoff frequency in Hz.
 
 <CodeEditor code={`/sound/saw/llpf/800/decay/0.5/dur/1`} rows={2} />
 
+<CodeEditor code={`/sound/saw/llpf/200~6000:1.5s/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="lhpf" type="number" min={20} max={20000} unit="Hz" mod>

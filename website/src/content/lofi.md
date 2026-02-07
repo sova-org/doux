@@ -18,6 +18,8 @@ Sample rate reduction. Holds each sample for <code>n</code> samples, creating st
 
 <CodeEditor code={`/penv/36/pdec/.5/coarse/8`} rows={2} />
 
+<CodeEditor code={`/sound/saw/freq/100/coarse/1>16:2/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="crush" type="number" min={1} max={16} default={16} unit="bits" mod>
@@ -26,6 +28,8 @@ Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, crea
 
 <CodeEditor code={`/penv/36/pdec/.5/crush/4`} rows={2} />
 
+<CodeEditor code={`/sound/saw/crush/16>2:1.5/freq/100/decay/1.5/dur/2`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="fold" type="number" min={1} default={1} mod>
@@ -33,6 +37,8 @@ Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, crea
 Sine-based wavefold (Serge-style). At 1, near-passthrough. At 2, one fold per peak. At 4, two folds.
 
 <CodeEditor code={`/sound/sine/fold/3`} rows={2} />
+
+<CodeEditor code={`/sound/sine/fold/1~4:1/freq/80/decay/2/dur/3`} rows={2} />
 
 </CommandEntry>
 
@@ -49,6 +55,8 @@ Wrap distortion. Signal wraps around creating harsh digital artifacts.
 Soft-clipping waveshaper using <code>(1+k)&#42;x / (1+k&#42;|x|)</code> where <code>k = e^amount - 1</code>. Higher values add harmonic saturation.
 
 <CodeEditor code={`/sound/sine/distort/4`} rows={2} />
+
+<CodeEditor code={`/sound/sine/distort/0>8:2/freq/80/decay/2/dur/3`} rows={2} />
 
 </CommandEntry>
 

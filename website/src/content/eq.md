@@ -44,6 +44,8 @@ High shelf gain at 5000Hz.
 
 <CodeEditor code={`/sound/saw/freq/50/eqlo/6/eqhi/-6`} rows={2} />
 
+<CodeEditor code={`/sound/saw/freq/50/eqhi/-6~6:1/decay/2/dur/3`} rows={2} />
+
 </CommandEntry>
 
 ## Tilt EQ
@@ -55,5 +57,7 @@ Spectral tilt using a high shelf at 800Hz. Positive values brighten, negative va
 <CodeEditor code={`/sound/saw/freq/50/tilt/0.5`} rows={2} />
 
 <CodeEditor code={`/sound/saw/freq/50/tilt/-0.8`} rows={2} />
+
+<CodeEditor code={`/sound/saw/freq/80/tilt/-0.8~0.8:2/decay/2/dur/3`} rows={2} />
 
 </CommandEntry>
