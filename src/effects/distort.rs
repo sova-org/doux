@@ -5,7 +5,7 @@
 //! - `fold`: Wavefolding (complex harmonics)
 //! - [`wrap`]: Phase wrapping (harsh, digital)
 
-use crate::dsp::{expm1f, sinf};
+use crate::dsp::{exp2f, expm1f, sinf};
 
 /// Soft-knee saturation with adjustable drive.
 ///
@@ -16,12 +16,13 @@ pub fn distort(input: f32, amount: f32, postgain: f32) -> f32 {
     ((1.0 + k) * input / (1.0 + k * input.abs())) * postgain
 }
 
-/// Sine wavefolder.
+/// Sine wavefolder with normalized amount in [0.0, 1.0].
 ///
-/// Folds the waveform back on itself using `sin(x × amount × π/2)`.
-/// Creates rich harmonic content without hard clipping.
+/// Maps amount exponentially to internal gain [1, 16] via `exp2f(amount * 4)`,
+/// then applies `sin(x × gain × π/2)`.
 pub fn fold(input: f32, amount: f32) -> f32 {
-    sinf(input * amount * std::f32::consts::FRAC_PI_2)
+    let gain = exp2f(amount * 4.0);
+    sinf(input * gain * std::f32::consts::FRAC_PI_2)
 }
 
 /// Wraps signal into `[-1, 1]` range using modulo.
