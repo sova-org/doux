@@ -349,7 +349,7 @@ impl Event {
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
                 "fold" => parse_param!(val, fold, ParamId::Fold),
-                "wrap" => event.wrap = val.parse().ok(),
+                "wrap" => parse_param!(val, wrap, ParamId::Wrap),
                 "distort" => parse_param!(val, distort, ParamId::Distort),
                 "distortvol" => event.distortvol = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),

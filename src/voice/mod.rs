@@ -137,7 +137,7 @@ impl Default for Voice {
             ladder_lp: LadderFilter::default(),
             ladder_hp: LadderFilter::default(),
             ladder_bp: LadderFilter::default(),
-            param_mods: [(ParamId::Gain, ParamMod::new(ModChain::Oscillate { min: 0.0, max: 0.0, freq: 0.0, shape: modulation::ModShape::Sine }, 0)); MAX_PARAM_MODS],
+            param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
             time: 0.0,
             ch: [0.0; CHANNELS],
@@ -215,7 +215,7 @@ impl Clone for Voice {
 
 impl Voice {
     pub(super) fn rand(&mut self) -> f32 {
-        self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        self.seed = modulation::lcg(self.seed);
         ((self.seed >> 16) & 0x7fff) as f32 / 32767.0
     }
 
@@ -298,6 +298,7 @@ impl Voice {
             ParamId::Crush => self.params.crush = Some(val),
             ParamId::Coarse => self.params.coarse = Some(val),
             ParamId::Distort => self.params.distort = Some(val),
+            ParamId::Wrap => self.params.wrap = Some(val),
             ParamId::Eqlo => self.params.eqlo = val,
             ParamId::Eqmid => self.params.eqmid = val,
             ParamId::Eqhi => self.params.eqhi = val,

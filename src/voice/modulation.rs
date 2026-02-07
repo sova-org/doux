@@ -2,6 +2,11 @@ use std::f32::consts::PI;
 
 use crate::dsp::{cosf, exp2f, log2f, sinf};
 
+#[inline]
+pub fn lcg(seed: u32) -> u32 {
+    seed.wrapping_mul(1103515245).wrapping_add(12345)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ModCurve {
     Linear,
@@ -214,6 +219,7 @@ pub enum ParamId {
     Delay,
     Verb,
     Comb,
+    Wrap,
     Feedback,
 }
 
@@ -226,6 +232,20 @@ pub struct ParamMod {
     pub next_rand: f32,
     pub seed: u32,
     pub drunk_pos: f32,
+}
+
+impl Default for ParamMod {
+    fn default() -> Self {
+        Self {
+            chain: ModChain::Oscillate { min: 0.0, max: 0.0, freq: 0.0, shape: ModShape::Sine },
+            phase: 0.0,
+            segment_idx: 0,
+            prev_rand: 0.0,
+            next_rand: 0.0,
+            seed: 0,
+            drunk_pos: 0.5,
+        }
+    }
 }
 
 impl ParamMod {
@@ -245,7 +265,7 @@ impl ParamMod {
     }
 
     fn rand(&mut self) -> f32 {
-        self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        self.seed = lcg(self.seed);
         ((self.seed >> 16) & 0x7fff) as f32 / 32767.0
     }
 
@@ -327,31 +347,36 @@ impl ParamMod {
         looping: bool,
         isr: f32,
     ) -> f32 {
-        let idx = self.segment_idx as usize;
-        if idx >= count as usize {
-            return segments[count as usize - 1].target;
-        }
-
-        let seg = &segments[idx];
-        self.phase += seg.freq * isr;
-
-        if self.phase >= 1.0 {
-            if idx + 1 < count as usize {
-                self.phase -= 1.0;
-                self.segment_idx += 1;
-                return self.tick_transition(start, segments, count, looping, 0.0);
-            } else if looping {
-                self.phase -= 1.0;
-                self.segment_idx = 0;
-                return self.tick_transition(start, segments, count, looping, 0.0);
-            } else {
-                self.phase = 1.0;
-                return seg.target;
+        let mut first = true;
+        loop {
+            let idx = self.segment_idx as usize;
+            if idx >= count as usize {
+                return segments[count as usize - 1].target;
             }
-        }
 
-        let seg_start = if idx == 0 { start } else { segments[idx - 1].target };
-        interpolate(seg_start, seg.target, self.phase, seg.curve)
+            let seg = &segments[idx];
+            if first {
+                self.phase += seg.freq * isr;
+                first = false;
+            }
+
+            if self.phase >= 1.0 {
+                if idx + 1 < count as usize {
+                    self.phase -= 1.0;
+                    self.segment_idx += 1;
+                } else if looping {
+                    self.phase -= 1.0;
+                    self.segment_idx = 0;
+                } else {
+                    self.phase = 1.0;
+                    return seg.target;
+                }
+                continue;
+            }
+
+            let seg_start = if idx == 0 { start } else { segments[idx - 1].target };
+            return interpolate(seg_start, seg.target, self.phase, seg.curve);
+        }
     }
 }
 
