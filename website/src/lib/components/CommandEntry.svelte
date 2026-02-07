@@ -9,6 +9,7 @@
         default?: number | string | boolean;
         unit?: string;
         values?: string[];
+        mod?: boolean;
         children: Snippet;
     }
 
@@ -20,6 +21,7 @@
         default: defaultValue,
         unit,
         values,
+        mod: modulatable,
         children,
     }: Props = $props();
 
@@ -50,7 +52,7 @@
 
 <details id={name} bind:this={detailsEl} ontoggle={onToggle}>
     <summary>
-        <span class="name">{name}</span>
+        <span class="name">{name}{#if modulatable}<span class="mod" title="supports inline modulation">~</span>{/if}</span>
         {#if type && type !== "source"}
             <span class="meta">
                 <span class="type">{type}</span>
@@ -107,6 +109,14 @@
 
     .name {
         font-weight: bold;
+    }
+
+    .mod {
+        display: inline-block;
+        font-size: 0.75em;
+        vertical-align: super;
+        color: #999;
+        margin-left: 1px;
     }
 
     .meta {

@@ -16,7 +16,7 @@ Per-voice equalizer with a 3-band DJ-style EQ and a single-knob tilt control.
 
 Fixed-frequency shelving and peaking filters. All gains are in dB: 0 is flat, positive boosts, negative cuts.
 
-<CommandEntry name="eqlo" type="number" default={0} unit="dB">
+<CommandEntry name="eqlo" type="number" default={0} unit="dB" mod>
 
 Low shelf gain at 200Hz.
 
@@ -26,7 +26,7 @@ Low shelf gain at 200Hz.
 
 </CommandEntry>
 
-<CommandEntry name="eqmid" type="number" default={0} unit="dB">
+<CommandEntry name="eqmid" type="number" default={0} unit="dB" mod>
 
 Mid peak gain at 1000Hz (Q 0.7).
 
@@ -36,7 +36,7 @@ Mid peak gain at 1000Hz (Q 0.7).
 
 </CommandEntry>
 
-<CommandEntry name="eqhi" type="number" default={0} unit="dB">
+<CommandEntry name="eqhi" type="number" default={0} unit="dB" mod>
 
 High shelf gain at 5000Hz.
 
@@ -48,7 +48,7 @@ High shelf gain at 5000Hz.
 
 ## Tilt EQ
 
-<CommandEntry name="tilt" type="number" min={-1} max={1} default={0}>
+<CommandEntry name="tilt" type="number" min={-1} max={1} default={0} mod>
 
 Spectral tilt using a high shelf at 800Hz. Positive values brighten, negative values darken. Range maps to ±6dB.
 

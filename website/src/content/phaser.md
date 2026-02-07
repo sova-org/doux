@@ -12,7 +12,7 @@ order: 200
 
 Two cascaded notch filters (offset by 282Hz) with LFO-modulated center frequency.
 
-<CommandEntry name="phaser" type="number" min={0} default={0} unit="Hz">
+<CommandEntry name="phaser" type="number" min={0} default={0} unit="Hz" mod>
 
 Phaser LFO rate in Hz. Creates sweeping notch filter effect.
 
@@ -22,7 +22,7 @@ Phaser LFO rate in Hz. Creates sweeping notch filter effect.
 
 </CommandEntry>
 
-<CommandEntry name="phaserdepth" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="phaserdepth" type="number" min={0} max={1} default={0.5} mod>
 
 Phaser effect intensity (0-1). Controls resonance and wet/dry mix.
 
@@ -32,7 +32,7 @@ Phaser effect intensity (0-1). Controls resonance and wet/dry mix.
 
 </CommandEntry>
 
-<CommandEntry name="phasersweep" type="number" min={0} default={2000} unit="Hz">
+<CommandEntry name="phasersweep" type="number" min={0} default={2000} unit="Hz" mod>
 
 Phaser frequency sweep range in Hz. Default is 2000 (±2000Hz sweep).
 
@@ -42,7 +42,7 @@ Phaser frequency sweep range in Hz. Default is 2000 (±2000Hz sweep).
 
 </CommandEntry>
 
-<CommandEntry name="phasercenter" type="number" min={20} max={20000} default={1000} unit="Hz">
+<CommandEntry name="phasercenter" type="number" min={20} max={20000} default={1000} unit="Hz" mod>
 
 Phaser center frequency in Hz. Default is 1000Hz.
 

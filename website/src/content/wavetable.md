@@ -12,7 +12,7 @@ order: 2
 
 You can use any audio sample as a wavetable oscillator. The sample is played at the specified pitch with an optional LFO modulation over the scanned position. The cycle length for each wavetable can be specified with <code>wtlen</code>.
 
-<CommandEntry name="scan" type="number" min={0} max={1} default={0}>
+<CommandEntry name="scan" type="number" min={0} max={1} default={0} mod>
 
 Wavetable position. For multi-cycle wavetables, morphs between adjacent waveforms.
 

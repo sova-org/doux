@@ -681,6 +681,11 @@ impl Engine {
             verbpredelay,
             verbdiff
         );
+
+        // Install inline parameter modulations
+        for (id, chain) in &event.mods {
+            v.set_mod(*id, *chain);
+        }
     }
 
     fn free_voice(&mut self, i: usize) {

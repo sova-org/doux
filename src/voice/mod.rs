@@ -1,8 +1,10 @@
 //! Voice - the core synthesis unit.
 
+mod modulation;
 mod params;
 mod source;
 
+pub use modulation::{ModChain, ParamId, ParamMod};
 pub use params::VoiceParams;
 
 use std::f32::consts::PI;
@@ -19,6 +21,8 @@ use crate::sampling::WebSampleSource;
 #[cfg(not(feature = "native"))]
 use crate::sampling::{FileSource, SampleInfo};
 use crate::types::{FilterSlope, BLOCK_SIZE, CHANNELS};
+
+pub const MAX_PARAM_MODS: usize = 8;
 
 pub struct Voice {
     pub params: VoiceParams,
@@ -67,6 +71,10 @@ pub struct Voice {
     pub ladder_lp: LadderFilter,
     pub ladder_hp: LadderFilter,
     pub ladder_bp: LadderFilter,
+
+    // Inline parameter modulation
+    pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
+    pub param_mod_count: u8,
 
     pub time: f32,
     pub ch: [f32; CHANNELS],
@@ -131,6 +139,8 @@ impl Default for Voice {
             ladder_lp: LadderFilter::default(),
             ladder_hp: LadderFilter::default(),
             ladder_bp: LadderFilter::default(),
+            param_mods: [(ParamId::Gain, ParamMod::new(ModChain::Oscillate { min: 0.0, max: 0.0, freq: 0.0, shape: modulation::ModShape::Sine }, 0)); MAX_PARAM_MODS],
+            param_mod_count: 0,
             time: 0.0,
             ch: [0.0; CHANNELS],
             spread_side: 0.0,
@@ -189,6 +199,8 @@ impl Clone for Voice {
             ladder_lp: self.ladder_lp,
             ladder_hp: self.ladder_hp,
             ladder_bp: self.ladder_bp,
+            param_mods: self.param_mods,
+            param_mod_count: self.param_mod_count,
             time: self.time,
             ch: self.ch,
             spread_side: self.spread_side,
@@ -212,6 +224,93 @@ impl Voice {
 
     pub(super) fn white(&mut self) -> f32 {
         self.rand() * 2.0 - 1.0
+    }
+
+    pub fn set_mod(&mut self, id: ParamId, chain: ModChain) {
+        for i in 0..self.param_mod_count as usize {
+            if self.param_mods[i].0 == id {
+                self.param_mods[i].1 = ParamMod::new(chain, self.seed);
+                self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+                return;
+            }
+        }
+        if (self.param_mod_count as usize) < MAX_PARAM_MODS {
+            let i = self.param_mod_count as usize;
+            self.param_mods[i] = (id, ParamMod::new(chain, self.seed));
+            self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+            self.param_mod_count += 1;
+        }
+    }
+
+    fn apply_mods(&mut self, isr: f32) {
+        for i in 0..self.param_mod_count as usize {
+            let (id, ref mut m) = self.param_mods[i];
+            let val = m.tick(isr);
+            self.write_param(id, val);
+        }
+    }
+
+    fn write_param(&mut self, id: ParamId, val: f32) {
+        match id {
+            ParamId::Gain => self.params.gain = val,
+            ParamId::Postgain => self.params.postgain = val,
+            ParamId::Pan => self.params.pan = val,
+            ParamId::Speed => self.params.speed = val,
+            ParamId::Detune => self.params.detune = val,
+            ParamId::Pw => self.params.pw = val,
+            ParamId::Sub => self.params.sub = val,
+            ParamId::Harmonics => self.params.harmonics = val,
+            ParamId::Timbre => self.params.timbre = val,
+            ParamId::Morph => self.params.morph = val,
+            ParamId::Scan => self.params.scan = val,
+            ParamId::Lpf => self.params.lpf = Some(val),
+            ParamId::Lpq => self.params.lpq = val,
+            ParamId::Hpf => self.params.hpf = Some(val),
+            ParamId::Hpq => self.params.hpq = val,
+            ParamId::Bpf => self.params.bpf = Some(val),
+            ParamId::Bpq => self.params.bpq = val,
+            ParamId::Llpf => self.params.llpf = Some(val),
+            ParamId::Llpq => self.params.llpq = val,
+            ParamId::Lhpf => self.params.lhpf = Some(val),
+            ParamId::Lhpq => self.params.lhpq = val,
+            ParamId::Lbpf => self.params.lbpf = Some(val),
+            ParamId::Lbpq => self.params.lbpq = val,
+            ParamId::Fm => self.params.fm = val,
+            ParamId::Fmh => self.params.fmh = val,
+            ParamId::Fm2 => self.params.fm2 = val,
+            ParamId::Fm2h => self.params.fm2h = val,
+            ParamId::Fmfb => self.params.fmfb = val,
+            ParamId::Am => self.params.am = val,
+            ParamId::Amdepth => self.params.amdepth = val,
+            ParamId::Rm => self.params.rm = val,
+            ParamId::Rmdepth => self.params.rmdepth = val,
+            ParamId::Vib => self.params.vib = val,
+            ParamId::Vibmod => self.params.vibmod = val,
+            ParamId::Phaser => self.params.phaser = val,
+            ParamId::Phaserdepth => self.params.phaserdepth = val,
+            ParamId::Phasersweep => self.params.phasersweep = val,
+            ParamId::Phasercenter => self.params.phasercenter = val,
+            ParamId::Flanger => self.params.flanger = val,
+            ParamId::Flangerdepth => self.params.flangerdepth = val,
+            ParamId::Flangerfeedback => self.params.flangerfeedback = val,
+            ParamId::Chorus => self.params.chorus = val,
+            ParamId::Chorusdepth => self.params.chorusdepth = val,
+            ParamId::Chorusdelay => self.params.chorusdelay = val,
+            ParamId::Fold => self.params.fold = Some(val),
+            ParamId::Crush => self.params.crush = Some(val),
+            ParamId::Coarse => self.params.coarse = Some(val),
+            ParamId::Distort => self.params.distort = Some(val),
+            ParamId::Eqlo => self.params.eqlo = val,
+            ParamId::Eqmid => self.params.eqmid = val,
+            ParamId::Eqhi => self.params.eqhi = val,
+            ParamId::Tilt => self.params.tilt = val,
+            ParamId::Width => self.params.width = val,
+            ParamId::Haas => self.params.haas = val,
+            ParamId::Delay => self.params.delay = val,
+            ParamId::Verb => self.params.verb = val,
+            ParamId::Comb => self.params.comb = val,
+            ParamId::Feedback => self.params.feedback = val,
+        }
     }
 
     fn compute_freq(&mut self, isr: f32) -> f32 {
@@ -352,6 +451,9 @@ impl Voice {
             return false;
         }
 
+        if self.param_mod_count > 0 {
+            self.apply_mods(isr);
+        }
         let freq = self.compute_freq(isr);
         if !self.run_source(freq, isr, web_pcm, sample_idx, live_input) {
             return false;
@@ -383,6 +485,9 @@ impl Voice {
             return false;
         }
 
+        if self.param_mod_count > 0 {
+            self.apply_mods(isr);
+        }
         let freq = self.compute_freq(isr);
         if !self.run_source(freq, isr, pool, samples, web_pcm, sample_idx, live_input) {
             return false;

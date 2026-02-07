@@ -12,7 +12,7 @@ order: 112
 
 A state variable bandpass filter (TPT/SVF) that attenuates frequencies outside a band around the center frequency. Each filter has its own ADSR envelope that modulates the center frequency.
 
-<CommandEntry name="bpf" type="number" min={20} max={20000} unit="Hz">
+<CommandEntry name="bpf" type="number" min={20} max={20000} unit="Hz" mod>
 
 Center frequency in Hz. Frequencies outside the band are attenuated.
 
@@ -20,7 +20,7 @@ Center frequency in Hz. Frequencies outside the band are attenuated.
 
 </CommandEntry>
 
-<CommandEntry name="bpq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="bpq" type="number" min={0} max={1} default={0.2} mod>
 
 Resonance (0-1). Higher values narrow the passband.
 

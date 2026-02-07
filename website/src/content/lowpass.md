@@ -12,7 +12,7 @@ order: 110
 
 A state variable lowpass filter (TPT/SVF) that attenuates frequencies above the cutoff. Each filter has its own ADSR envelope that modulates the cutoff frequency.
 
-<CommandEntry name="lpf" type="number" min={20} max={20000} unit="Hz">
+<CommandEntry name="lpf" type="number" min={20} max={20000} unit="Hz" mod>
 
 Cutoff frequency in Hz. Frequencies above this are attenuated.
 
@@ -20,7 +20,7 @@ Cutoff frequency in Hz. Frequencies above this are attenuated.
 
 </CommandEntry>
 
-<CommandEntry name="lpq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="lpq" type="number" min={0} max={1} default={0.2} mod>
 
 Resonance (0-1). Boosts frequencies near the cutoff.
 

@@ -12,7 +12,7 @@ order: 104
 
 These parameters are dedicated to alter the nominal behavior of each oscillator. Some parameters are specific to certain oscillators, most others can be used with all oscillators.
 
-<CommandEntry name="pw" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="pw" type="number" min={0} max={1} default={0.5} mod>
 
 The pulse width (between 0 and 1) of the pulse oscillator. The default is 0.5 (square wave). Only has an effect when used with <code>/sound/pulse</code> or <code>/sound/pulze</code>.
 
@@ -66,7 +66,7 @@ Reflects the phase at the specified position. At 0.5, creates symmetric waveform
 
 A secondary oscillator tuned octaves below the main oscillator. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) and spread mode.
 
-<CommandEntry name="sub" type="number" min={0} max={1} default={0}>
+<CommandEntry name="sub" type="number" min={0} max={1} default={0} mod>
 
 Mix level of the sub oscillator. At 0 the sub is silent, at 1 it matches the main oscillator volume.
 

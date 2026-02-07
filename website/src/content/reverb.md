@@ -12,7 +12,7 @@ order: 204
 
 Send-effect reverb with two algorithms.
 
-<CommandEntry name="verb" type="number" min={0} max={1} default={0}>
+<CommandEntry name="verb" type="number" min={0} max={1} default={0} mod>
 
 Send level to the reverb bus.
 

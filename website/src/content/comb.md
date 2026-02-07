@@ -12,7 +12,7 @@ order: 113
 
 Send effect with feedback comb filter. Creates pitched resonance, metallic timbres, and Karplus-Strong plucked sounds. Tail persists after voice ends.
 
-<CommandEntry name="comb" type="number" min={0} max={1} default={0}>
+<CommandEntry name="comb" type="number" min={0} max={1} default={0} mod>
 
 Send amount to comb filter.
 

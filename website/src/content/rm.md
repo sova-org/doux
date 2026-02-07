@@ -12,7 +12,7 @@ order: 110
 
 Ring modulation is a crossfade between dry signal and full multiplication: <code>signal &#42;= (1.0 - depth) + modulator &#42; depth</code>. Unlike AM, ring modulation at full depth removes the carrier entirely, leaving only sum and difference frequencies at <code>carrier ± modulator</code>.
 
-<CommandEntry name="rm" type="number" min={0} default={0} unit="Hz">
+<CommandEntry name="rm" type="number" min={0} default={0} unit="Hz" mod>
 
 Ring modulation oscillator frequency in Hz. When set above 0, an LFO multiplies the signal.
 
@@ -20,7 +20,7 @@ Ring modulation oscillator frequency in Hz. When set above 0, an LFO multiplies 
 
 </CommandEntry>
 
-<CommandEntry name="rmdepth" type="number" min={0} max={1} default={1}>
+<CommandEntry name="rmdepth" type="number" min={0} max={1} default={1} mod>
 
 Modulation depth (0-1). At 0, the signal is unchanged. At 1, full ring modulation with no dry signal.
 

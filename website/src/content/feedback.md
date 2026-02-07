@@ -12,7 +12,7 @@ order: 202
 
 Orbit feedback delay. Sends voice signal to the orbit bus where it is re-injected with controllable delay time and damping.
 
-<CommandEntry name="feedback" type="number" min={0} max={1} default={0}>
+<CommandEntry name="feedback" type="number" min={0} max={1} default={0} mod>
 
 Feedback delay send level and re-injection amount. 0 = bypassed. Internally clamped to 0.99 to prevent runaway.
 

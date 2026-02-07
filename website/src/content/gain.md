@@ -12,7 +12,7 @@ order: 105
 
 The signal path is: oscillator → <code>gain &#42; velocity</code> → filters → distortion → modulation → phaser/flanger → <code>envelope &#42; postgain</code> → chorus → <code>pan</code>.
 
-<CommandEntry name="gain" type="number" min={0} default={1}>
+<CommandEntry name="gain" type="number" min={0} default={1} mod>
 
 Pre-filter gain multiplier. Applied before filters and distortion, combined with <code>velocity</code> as <code>gain &#42; velocity</code>.
 
@@ -20,7 +20,7 @@ Pre-filter gain multiplier. Applied before filters and distortion, combined with
 
 </CommandEntry>
 
-<CommandEntry name="postgain" type="number" min={0} default={1}>
+<CommandEntry name="postgain" type="number" min={0} default={1} mod>
 
 Post-effects gain multiplier. Applied after phaser/flanger, combined with the envelope as <code>envelope &#42; postgain</code>.
 
@@ -36,7 +36,7 @@ Multiplied with <code>gain</code> before filters. Also passed as <code>accent</c
 
 </CommandEntry>
 
-<CommandEntry name="pan" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="pan" type="number" min={0} max={1} default={0.5} mod>
 
 Stereo position using constant-power panning: <code>left = cos(pan &#42; π/2)</code>, <code>right = sin(pan &#42; π/2)</code>. 0 = left, 0.5 = center, 1 = right.
 
@@ -44,7 +44,7 @@ Stereo position using constant-power panning: <code>left = cos(pan &#42; π/2)</
 
 </CommandEntry>
 
-<CommandEntry name="width" type="number" min={0} max={2} default={1}>
+<CommandEntry name="width" type="number" min={0} max={2} default={1} mod>
 
 Stereo width using mid-side processing. At 0 the signal collapses to mono, at 1 it is unchanged, above 1 the stereo image is exaggerated.
 
@@ -54,7 +54,7 @@ Stereo width using mid-side processing. At 0 the signal collapses to mono, at 1 
 
 </CommandEntry>
 
-<CommandEntry name="haas" type="number" min={0} max={35} default={0} unit="ms">
+<CommandEntry name="haas" type="number" min={0} max={35} default={0} unit="ms" mod>
 
 Haas effect. Delays the right channel by a short amount (1-35ms) to create spatial placement without changing volume. Small values (1-10ms) widen the image, larger values (10-35ms) create a distinct echo.
 

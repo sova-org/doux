@@ -143,6 +143,68 @@
             default! You cannot re-order the synthesis chain.
         </p>
     </section>
+
+    <section>
+        <h2>Inline Modulation</h2>
+        <p>
+            Many parameters support <strong>inline modulation</strong>: instead
+            of a static value, you write an expression with an operator that
+            describes the <em>motion</em> between two values.
+            In the reference, parameters marked with
+            <code>~</code> support this syntax.
+        </p>
+
+        <h3>Oscillate <code>~</code></h3>
+        <p>Cycle between two values forever. Syntax: <code>min~max:period[shape]</code></p>
+        <ul>
+            <li><code>200~4000:2</code> — sine (default)</li>
+            <li><code>200~4000:2t</code> — triangle</li>
+            <li><code>200~4000:2w</code> — saw (ramp up, snap down)</li>
+            <li><code>200~4000:2q</code> — square (alternate min/max)</li>
+        </ul>
+
+        <p>A lowpass filter sweeping from 200Hz to 4000Hz over 2 seconds:</p>
+        <CodeEditor code={`/sound/saw/lpf/200~4000:2`} rows={2} />
+
+        <p>Pan bouncing left to right with a triangle wave:</p>
+        <CodeEditor code={`/sound/saw/pan/0~1:1t`} rows={2} />
+
+        <h3>Transition <code>&gt;</code></h3>
+        <p>Go from A to B, hold at B. Chain segments for multi-point envelopes.
+           Syntax: <code>start&gt;target:duration[curve]</code></p>
+        <ul>
+            <li><code>200&gt;4000:2</code> — linear (default)</li>
+            <li><code>200&gt;4000:2e</code> — exponential</li>
+            <li><code>200&gt;4000:2s</code> — smooth (ease in-out)</li>
+        </ul>
+
+        <p>Multi-segment chains:</p>
+        <ul>
+            <li><code>200&gt;4000:1&gt;800:2</code> — up in 1s, down in 2s</li>
+            <li><code>0&gt;1:0.01&gt;0:2</code> — percussive blip</li>
+            <li><code>200&gt;4000:1e&gt;200:1.5s</code> — exponential up, smooth down</li>
+        </ul>
+
+        <p>Append <code>~</code> to the last duration to loop:</p>
+        <ul>
+            <li><code>200&gt;4000:1&gt;200:1~</code> — looping triangle-like sweep</li>
+        </ul>
+
+        <p>FM index ramping up exponentially over 3 seconds:</p>
+        <CodeEditor code={`/fm/0>8:3e/fmh/3/decay/3`} rows={2} />
+
+        <h3>Random <code>?</code></h3>
+        <p>Wander stochastically within a range. Syntax: <code>min?max:period[shape]</code></p>
+        <ul>
+            <li><code>200?4000:0.5</code> — sample-and-hold (default)</li>
+            <li><code>200?4000:0.5s</code> — smooth (cosine-interpolated)</li>
+            <li><code>200?4000:0.1d</code> — drunk walk (brownian)</li>
+        </ul>
+
+        <p>Random pan jumps:</p>
+        <CodeEditor code={`/sound/saw/pan/0?1:0.25`} rows={2} />
+
+    </section>
 </main>
 
 <style>

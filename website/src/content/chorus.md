@@ -12,7 +12,7 @@ order: 202
 
 A rich chorus effect that adds depth and movement to any sound.
 
-<CommandEntry name="chorus" type="number" min={0} default={0} unit="Hz">
+<CommandEntry name="chorus" type="number" min={0} default={0} unit="Hz" mod>
 
 Chorus LFO rate in Hz.
 
@@ -22,7 +22,7 @@ Chorus LFO rate in Hz.
 
 </CommandEntry>
 
-<CommandEntry name="chorusdepth" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="chorusdepth" type="number" min={0} max={1} default={0.5} mod>
 
 Chorus modulation depth (0-1).
 
@@ -32,7 +32,7 @@ Chorus modulation depth (0-1).
 
 </CommandEntry>
 
-<CommandEntry name="chorusdelay" type="number" min={0} default={20} unit="ms">
+<CommandEntry name="chorusdelay" type="number" min={0} default={20} unit="ms" mod>
 
 Chorus base delay time in milliseconds.
 

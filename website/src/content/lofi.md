@@ -12,7 +12,7 @@ order: 205
 
 Sample rate reduction, bit crushing, and waveshaping distortion.
 
-<CommandEntry name="coarse" type="number" min={1} default={1}>
+<CommandEntry name="coarse" type="number" min={1} default={1} mod>
 
 Sample rate reduction. Holds each sample for <code>n</code> samples, creating stair-stepping and aliasing artifacts.
 
@@ -20,7 +20,7 @@ Sample rate reduction. Holds each sample for <code>n</code> samples, creating st
 
 </CommandEntry>
 
-<CommandEntry name="crush" type="number" min={1} max={16} default={16} unit="bits">
+<CommandEntry name="crush" type="number" min={1} max={16} default={16} unit="bits" mod>
 
 Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, creating stepping distortion.
 
@@ -28,7 +28,7 @@ Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, crea
 
 </CommandEntry>
 
-<CommandEntry name="fold" type="number" min={1} default={1}>
+<CommandEntry name="fold" type="number" min={1} default={1} mod>
 
 Sine-based wavefold (Serge-style). At 1, near-passthrough. At 2, one fold per peak. At 4, two folds.
 
@@ -44,7 +44,7 @@ Wrap distortion. Signal wraps around creating harsh digital artifacts.
 
 </CommandEntry>
 
-<CommandEntry name="distort" type="number" min={0} default={0}>
+<CommandEntry name="distort" type="number" min={0} default={0} mod>
 
 Soft-clipping waveshaper using <code>(1+k)&#42;x / (1+k&#42;|x|)</code> where <code>k = e^amount - 1</code>. Higher values add harmonic saturation.
 

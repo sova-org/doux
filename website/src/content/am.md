@@ -12,7 +12,7 @@ order: 109
 
 Amplitude modulation multiplies the signal by a modulating oscillator. The formula preserves the original signal at depth 0: <code>signal &#42;= 1.0 + modulator &#42; depth</code>. This creates sidebands at <code>carrier ± modulator</code> frequencies while keeping the carrier present.
 
-<CommandEntry name="am" type="number" min={0} default={0} unit="Hz">
+<CommandEntry name="am" type="number" min={0} default={0} unit="Hz" mod>
 
 AM oscillator frequency in Hz. When set above 0, an LFO modulates the signal amplitude.
 
@@ -20,7 +20,7 @@ AM oscillator frequency in Hz. When set above 0, an LFO modulates the signal amp
 
 </CommandEntry>
 
-<CommandEntry name="amdepth" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="amdepth" type="number" min={0} max={1} default={0.5} mod>
 
 Modulation depth (0-1). At 0, the signal is unchanged. At 1, the signal varies between 0 and 2x its amplitude.
 

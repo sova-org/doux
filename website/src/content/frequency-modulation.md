@@ -12,7 +12,7 @@ order: 108
 
 Any source can be frequency modulated. Frequency modulation (FM) is a technique where the frequency of a carrier wave is varied by an audio signal. This creates complex timbres and can produce rich harmonics, from mellow timbres to harsh digital noise. A second modulator can be enabled with `fm2` for 3-operator FM, with `fmalgo` selecting between cascade, parallel, and branch routing algorithms.
 
-<CommandEntry name="fm" type="number" min={0} default={0}>
+<CommandEntry name="fm" type="number" min={0} default={0} mod>
 
 The frequency modulation index. FM multiplies the gain of the modulator, thus controls the amount of FM applied.
 
@@ -22,7 +22,7 @@ The frequency modulation index. FM multiplies the gain of the modulator, thus co
 
 </CommandEntry>
 
-<CommandEntry name="fmh" type="number" default={1}>
+<CommandEntry name="fmh" type="number" default={1} mod>
 
 The harmonic ratio of the frequency modulation. fmh*freq defines the modulation frequency. As a rule of thumb, numbers close to simple ratios sound more harmonic.
 
@@ -82,7 +82,7 @@ The duration (seconds) of the fm envelope's release phase.
 
 </CommandEntry>
 
-<CommandEntry name="fm2" type="number" min={0} default={0}>
+<CommandEntry name="fm2" type="number" min={0} default={0} mod>
 
 Modulation index for the second FM operator. When `fm2` is greater than 0, a third operator is introduced. Its routing depends on `fmalgo`. The second operator shares the same waveform (`fmshape`) and envelope (`fma`, `fmd`, `fms`, `fmr`) as the first.
 
@@ -92,7 +92,7 @@ Modulation index for the second FM operator. When `fm2` is greater than 0, a thi
 
 </CommandEntry>
 
-<CommandEntry name="fm2h" type="number" default={1}>
+<CommandEntry name="fm2h" type="number" default={1} mod>
 
 Harmonic ratio of the second FM operator. `fm2h` * carrier frequency defines the second modulator's frequency.
 
@@ -114,7 +114,7 @@ Selects the FM routing algorithm when `fm2` is active. `0` is cascade (fm2 modul
 
 </CommandEntry>
 
-<CommandEntry name="fmfb" type="number" default={0}>
+<CommandEntry name="fmfb" type="number" default={0} mod>
 
 Self-feedback amount on the topmost FM operator. Feedback progressively adds harmonics, turning a sine into a sawtooth-like waveform at moderate values and into noise at high values. When only `fm` is active, feedback applies to operator 1. When `fm2` is active, feedback applies to operator 2.
 

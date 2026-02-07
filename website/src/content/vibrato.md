@@ -12,7 +12,7 @@ order: 107
 
 The pitch of every oscillator can be modulated by a vibrato effect. Vibrato is a technique where the pitch of a note is modulated slightly around a central pitch, creating a shimmering effect.
 
-<CommandEntry name="vib" type="number" min={0} default={0} unit="Hz">
+<CommandEntry name="vib" type="number" min={0} default={0} unit="Hz" mod>
 
 Vibrato frequency (in hertz).
 
@@ -20,7 +20,7 @@ Vibrato frequency (in hertz).
 
 </CommandEntry>
 
-<CommandEntry name="vibmod" type="number" min={0} default={0} unit="semitones">
+<CommandEntry name="vibmod" type="number" min={0} default={0} unit="semitones" mod>
 
 Vibrato modulation depth (semitones).
 

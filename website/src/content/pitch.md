@@ -35,7 +35,7 @@ If both note and freq is set, freq wins.
 
 </CommandEntry>
 
-<CommandEntry name="speed" type="number" default={1}>
+<CommandEntry name="speed" type="number" default={1} mod>
 
 Multiplies with the source frequency or buffer playback speed.
 
@@ -45,7 +45,7 @@ Multiplies with the source frequency or buffer playback speed.
 
 </CommandEntry>
 
-<CommandEntry name="detune" type="number" default={0} unit="cents">
+<CommandEntry name="detune" type="number" default={0} unit="cents" mod>
 
 Shifts the pitch by the given amount in cents. 100 cents = 1 semitone.
 

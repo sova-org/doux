@@ -12,7 +12,7 @@ order: 203
 
 Stereo delay line with feedback (max 1 second at 48kHz, clamped to 0.95 feedback).
 
-<CommandEntry name="delay" type="number" min={0} max={1} default={0}>
+<CommandEntry name="delay" type="number" min={0} max={1} default={0} mod>
 
 Send level to the delay bus.
 

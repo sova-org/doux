@@ -12,7 +12,7 @@ order: 113
 
 A Moog-style ladder filter with self-oscillation and analog-modeled nonlinear saturation. Produces a warmer, more aggressive character than the standard filters. Based on the improved virtual analog model by Stefano D'Angelo and Vesa Välimäki. Available as lowpass (`llpf`), highpass (`lhpf`), and bandpass (`lbpf`). Filter envelope parameters are shared with the standard filters (`lpe`/`lpa`/`lpd`/`lps`/`lpr` for lowpass, etc.).
 
-<CommandEntry name="llpf" type="number" min={20} max={20000} unit="Hz">
+<CommandEntry name="llpf" type="number" min={20} max={20000} unit="Hz" mod>
 
 Ladder lowpass cutoff frequency in Hz.
 
@@ -20,7 +20,7 @@ Ladder lowpass cutoff frequency in Hz.
 
 </CommandEntry>
 
-<CommandEntry name="lhpf" type="number" min={20} max={20000} unit="Hz">
+<CommandEntry name="lhpf" type="number" min={20} max={20000} unit="Hz" mod>
 
 Ladder highpass cutoff frequency in Hz.
 
@@ -28,7 +28,7 @@ Ladder highpass cutoff frequency in Hz.
 
 </CommandEntry>
 
-<CommandEntry name="lbpf" type="number" min={20} max={20000} unit="Hz">
+<CommandEntry name="lbpf" type="number" min={20} max={20000} unit="Hz" mod>
 
 Ladder bandpass cutoff frequency in Hz.
 
@@ -36,7 +36,7 @@ Ladder bandpass cutoff frequency in Hz.
 
 </CommandEntry>
 
-<CommandEntry name="llpq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="llpq" type="number" min={0} max={1} default={0.2} mod>
 
 Ladder lowpass resonance (0-1). At high values, the filter self-oscillates.
 
@@ -44,7 +44,7 @@ Ladder lowpass resonance (0-1). At high values, the filter self-oscillates.
 
 </CommandEntry>
 
-<CommandEntry name="lhpq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="lhpq" type="number" min={0} max={1} default={0.2} mod>
 
 Ladder highpass resonance (0-1).
 
@@ -52,7 +52,7 @@ Ladder highpass resonance (0-1).
 
 </CommandEntry>
 
-<CommandEntry name="lbpq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="lbpq" type="number" min={0} max={1} default={0.2} mod>
 
 Ladder bandpass resonance (0-1).
 
