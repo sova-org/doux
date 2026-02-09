@@ -1,5 +1,5 @@
 use crate::dsp::Phasor;
-use crate::effects::{Comb, DattorroVerb, Delay, DelayParams, Feedback, FdnVerb};
+use crate::effects::{Comb, DattorroVerb, Delay, DelayParams, Feedback, VitalVerb};
 use crate::types::{DelayType, LfoShape, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
@@ -15,6 +15,13 @@ pub struct EffectParams {
     pub verb_damp: f32,
     pub verb_predelay: f32,
     pub verb_diff: f32,
+    pub verb_prelow: f32,
+    pub verb_prehigh: f32,
+    pub verb_lowcut: f32,
+    pub verb_highcut: f32,
+    pub verb_lowgain: f32,
+    pub verb_chorus: f32,
+    pub verb_chorus_freq: f32,
     pub comb_freq: f32,
     pub comb_feedback: f32,
     pub comb_damp: f32,
@@ -31,11 +38,18 @@ impl Default for EffectParams {
             delay_time: 0.333,
             delay_feedback: 0.6,
             delay_type: DelayType::Standard,
-            verb_type: ReverbType::Dattorro,
+            verb_type: ReverbType::Vital,
             verb_decay: 0.75,
             verb_damp: 0.95,
             verb_predelay: 0.1,
             verb_diff: 0.7,
+            verb_prelow: 0.2,
+            verb_prehigh: 0.8,
+            verb_lowcut: 0.5,
+            verb_highcut: 0.7,
+            verb_lowgain: 0.4,
+            verb_chorus: 0.3,
+            verb_chorus_freq: 0.2,
             comb_freq: 220.0,
             comb_feedback: 0.9,
             comb_damp: 0.1,
@@ -53,7 +67,7 @@ pub struct Orbit {
     pub delay_send: [f32; CHANNELS],
     pub delay_out: [f32; CHANNELS],
     pub verb: DattorroVerb,
-    pub fdn: FdnVerb,
+    pub vital: VitalVerb,
     pub verb_send: [f32; CHANNELS],
     pub verb_out: [f32; CHANNELS],
     pub comb: Comb,
@@ -76,7 +90,7 @@ impl Orbit {
             delay_send: [0.0; CHANNELS],
             delay_out: [0.0; CHANNELS],
             verb: DattorroVerb::new(sr),
-            fdn: FdnVerb::new(sr),
+            vital: VitalVerb::new(sr),
             verb_send: [0.0; CHANNELS],
             verb_out: [0.0; CHANNELS],
             comb: Comb::default(),
@@ -157,12 +171,19 @@ impl Orbit {
                 p.verb_predelay,
                 p.verb_diff,
             ),
-            ReverbType::Fdn => self.fdn.process(
+            ReverbType::Vital => self.vital.process(
                 verb_input,
                 p.verb_decay,
                 p.verb_damp,
-                p.verb_diff, // size
-                p.verb_predelay, // modulation
+                p.verb_predelay,
+                p.verb_diff,
+                p.verb_prelow,
+                p.verb_prehigh,
+                p.verb_lowcut,
+                p.verb_highcut,
+                p.verb_lowgain,
+                p.verb_chorus,
+                p.verb_chorus_freq,
             ),
         };
 

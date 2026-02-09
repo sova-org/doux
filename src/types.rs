@@ -135,9 +135,9 @@ impl FromStr for LfoShape {
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum ReverbType {
-    #[default]
     Dattorro,
-    Fdn,
+    #[default]
+    Vital,
 }
 
 impl FromStr for ReverbType {
@@ -146,7 +146,7 @@ impl FromStr for ReverbType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "dattorro" | "plate" | "0" => Ok(Self::Dattorro),
-            "fdn" | "hall" | "1" => Ok(Self::Fdn),
+            "vital" | "1" => Ok(Self::Vital),
             _ => Err(()),
         }
     }

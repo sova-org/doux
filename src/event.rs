@@ -203,6 +203,13 @@ pub struct Event {
     pub verbdamp: Option<f32>,
     pub verbpredelay: Option<f32>,
     pub verbdiff: Option<f32>,
+    pub verbprelow: Option<f32>,
+    pub verbprehigh: Option<f32>,
+    pub verblowcut: Option<f32>,
+    pub verbhighcut: Option<f32>,
+    pub verblowgain: Option<f32>,
+    pub verbchorus: Option<f32>,
+    pub verbchorusfreq: Option<f32>,
 }
 
 impl Event {
@@ -368,6 +375,13 @@ impl Event {
                 "verbdamp" => event.verbdamp = val.parse().ok(),
                 "verbpredelay" => event.verbpredelay = val.parse().ok(),
                 "verbdiff" => event.verbdiff = val.parse().ok(),
+                "verbprelow" => event.verbprelow = val.parse().ok(),
+                "verbprehigh" => event.verbprehigh = val.parse().ok(),
+                "verblowcut" => event.verblowcut = val.parse().ok(),
+                "verbhighcut" => event.verbhighcut = val.parse().ok(),
+                "verblowgain" => event.verblowgain = val.parse().ok(),
+                "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
+                "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
                 _ => {}
             }
             i += 2;

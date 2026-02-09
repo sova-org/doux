@@ -676,7 +676,14 @@ impl Engine {
             verbdecay,
             verbdamp,
             verbpredelay,
-            verbdiff
+            verbdiff,
+            verbprelow,
+            verbprehigh,
+            verblowcut,
+            verbhighcut,
+            verblowgain,
+            verbchorus,
+            verbchorusfreq
         );
 
         // Install inline parameter modulations
@@ -793,6 +800,13 @@ impl Engine {
                 self.orbits[orbit_idx].params.verb_damp = self.voices[i].params.verbdamp;
                 self.orbits[orbit_idx].params.verb_predelay = self.voices[i].params.verbpredelay;
                 self.orbits[orbit_idx].params.verb_diff = self.voices[i].params.verbdiff;
+                self.orbits[orbit_idx].params.verb_prelow = self.voices[i].params.verbprelow;
+                self.orbits[orbit_idx].params.verb_prehigh = self.voices[i].params.verbprehigh;
+                self.orbits[orbit_idx].params.verb_lowcut = self.voices[i].params.verblowcut;
+                self.orbits[orbit_idx].params.verb_highcut = self.voices[i].params.verbhighcut;
+                self.orbits[orbit_idx].params.verb_lowgain = self.voices[i].params.verblowgain;
+                self.orbits[orbit_idx].params.verb_chorus = self.voices[i].params.verbchorus;
+                self.orbits[orbit_idx].params.verb_chorus_freq = self.voices[i].params.verbchorusfreq;
             }
             if self.voices[i].params.comb > 0.0 {
                 for c in 0..CHANNELS {

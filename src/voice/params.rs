@@ -342,6 +342,20 @@ pub struct VoiceParams {
     pub verbpredelay: f32,
     /// Reverb diffusion amount.
     pub verbdiff: f32,
+    /// Reverb pre-filter low cutoff (0-1, vital only).
+    pub verbprelow: f32,
+    /// Reverb pre-filter high cutoff (0-1, vital only).
+    pub verbprehigh: f32,
+    /// Reverb feedback low shelf cutoff (0-1, vital only).
+    pub verblowcut: f32,
+    /// Reverb feedback high shelf cutoff (0-1, vital only).
+    pub verbhighcut: f32,
+    /// Reverb feedback low shelf gain (0-1, vital only).
+    pub verblowgain: f32,
+    /// Reverb chorus/modulation amount (0-1, vital only).
+    pub verbchorus: f32,
+    /// Reverb chorus LFO frequency (0-1, vital only).
+    pub verbchorusfreq: f32,
     /// Comb filter send level (0.0 to 1.0).
     pub comb: f32,
     /// Comb filter frequency in Hz.
@@ -481,11 +495,18 @@ impl Default for VoiceParams {
             delayfeedback: 0.6,
             delaytype: DelayType::Standard,
             verb: 0.0,
-            verbtype: ReverbType::Dattorro,
+            verbtype: ReverbType::Vital,
             verbdecay: 0.75,
             verbdamp: 0.95,
             verbpredelay: 0.1,
             verbdiff: 0.7,
+            verbprelow: 0.2,
+            verbprehigh: 0.8,
+            verblowcut: 0.5,
+            verbhighcut: 0.7,
+            verblowgain: 0.4,
+            verbchorus: 0.3,
+            verbchorusfreq: 0.2,
             comb: 0.0,
             combfreq: 220.0,
             combfeedback: 0.9,
