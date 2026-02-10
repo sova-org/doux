@@ -199,6 +199,19 @@ impl VitalVerb {
         let sr_ratio = sr / BASE_SR;
         let wp = self.write_pos;
 
+        // Clamp all parameters to [0, 1] range for safety.
+        let decay = decay.clamp(0.0, 1.0);
+        let damp = damp.clamp(0.0, 1.0);
+        let predelay = predelay.clamp(0.0, 1.0);
+        let size = size.clamp(0.0, 1.0);
+        let prelow = prelow.clamp(0.0, 1.0);
+        let prehigh = prehigh.clamp(0.0, 1.0);
+        let lowcut = lowcut.clamp(0.0, 1.0);
+        let highcut = highcut.clamp(0.0, 1.0);
+        let lowgain = lowgain.clamp(0.0, 1.0);
+        let chorus_amt = chorus_amt.clamp(0.0, 1.0);
+        let chorus_freq = chorus_freq.clamp(0.0, 1.0);
+
         // --- Parameter mapping (vital formulas) ---
 
         // Decay: exp(remap(0,1,-6,6)) -> clamp [0.1, 100] seconds -> * sr
