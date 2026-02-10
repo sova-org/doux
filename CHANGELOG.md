@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- New **space** reverb algorithm based on Vital's reverb design, with per-line T60 decay, pre/post filtering, chorus modulation, and allpass diffusion network
+
 ### Removed
 
 - Removed `ftype` parameter (filter slope cascading). Ladder filters (`llpf`/`lhpf`/`lbpf`) provide steep slopes with proper nonlinear saturation.
