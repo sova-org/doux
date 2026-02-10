@@ -38,7 +38,7 @@ impl Default for EffectParams {
             delay_time: 0.333,
             delay_feedback: 0.6,
             delay_type: DelayType::Standard,
-            verb_type: ReverbType::Vital,
+            verb_type: ReverbType::Space,
             verb_decay: 0.75,
             verb_damp: 0.95,
             verb_predelay: 0.1,
@@ -164,14 +164,14 @@ impl Orbit {
 
         let verb_input = (self.verb_send[0] + self.verb_send[1]) * 0.5;
         self.verb_out = match p.verb_type {
-            ReverbType::Dattorro => self.verb.process(
+            ReverbType::Plate => self.verb.process(
                 verb_input,
                 p.verb_decay,
                 p.verb_damp,
                 p.verb_predelay,
                 p.verb_diff,
             ),
-            ReverbType::Vital => self.vital.process(
+            ReverbType::Space => self.vital.process(
                 verb_input,
                 p.verb_decay,
                 p.verb_damp,
