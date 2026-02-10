@@ -13,7 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::dsp::PhaseShape;
-use crate::types::{DelayType, FilterSlope, LfoShape, ReverbType, Source, SubWave};
+use crate::types::{DelayType, LfoShape, ReverbType, Source, SubWave};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -160,12 +160,6 @@ pub struct VoiceParams {
     pub lbpf: Option<f32>,
     /// Ladder bandpass resonance (0.0 to 1.0).
     pub lbpq: f32,
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Filter Slope
-    // ─────────────────────────────────────────────────────────────────────
-    /// Filter slope (12/24/48 dB per octave) for all filters.
-    pub ftype: FilterSlope,
 
     // ─────────────────────────────────────────────────────────────────────
     // Glide (Portamento)
@@ -437,7 +431,6 @@ impl Default for VoiceParams {
             lhpq: 0.2,
             lbpf: None,
             lbpq: 0.2,
-            ftype: FilterSlope::Db12,
             glide: None,
             penv: 1.0,
             patt: 0.001,

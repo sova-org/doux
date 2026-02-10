@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `ftype` parameter (filter slope cascading). Ladder filters (`llpf`/`lhpf`/`lbpf`) provide steep slopes with proper nonlinear saturation.
+
+### Changed
+
+- Renamed reverb algorithms to user-facing names: "vital" is now **space**, "dattorro" is now **plate**. Old names still work as aliases.
+
 ## [0.0.2] - 2026-02-07
 
 ### Added

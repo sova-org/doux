@@ -1,4 +1,4 @@
-use crate::types::{midi2freq, DelayType, FilterSlope, LfoShape, ReverbType, SubWave};
+use crate::types::{midi2freq, DelayType, LfoShape, ReverbType, SubWave};
 use crate::voice::{ModChain, ParamId};
 
 #[derive(Clone, Default, Debug)]
@@ -102,9 +102,6 @@ pub struct Event {
     pub lhpq: Option<f32>,
     pub lbpf: Option<f32>,
     pub lbpq: Option<f32>,
-
-    // Filter type
-    pub ftype: Option<FilterSlope>,
 
     // Pitch envelope
     pub penv: Option<f32>,
@@ -306,7 +303,6 @@ impl Event {
                 "lhpq" => parse_param!(val, lhpq, ParamId::Lhpq),
                 "lbpf" => parse_param!(val, lbpf, ParamId::Lbpf),
                 "lbpq" => parse_param!(val, lbpq, ParamId::Lbpq),
-                "ftype" => event.ftype = val.parse().ok(),
                 "penv" => event.penv = val.parse().ok(),
                 "patt" => event.patt = val.parse().ok(),
                 "pdec" => event.pdec = val.parse().ok(),

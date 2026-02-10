@@ -101,14 +101,6 @@ impl FromStr for SubWave {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum FilterSlope {
-    #[default]
-    Db12,
-    Db24,
-    Db48,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum LfoShape {
     #[default]
     Sine,
@@ -170,19 +162,6 @@ impl FromStr for DelayType {
             "pingpong" | "pp" | "1" => Ok(Self::PingPong),
             "tape" | "2" => Ok(Self::Tape),
             "multitap" | "multi" | "3" => Ok(Self::Multitap),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for FilterSlope {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "12db" | "0" => Ok(Self::Db12),
-            "24db" | "1" => Ok(Self::Db24),
-            "48db" | "2" => Ok(Self::Db48),
             _ => Err(()),
         }
     }

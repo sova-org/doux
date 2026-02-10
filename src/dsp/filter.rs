@@ -71,37 +71,26 @@ impl Svf {
 #[derive(Clone, Copy)]
 pub struct SvfState {
     pub cutoff: f32,
-    pub stages: [Svf; 4],
+    stage: Svf,
 }
 
 impl Default for SvfState {
     fn default() -> Self {
         Self {
             cutoff: 0.0,
-            stages: [Svf::default(); 4],
+            stage: Svf::default(),
         }
     }
 }
 
 impl SvfState {
     #[inline]
-    pub fn process(
-        &mut self,
-        input: f32,
-        mode: SvfMode,
-        q: f32,
-        num_stages: usize,
-        sr: f32,
-    ) -> f32 {
+    pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
         let freq = self.cutoff.clamp(1.0, sr * 0.45);
         let g = (PI * freq / sr).tan();
         let q = q.clamp(0.0, 1.0);
         let k = 2.0 * pow10(-2.0 * q);
-        let mut out = input;
-        for i in 0..num_stages {
-            out = self.stages[i].tick(out, g, k, mode);
-        }
-        out
+        self.stage.tick(input, g, k, mode)
     }
 }
 

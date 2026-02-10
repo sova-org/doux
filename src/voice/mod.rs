@@ -20,7 +20,7 @@ use crate::sampling::RegistrySample;
 use crate::sampling::WebSampleSource;
 #[cfg(not(feature = "native"))]
 use crate::sampling::{FileSource, SampleInfo};
-use crate::types::{FilterSlope, BLOCK_SIZE, CHANNELS};
+use crate::types::{BLOCK_SIZE, CHANNELS};
 
 pub const MAX_PARAM_MODS: usize = 8;
 
@@ -422,14 +422,6 @@ impl Voice {
         freq
     }
 
-    fn num_stages(&self) -> usize {
-        match self.params.ftype {
-            FilterSlope::Db12 => 1,
-            FilterSlope::Db24 => 2,
-            FilterSlope::Db48 => 4,
-        }
-    }
-
     #[cfg(feature = "native")]
     pub fn process(
         &mut self,
@@ -546,21 +538,20 @@ impl Voice {
         self.ch[0] *= self.params.gain * self.params.velocity;
 
         // Apply filters (LP -> HP -> BP)
-        let num_stages = self.num_stages();
         if self.params.lpf.is_some() {
-            self.ch[0] =
-                self.lp
-                    .process(self.ch[0], SvfMode::Lp, self.params.lpq, num_stages, self.sr);
+            self.ch[0] = self
+                .lp
+                .process(self.ch[0], SvfMode::Lp, self.params.lpq, self.sr);
         }
         if self.params.hpf.is_some() {
-            self.ch[0] =
-                self.hp
-                    .process(self.ch[0], SvfMode::Hp, self.params.hpq, num_stages, self.sr);
+            self.ch[0] = self
+                .hp
+                .process(self.ch[0], SvfMode::Hp, self.params.hpq, self.sr);
         }
         if self.params.bpf.is_some() {
-            self.ch[0] =
-                self.bp
-                    .process(self.ch[0], SvfMode::Bp, self.params.bpq, num_stages, self.sr);
+            self.ch[0] = self
+                .bp
+                .process(self.ch[0], SvfMode::Bp, self.params.bpq, self.sr);
         }
 
         // Ladder filters (compute envelope independently from biquad filters)
