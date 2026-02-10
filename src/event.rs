@@ -212,7 +212,7 @@ pub struct Event {
 impl Event {
     pub fn parse(input: &str) -> Self {
         let mut event = Self::default();
-        let tokens: Vec<&str> = input.trim().split('/').filter(|s| !s.is_empty()).collect();
+        let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
 
         macro_rules! parse_param {
             ($val:expr, $field:ident, $id:expr) => {
@@ -224,10 +224,7 @@ impl Event {
             };
         }
 
-        let mut i = 0;
-        while i + 1 < tokens.len() {
-            let key = tokens[i];
-            let val = tokens[i + 1];
+        while let (Some(key), Some(val)) = (iter.next(), iter.next()) {
             match key {
                 "doux" | "dirt" => event.cmd = Some(val.to_string()),
                 "time" | "t" => event.time = val.parse().ok(),
@@ -380,7 +377,6 @@ impl Event {
                 "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
                 _ => {}
             }
-            i += 2;
         }
         event
     }

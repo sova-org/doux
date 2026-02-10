@@ -72,6 +72,10 @@ impl Svf {
 pub struct SvfState {
     pub cutoff: f32,
     stage: Svf,
+    cached_cutoff: f32,
+    cached_q: f32,
+    cached_g: f32,
+    cached_k: f32,
 }
 
 impl Default for SvfState {
@@ -79,6 +83,10 @@ impl Default for SvfState {
         Self {
             cutoff: 0.0,
             stage: Svf::default(),
+            cached_cutoff: f32::NAN,
+            cached_q: f32::NAN,
+            cached_g: 0.0,
+            cached_k: 0.0,
         }
     }
 }
@@ -87,10 +95,14 @@ impl SvfState {
     #[inline]
     pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
         let freq = self.cutoff.clamp(1.0, sr * 0.45);
-        let g = (PI * freq / sr).tan();
         let q = q.clamp(0.0, 1.0);
-        let k = 2.0 * pow10(-2.0 * q);
-        self.stage.tick(input, g, k, mode)
+        if self.cached_cutoff != freq || self.cached_q != q {
+            self.cached_cutoff = freq;
+            self.cached_q = q;
+            self.cached_g = (PI * freq / sr).tan();
+            self.cached_k = 2.0 * pow10(-2.0 * q);
+        }
+        self.stage.tick(input, self.cached_g, self.cached_k, mode)
     }
 }
 

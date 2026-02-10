@@ -23,6 +23,8 @@
 //! Limited to [`MAX_EVENTS`](crate::types::MAX_EVENTS) to prevent unbounded
 //! growth. Events beyond this limit are silently dropped.
 
+use std::collections::VecDeque;
+
 use crate::event::Event;
 use crate::types::MAX_EVENTS;
 
@@ -31,14 +33,14 @@ use crate::types::MAX_EVENTS;
 /// Invariant: `events[i].time <= events[i+1].time` for all valid indices.
 /// This enables O(1) early-exit: if `events[0].time > now`, no events are ready.
 pub struct Schedule {
-    events: Vec<Event>,
+    events: VecDeque<Event>,
 }
 
 impl Schedule {
     /// Creates an empty schedule with pre-allocated capacity.
     pub fn new() -> Self {
         Self {
-            events: Vec::with_capacity(MAX_EVENTS),
+            events: VecDeque::with_capacity(MAX_EVENTS),
         }
     }
 
@@ -53,6 +55,7 @@ impl Schedule {
         let time = event.time.unwrap_or(f64::MAX);
         let pos = self
             .events
+            .make_contiguous()
             .partition_point(|e| e.time.unwrap_or(f64::MAX) < time);
         self.events.insert(pos, event);
     }
@@ -60,17 +63,13 @@ impl Schedule {
     /// Returns the time of the earliest event, if any.
     #[inline]
     pub fn peek_time(&self) -> Option<f64> {
-        self.events.first().and_then(|e| e.time)
+        self.events.front().and_then(|e| e.time)
     }
 
     /// Removes and returns the earliest event.
     #[inline]
     pub fn pop_front(&mut self) -> Option<Event> {
-        if self.events.is_empty() {
-            None
-        } else {
-            Some(self.events.remove(0))
-        }
+        self.events.pop_front()
     }
 
     /// Returns the number of scheduled events.

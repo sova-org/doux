@@ -9,30 +9,27 @@ fn scale_delay(samples: usize, sr: f32) -> usize {
 #[derive(Clone)]
 struct ReverbBuffer {
     buffer: Vec<f32>,
+    mask: usize,
     write_pos: usize,
 }
 
 impl ReverbBuffer {
     fn new(size: usize) -> Self {
+        let pow2 = size.next_power_of_two();
         Self {
-            buffer: vec![0.0; size],
+            buffer: vec![0.0; pow2],
+            mask: pow2 - 1,
             write_pos: 0,
         }
     }
 
     fn write(&mut self, value: f32) {
         self.buffer[self.write_pos] = value;
-        self.write_pos = (self.write_pos + 1) % self.buffer.len();
+        self.write_pos = (self.write_pos + 1) & self.mask;
     }
 
     fn read(&self, delay: usize) -> f32 {
-        let delay = delay.min(self.buffer.len() - 1);
-        let pos = if self.write_pos >= delay {
-            self.write_pos - delay
-        } else {
-            self.buffer.len() - (delay - self.write_pos)
-        };
-        self.buffer[pos]
+        self.buffer[self.write_pos.wrapping_sub(delay) & self.mask]
     }
 
     fn read_write(&mut self, value: f32, delay: usize) -> f32 {

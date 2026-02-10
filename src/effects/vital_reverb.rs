@@ -1,4 +1,4 @@
-use crate::dsp::ftz;
+use crate::dsp::{ftz, sinf};
 
 const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
@@ -103,6 +103,52 @@ fn param_to_freq(p: f32) -> f32 {
 }
 
 #[derive(Clone)]
+struct CachedParams {
+    decay: f32,
+    damp: f32,
+    size: f32,
+    prelow: f32,
+    prehigh: f32,
+    lowcut: f32,
+    highcut: f32,
+    lowgain: f32,
+    // Derived values
+    decay_samples: f32,
+    high_gain_linear: f32,
+    low_gain_linear: f32,
+    size_mult: f32,
+    prelow_coeff: f32,
+    prehigh_coeff: f32,
+    lowcut_coeff: f32,
+    highcut_coeff: f32,
+    decay_coeffs: [f32; NUM_LINES],
+}
+
+impl CachedParams {
+    fn invalidated() -> Self {
+        Self {
+            decay: f32::NAN,
+            damp: f32::NAN,
+            size: f32::NAN,
+            prelow: f32::NAN,
+            prehigh: f32::NAN,
+            lowcut: f32::NAN,
+            highcut: f32::NAN,
+            lowgain: f32::NAN,
+            decay_samples: 0.0,
+            high_gain_linear: 0.0,
+            low_gain_linear: 0.0,
+            size_mult: 0.0,
+            prelow_coeff: 0.0,
+            prehigh_coeff: 0.0,
+            lowcut_coeff: 0.0,
+            highcut_coeff: 0.0,
+            decay_coeffs: [0.0; NUM_LINES],
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct VitalVerb {
     // Pre-delay (stereo, but we process mono input).
     predelay_buf: Vec<f32>,
@@ -133,6 +179,8 @@ pub struct VitalVerb {
 
     write_pos: usize,
     sr: f32,
+
+    cached: CachedParams,
 }
 
 impl VitalVerb {
@@ -176,6 +224,7 @@ impl VitalVerb {
             feedback: [0.0; NUM_LINES],
             write_pos: 0,
             sr,
+            cached: CachedParams::invalidated(),
         }
     }
 
@@ -212,38 +261,53 @@ impl VitalVerb {
         let chorus_amt = chorus_amt.clamp(0.0, 1.0);
         let chorus_freq = chorus_freq.clamp(0.0, 1.0);
 
-        // --- Parameter mapping (vital formulas) ---
+        // Recompute expensive derived values only when source params change.
+        let c = &mut self.cached;
+        if c.decay != decay || c.damp != damp || c.size != size || c.lowgain != lowgain
+            || c.prelow != prelow || c.prehigh != prehigh
+            || c.lowcut != lowcut || c.highcut != highcut
+        {
+            let size_exp = -3.0 + size * 4.0;
+            let size_mult = 2.0f32.powf(size_exp);
+            let decay_sec = (-6.0 + decay * 12.0).exp().clamp(0.1, 100.0);
+            let decay_samples = decay_sec * sr;
 
-        // Decay: exp(remap(0,1,-6,6)) -> clamp [0.1, 100] seconds -> * sr
-        let decay_sec = (-6.0 + decay * 12.0).exp().clamp(0.1, 100.0);
-        let decay_samples = decay_sec * sr;
+            c.decay = decay;
+            c.damp = damp;
+            c.size = size;
+            c.lowgain = lowgain;
+            c.prelow = prelow;
+            c.prehigh = prehigh;
+            c.lowcut = lowcut;
+            c.highcut = highcut;
 
-        // High gain (damping): invert damp so high damp = more HF absorption.
-        let high_gain_db = (1.0 - damp) * -24.0;
-        let high_gain_linear = db2linear(high_gain_db);
+            c.decay_samples = decay_samples;
+            c.high_gain_linear = db2linear((1.0 - damp) * -24.0);
+            c.low_gain_linear = db2linear(lowgain * -24.0);
+            c.size_mult = size_mult;
+            c.prelow_coeff = freq_to_coeff(param_to_freq(prelow), sr);
+            c.prehigh_coeff = freq_to_coeff(param_to_freq(prehigh), sr);
+            c.lowcut_coeff = freq_to_coeff(param_to_freq(lowcut), sr);
+            c.highcut_coeff = freq_to_coeff(param_to_freq(highcut), sr);
 
-        // Low gain in feedback path.
-        let low_gain_db = lowgain * -24.0;
-        let low_gain_linear = db2linear(low_gain_db);
+            for line in 0..NUM_LINES {
+                let ct = line / CONTAINER_SIZE;
+                let l = line % CONTAINER_SIZE;
+                let delay_len = FEEDBACK_DELAYS[ct][l] * size_mult * sr_ratio;
+                c.decay_coeffs[line] = 0.001f32.powf(delay_len / decay_samples);
+            }
+        }
 
-        // Size multiplier: 2^lerp(size, -3, 1).
-        let size_exp = -3.0 + size * 4.0;
-        let size_mult = 2.0f32.powf(size_exp);
+        let high_gain_linear = c.high_gain_linear;
+        let low_gain_linear = c.low_gain_linear;
+        let size_mult = c.size_mult;
+        let prelow_coeff = c.prelow_coeff;
+        let prehigh_coeff = c.prehigh_coeff;
+        let lowcut_coeff = c.lowcut_coeff;
+        let highcut_coeff = c.highcut_coeff;
 
         // Pre-delay in samples.
         let predelay_samples = predelay * MAX_PREDELAY_SEC * sr;
-
-        // Pre-filter frequencies.
-        let prelow_freq = param_to_freq(prelow);
-        let prehigh_freq = param_to_freq(prehigh);
-        let prelow_coeff = freq_to_coeff(prelow_freq, sr);
-        let prehigh_coeff = freq_to_coeff(prehigh_freq, sr);
-
-        // Shelf filter frequencies in feedback path.
-        let lowcut_freq = param_to_freq(lowcut);
-        let highcut_freq = param_to_freq(highcut);
-        let lowcut_coeff = freq_to_coeff(lowcut_freq, sr);
-        let highcut_coeff = freq_to_coeff(highcut_freq, sr);
 
         // Chorus: x^2 * 2500 * sr_ratio * size_mult.
         let chorus_depth = chorus_amt * chorus_amt * 2500.0 * sr_ratio * size_mult;
@@ -343,13 +407,9 @@ impl VitalVerb {
                 high_shelf(hi_st, matrix_out[line], highcut_coeff, high_gain_linear);
         }
 
-        // --- Step 8: Per-line T60 decay ---
+        // --- Step 8: Per-line T60 decay (cached coefficients) ---
         for (line, mo) in matrix_out.iter_mut().enumerate() {
-            let c = line / CONTAINER_SIZE;
-            let l = line % CONTAINER_SIZE;
-            let delay_len = FEEDBACK_DELAYS[c][l] * size_mult * sr_ratio;
-            let decay_coeff = 0.001f32.powf(delay_len / decay_samples);
-            *mo *= decay_coeff;
+            *mo *= self.cached.decay_coeffs[line];
         }
 
         // --- Step 9: Advance LFOs ---
@@ -376,7 +436,7 @@ impl VitalVerb {
                 self.lfo_phase2
             };
             let phase = (lfo_base + phase_offset).fract() * std::f32::consts::TAU;
-            let lfo_val = phase.sin() * LFO_SIGN[c];
+            let lfo_val = sinf(phase) * LFO_SIGN[c];
             let mod_delay = base_delay + lfo_val * chorus_depth;
 
             // Write to delay line.
@@ -411,5 +471,6 @@ impl VitalVerb {
         self.lfo_phase2 = 0.0;
         self.feedback = [0.0; NUM_LINES];
         self.write_pos = 0;
+        self.cached = CachedParams::invalidated();
     }
 }

@@ -180,18 +180,23 @@ impl Engine {
     /// n wraps around using modulo if it exceeds the folder count
     #[cfg(feature = "native")]
     fn find_sample_index(&self, name: &str, n: usize) -> Option<usize> {
-        let prefix = format!("{name}/");
-        let count = self
-            .sample_index
-            .iter()
-            .filter(|e| e.name.starts_with(&prefix))
-            .count();
+        let name_bytes = name.as_bytes();
+        let has_prefix = |e: &&SampleEntry| {
+            e.name.len() > name.len()
+                && e.name.as_bytes()[name_bytes.len()] == b'/'
+                && e.name.as_bytes().starts_with(name_bytes)
+        };
+        let count = self.sample_index.iter().filter(has_prefix).count();
         if count == 0 {
             return None;
         }
         let wrapped_n = n % count;
-        let target = format!("{name}/{wrapped_n}");
-        self.sample_index.iter().position(|e| e.name == target)
+        self.sample_index.iter().position(|e| {
+            e.name.len() > name.len()
+                && e.name.as_bytes()[name_bytes.len()] == b'/'
+                && e.name.as_bytes().starts_with(name_bytes)
+                && e.name[name.len() + 1..].parse::<usize>().ok() == Some(wrapped_n)
+        })
     }
 
     /// Get the sample name for a given base name and n index.
