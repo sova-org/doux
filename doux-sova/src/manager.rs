@@ -5,7 +5,6 @@ use std::thread::JoinHandle;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{Device, Stream, SupportedStreamConfig};
-use crossbeam_channel::Receiver;
 use serde::{Deserialize, Serialize};
 
 use doux::audio::{
@@ -15,11 +14,12 @@ use doux::audio::{
 use doux::config::DouxConfig;
 use doux::error::DouxError;
 use doux::Engine;
+use sova_core::clock::SyncTime;
+use sova_core::protocol::audio_engine_proxy::AudioEngineProxy;
 
 use crate::receiver::SovaReceiver;
 use crate::scope::ScopeCapture;
 use crate::time::TimeConverter;
-use crate::types::{AudioPayload, SyncTime};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioEngineState {
@@ -121,9 +121,11 @@ impl DouxManager {
     /// The receiver consumes `AudioPayload` messages from the given channel.
     pub fn start(
         &mut self,
-        rx: Receiver<AudioPayload>,
         initial_sync_time: SyncTime,
-    ) -> Result<(), DouxError> {
+    ) -> Result<AudioEngineProxy, DouxError> {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let proxy = AudioEngineProxy::new(tx);
+
         let output_device = resolve_output_device(&self.config)?;
         let (device_config, _) = get_device_config(&output_device)?;
 
@@ -221,7 +223,7 @@ impl DouxManager {
         let handle = std::thread::spawn(move || receiver.run());
         self.receiver_handle = Some(handle);
 
-        Ok(())
+        Ok(proxy)
     }
 
     pub fn stop(&mut self) {
@@ -237,9 +239,8 @@ impl DouxManager {
     pub fn restart(
         &mut self,
         config: DouxConfig,
-        rx: Receiver<AudioPayload>,
         initial_sync_time: SyncTime,
-    ) -> Result<(), DouxError> {
+    ) -> Result<AudioEngineProxy, DouxError> {
         self.stop();
 
         let output_device = resolve_output_device(&config)?;
@@ -258,7 +259,7 @@ impl DouxManager {
         self.sample_rate = sample_rate;
         self.actual_channels = actual_channels;
 
-        self.start(rx, initial_sync_time)
+        self.start(initial_sync_time)
     }
 
     pub fn sample_rate(&self) -> f32 {

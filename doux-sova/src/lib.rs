@@ -3,7 +3,6 @@ pub mod manager;
 mod receiver;
 pub mod scope;
 mod time;
-pub mod types;
 
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -12,8 +11,9 @@ use crossbeam_channel::Receiver;
 use doux::Engine;
 
 use receiver::SovaReceiver;
+use sova_core::clock::SyncTime;
+use sova_core::protocol::audio_engine_proxy::AudioEnginePayload;
 use time::TimeConverter;
-use types::{AudioPayload, SyncTime};
 
 pub use doux::audio;
 pub use doux::config::DouxConfig;
@@ -27,7 +27,7 @@ pub use scope::ScopeCapture;
 /// which handles the full engine lifecycle.
 pub fn create_integration(
     engine: Arc<Mutex<Engine>>,
-    rx: Receiver<AudioPayload>,
+    rx: Receiver<AudioEnginePayload>,
     initial_sync_time: SyncTime,
 ) -> JoinHandle<()> {
     let time_converter = TimeConverter::new(initial_sync_time);

@@ -1,4 +1,4 @@
-use crate::types::SyncTime;
+use sova_core::clock::SyncTime;
 
 pub struct TimeConverter {
     engine_start_micros: SyncTime,
