@@ -266,6 +266,16 @@ pub struct VoiceParams {
     pub flangerfeedback: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Smear
+    // ─────────────────────────────────────────────────────────────────────
+    /// Smear allpass chain wet/dry mix (0=bypass, 1=full wet).
+    pub smear: f32,
+    /// Smear allpass break frequency in Hz.
+    pub smearfreq: f32,
+    /// Smear feedback for resonance (0-0.95).
+    pub smearfb: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // Chorus
     // ─────────────────────────────────────────────────────────────────────
     /// Chorus LFO rate in Hz. 0 = bypassed.
@@ -467,6 +477,9 @@ impl Default for VoiceParams {
             flanger: 0.0,
             flangerdepth: 0.5,
             flangerfeedback: 0.5,
+            smear: 0.0,
+            smearfreq: 1000.0,
+            smearfb: 0.0,
             chorus: 0.0,
             chorusdepth: 0.5,
             chorusdelay: 25.0,

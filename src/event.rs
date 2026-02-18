@@ -150,6 +150,11 @@ pub struct Event {
     pub flangerdepth: Option<f32>,
     pub flangerfeedback: Option<f32>,
 
+    // Smear
+    pub smear: Option<f32>,
+    pub smearfreq: Option<f32>,
+    pub smearfb: Option<f32>,
+
     // Feedback delay
     pub feedback: Option<f32>,
     pub fbtime: Option<f32>,
@@ -333,6 +338,9 @@ impl Event {
                 "flanger" | "flangerrate" => parse_param!(val, flanger, ParamId::Flanger),
                 "flangerdepth" => parse_param!(val, flangerdepth, ParamId::Flangerdepth),
                 "flangerfeedback" => parse_param!(val, flangerfeedback, ParamId::Flangerfeedback),
+                "smear" => parse_param!(val, smear, ParamId::Smear),
+                "smearfreq" => parse_param!(val, smearfreq, ParamId::Smearfreq),
+                "smearfb" => parse_param!(val, smearfb, ParamId::Smearfb),
                 "feedback" | "fb" => parse_param!(val, feedback, ParamId::Feedback),
                 "fbtime" | "fbt" => event.fbtime = val.parse().ok(),
                 "fbdamp" | "fbd" => event.fbdamp = val.parse().ok(),
