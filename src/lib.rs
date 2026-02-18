@@ -653,6 +653,7 @@ impl Engine {
             phasercenter
         );
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
+        copy_opt!(event, v.params, smear, smearfreq, smearfb);
         copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
         copy_opt!(event, v.params, feedback, fbtime, fbdamp, fblfo, fblfodepth, fblfoshape);

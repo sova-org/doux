@@ -11,8 +11,8 @@ use std::f32::consts::PI;
 
 use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, Phasor, PinkNoise, SvfMode, SvfState};
 use crate::effects::{
-    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter, LadderMode, Lag,
-    Phaser, Tilt,
+    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter,
+    LadderMode, Lag, Phaser, Smear, Tilt,
 };
 use crate::plaits::PlaitsEngine;
 #[cfg(feature = "native")]
@@ -62,6 +62,7 @@ pub struct Voice {
     // Effects
     pub phaser: Phaser,
     pub flanger: Flanger,
+    pub smear: Smear,
     pub chorus: Chorus,
     pub coarse: Coarse,
     pub eq: Eq,
@@ -129,6 +130,7 @@ impl Default for Voice {
             web_sample: None,
             phaser: Phaser::default(),
             flanger: Flanger::default(),
+            smear: Smear::default(),
             chorus: Chorus::default(),
             coarse: Coarse::default(),
             eq: Eq::default(),
@@ -188,6 +190,7 @@ impl Clone for Voice {
             web_sample: self.web_sample,
             phaser: self.phaser,
             flanger: self.flanger,
+            smear: self.smear,
             chorus: self.chorus,
             coarse: self.coarse,
             eq: self.eq,
@@ -291,6 +294,9 @@ impl Voice {
             ParamId::Flanger => self.params.flanger = val,
             ParamId::Flangerdepth => self.params.flangerdepth = val,
             ParamId::Flangerfeedback => self.params.flangerfeedback = val,
+            ParamId::Smear => self.params.smear = val,
+            ParamId::Smearfreq => self.params.smearfreq = val,
+            ParamId::Smearfb => self.params.smearfb = val,
             ParamId::Chorus => self.params.chorus = val,
             ParamId::Chorusdepth => self.params.chorusdepth = val,
             ParamId::Chorusdelay => self.params.chorusdelay = val,
@@ -689,6 +695,17 @@ impl Voice {
         // Tilt
         if self.params.tilt != 0.0 {
             self.ch[0] = self.tilt.process(self.ch[0], self.params.tilt, self.sr);
+        }
+
+        // Smear
+        if self.params.smear > 0.0 {
+            self.ch[0] = self.smear.process(
+                self.ch[0],
+                self.params.smear,
+                self.params.smearfreq,
+                self.params.smearfb,
+                self.sr,
+            );
         }
 
         // Apply gain envelope and postgain
