@@ -1,6 +1,8 @@
 //! Source generation - oscillators, samples, Plaits engines, spread mode.
 
-use crate::dsp::{exp2f, Phasor};
+use std::f32::consts::TAU;
+
+use crate::dsp::{exp2f, sinf, Phasor};
 use crate::plaits::PlaitsEngine;
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
@@ -8,6 +10,55 @@ use crate::types::{freq2midi, Source, SubWave, BLOCK_SIZE, CHANNELS};
 use mi_plaits_dsp::engine::{EngineParameters, TriggerState};
 
 use super::Voice;
+
+// log2(i) for i=1..32, precomputed to replace powf with a single exp2f
+#[allow(clippy::approx_constant)]
+const LOG2_TABLE: [f32; 32] = [
+    0.0, 1.0, 1.584_963, 2.0, 2.321_928, 2.584_963, 2.807_355, 3.0,
+    3.169_925, 3.321_928, 3.459_432, 3.584_963, 3.700_44, 3.807_355, 3.906_89, 4.0,
+    4.087_463, 4.169_925, 4.247_928, 4.321_928, 4.392_317, 4.459_432, 4.523_562, 4.584_963,
+    4.643_856, 4.700_44, 4.754_888, 4.807_355, 4.857_981, 4.906_89, 4.954_196, 5.0,
+];
+
+#[inline]
+fn additive_at(phase: f32, dt: f32, timbre: f32, morph: f32, harmonics: f32, partials: f32) -> f32 {
+    let tilt_exp = 3.0 * (1.0 - timbre);
+    let stretch = harmonics * harmonics * 0.01;
+    let max_n = partials.clamp(1.0, 32.0);
+    let max_n_floor = max_n.floor() as u32;
+    let max_n_ceil = max_n.ceil() as u32;
+    let fract = max_n.fract();
+
+    let phase_tau = phase * TAU;
+    let gains = if morph < 0.5 {
+        [morph * 2.0, 1.0] // [even, odd]
+    } else {
+        [1.0, (1.0 - morph) * 2.0]
+    };
+
+    let mut sum = 0.0_f32;
+    let mut norm = 0.0_f32;
+
+    for i in 1..=max_n_ceil {
+        let fi = i as f32;
+        let ratio = fi * (1.0 + stretch * (fi - 1.0));
+        if dt * ratio >= 0.5 {
+            break;
+        }
+
+        let mut amp = exp2f(-tilt_exp * LOG2_TABLE[i as usize - 1]);
+        amp *= gains[(i & 1) as usize];
+
+        if i > max_n_floor {
+            amp *= fract;
+        }
+
+        sum += sinf(phase_tau * ratio) * amp;
+        norm += amp;
+    }
+
+    if norm > 0.0 { sum / norm } else { 0.0 }
+}
 
 impl Voice {
     #[inline]
@@ -19,6 +70,10 @@ impl Voice {
             Source::Zaw => Phasor::zaw_at(phase, &self.params.shape),
             Source::Pulse => Phasor::pulse_at(phase, dt, self.params.pw, &self.params.shape),
             Source::Pulze => Phasor::pulze_at(phase, self.params.pw, &self.params.shape),
+            Source::Add => {
+                let shaped = self.params.shape.apply(phase);
+                additive_at(shaped, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials)
+            }
             _ => 0.0,
         }
     }
@@ -40,7 +95,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = rs.read(c) * 0.2;
+                        self.ch[c] = rs.read(c) * 0.5;
                     }
                     if !done {
                         rs.advance(freq / 261.626);
@@ -60,7 +115,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.2;
+                        self.ch[c] = ws.read(web_pcm, c) * 0.5;
                     }
                     if !done {
                         ws.advance(freq / 261.626);
@@ -74,7 +129,7 @@ impl Voice {
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.2;
+                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
                 }
             }
             Source::PlModal
@@ -126,7 +181,7 @@ impl Voice {
                         }
                         let channels = info.channels as usize;
                         for c in 0..CHANNELS {
-                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.2;
+                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.5;
                         }
                         if !done {
                             fs.advance(freq / 261.626);
@@ -151,7 +206,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.2;
+                        self.ch[c] = ws.read(web_pcm, c) * 0.5;
                     }
                     if !done {
                         ws.advance(freq / 261.626);
@@ -165,7 +220,7 @@ impl Voice {
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.2;
+                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
                 }
             }
             Source::PlModal
@@ -314,6 +369,17 @@ impl Voice {
                 self.phasor
                     .pulze_shaped(freq, self.params.pw, isr, &self.params.shape)
                     * 0.2
+            }
+            Source::Add => {
+                let dt = freq * isr;
+                let phase = if self.params.shape.is_active() {
+                    self.params.shape.apply(self.phasor.phase)
+                } else {
+                    self.phasor.phase
+                };
+                let s = additive_at(phase, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials);
+                self.phasor.update(freq, isr);
+                s * 0.2
             }
             Source::White => self.white() * 0.2,
             Source::Pink => {

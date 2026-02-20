@@ -93,3 +93,15 @@ Waveform of the sub oscillator.
 <CodeEditor code={`/sound/saw/sub/.5/subwave/sine`} rows={2} />
 
 </CommandEntry>
+
+## Additive Partials
+
+<CommandEntry name="partials" type="number" min={1} max={32} default={32} mod>
+
+Number of active harmonics for the `add` source. Fractional values smoothly crossfade the last partial. Lower values produce simpler timbres, higher values produce richer spectra.
+
+<CodeEditor code={`/sound/add/note/48/partials/4`} rows={2} />
+
+<CodeEditor code={`/sound/add/note/48/partials/1~32:3/dur/4`} rows={2} />
+
+</CommandEntry>

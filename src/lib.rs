@@ -482,6 +482,9 @@ impl Engine {
         if let Some(morph) = event.morph {
             v.params.morph = morph.clamp(0.01, 0.999);
         }
+        if let Some(partials) = event.partials {
+            v.params.partials = partials.clamp(1.0, 32.0);
+        }
         copy_opt_some!(event, v.params, cut);
 
         // Wavetable scan parameter

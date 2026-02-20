@@ -60,6 +60,8 @@ pub struct VoiceParams {
     pub timbre: f32,
     /// Morph control for Plaits engines (0.0 to 1.0).
     pub morph: f32,
+    /// Number of active harmonics for additive oscillator (1-32).
+    pub partials: f32,
     /// Sample slice/cut index for sample playback.
     pub cut: Option<usize>,
     /// Wavetable scan position (0.0 to 1.0) - morphs between cycles.
@@ -401,6 +403,7 @@ impl Default for VoiceParams {
             harmonics: 0.5,
             timbre: 0.5,
             morph: 0.5,
+            partials: 32.0,
             cut: None,
             scan: 0.0,
             wt_cycle_len: 0,

@@ -249,7 +249,7 @@ fn main() {
     // Set up input stream if device available
     let input_device = match &args.input {
         Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
-        None => host.default_input_device(),
+        None => doux::audio::default_input_device(),
     };
     let _input_stream = input_device.and_then(|input_device| {
         let input_config = input_device.default_input_config().ok()?;
