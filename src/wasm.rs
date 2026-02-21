@@ -357,9 +357,6 @@ pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
                     Source::PlChord => 21,
                     Source::PlSwarm => 22,
                     Source::PlNoise => 23,
-                    Source::PlBass => 24,
-                    Source::PlSnare => 25,
-                    Source::PlHat => 26,
                 }
             } else {
                 -1

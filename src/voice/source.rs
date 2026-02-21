@@ -141,10 +141,7 @@ impl Voice {
             | Source::PlWt
             | Source::PlChord
             | Source::PlSwarm
-            | Source::PlNoise
-            | Source::PlBass
-            | Source::PlSnare
-            | Source::PlHat => {
+            | Source::PlNoise => {
                 self.run_plaits(freq, isr);
             }
             _ => {
@@ -232,10 +229,7 @@ impl Voice {
             | Source::PlWt
             | Source::PlChord
             | Source::PlSwarm
-            | Source::PlNoise
-            | Source::PlBass
-            | Source::PlSnare
-            | Source::PlHat => {
+            | Source::PlNoise => {
                 self.run_plaits(freq, isr);
             }
             _ => {
@@ -263,20 +257,15 @@ impl Voice {
             }
             let engine = self.plaits_engine.as_mut().unwrap();
 
-            let trigger = if self.params.sound.is_plaits_percussion() {
-                TriggerState::Unpatched
+            let gate_high = self.params.gate > 0.5;
+            let trigger = if gate_high && !self.plaits_prev_gate {
+                TriggerState::RisingEdge
+            } else if gate_high {
+                TriggerState::High
             } else {
-                let gate_high = self.params.gate > 0.5;
-                let t = if gate_high && !self.plaits_prev_gate {
-                    TriggerState::RisingEdge
-                } else if gate_high {
-                    TriggerState::High
-                } else {
-                    TriggerState::Low
-                };
-                self.plaits_prev_gate = gate_high;
-                t
+                TriggerState::Low
             };
+            self.plaits_prev_gate = gate_high;
 
             let params = EngineParameters {
                 trigger,

@@ -33,15 +33,6 @@ pub enum Source {
     PlChord,
     PlSwarm,
     PlNoise,
-    PlBass,
-    PlSnare,
-    PlHat,
-}
-
-impl Source {
-    pub fn is_plaits_percussion(&self) -> bool {
-        matches!(self, Self::PlBass | Self::PlSnare | Self::PlHat)
-    }
 }
 
 impl FromStr for Source {
@@ -73,9 +64,6 @@ impl FromStr for Source {
             "plchord" | "chord" => Ok(Self::PlChord),
             "plswarm" | "swarm" => Ok(Self::PlSwarm),
             "plnoise" | "pnoise" => Ok(Self::PlNoise),
-            "plbass" | "bass" | "kick" => Ok(Self::PlBass),
-            "plsnare" | "snare" => Ok(Self::PlSnare),
-            "plhat" | "hat" | "hihat" => Ok(Self::PlHat),
             _ => Err(()),
         }
     }

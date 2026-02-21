@@ -137,39 +137,3 @@ Filtered noise. Clocked noise through multimode filter. harmonics: filter type (
 <CodeEditor code={`/sound/pnoise/note/60/timbre/0.8/morph/0.9`} rows={2} />
 
 </CommandEntry>
-
-<CommandEntry name="kick" type="source">
-
-Analog bass drum. 808-style kick. harmonics: punch, timbre: tone, morph: decay.
-
-<CodeEditor code={`/sound/kick/note/36`} rows={2} />
-
-<CodeEditor code={`/sound/kick/note/36/morph/0.3`} rows={2} />
-
-<CodeEditor code={`/sound/kick/note/36/timbre/0.5/harmonics/0.7`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="snare" type="source">
-
-Analog snare drum. harmonics: tone/noise balance, timbre: drum mode balance, morph: decay.
-
-<CodeEditor code={`/sound/snare/note/48`} rows={2} />
-
-<CodeEditor code={`/sound/snare/note/48/morph/0.5`} rows={2} />
-
-<CodeEditor code={`/sound/snare/note/48/harmonics/0.8/timbre/0.3`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="hihat" type="source">
-
-Analog hihat. 808-style metallic hihat. harmonics: metallic tone, timbre: high-pass filter, morph: decay.
-
-<CodeEditor code={`/sound/hihat/note/60`} rows={2} />
-
-<CodeEditor code={`/sound/hihat/note/60/morph/0.2`} rows={2} />
-
-<CodeEditor code={`/sound/hihat/note/60/harmonics/0.5/timbre/0.6`} rows={2} />
-
-</CommandEntry>

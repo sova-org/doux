@@ -1,6 +1,6 @@
 //! Unified wrapper for Mutable Instruments Plaits synthesis engines.
 //!
-//! This module provides a single enum that wraps all 13 synthesis engines from
+//! This module provides a single enum that wraps all 10 synthesis engines from
 //! the `mi_plaits_dsp` crate (a Rust port of the Mutable Instruments Plaits
 //! Eurorack module). Each engine produces sound through a different synthesis
 //! technique.
@@ -19,11 +19,6 @@
 //! - [`Swarm`](PlaitsEngine::Swarm) - Swarm of detuned oscillators
 //! - [`Noise`](PlaitsEngine::Noise) - Filtered noise with resonance
 //!
-//! ## Percussion Engines
-//! - [`Bass`](PlaitsEngine::Bass) - Analog kick drum model
-//! - [`Snare`](PlaitsEngine::Snare) - Analog snare drum model
-//! - [`Hat`](PlaitsEngine::Hat) - Hi-hat synthesis
-//!
 //! # Control Parameters
 //!
 //! All engines share a common control interface via [`EngineParameters`]:
@@ -36,14 +31,11 @@
 
 use crate::types::{Source, BLOCK_SIZE};
 use mi_plaits_dsp::engine::additive_engine::AdditiveEngine;
-use mi_plaits_dsp::engine::bass_drum_engine::BassDrumEngine;
 use mi_plaits_dsp::engine::chord_engine::ChordEngine;
 use mi_plaits_dsp::engine::fm_engine::FmEngine;
 use mi_plaits_dsp::engine::grain_engine::GrainEngine;
-use mi_plaits_dsp::engine::hihat_engine::HihatEngine;
 use mi_plaits_dsp::engine::modal_engine::ModalEngine;
 use mi_plaits_dsp::engine::noise_engine::NoiseEngine;
-use mi_plaits_dsp::engine::snare_drum_engine::SnareDrumEngine;
 use mi_plaits_dsp::engine::swarm_engine::SwarmEngine;
 use mi_plaits_dsp::engine::virtual_analog_engine::VirtualAnalogEngine;
 use mi_plaits_dsp::engine::waveshaping_engine::WaveshapingEngine;
@@ -76,12 +68,6 @@ pub enum PlaitsEngine {
     Swarm(SwarmEngine),
     /// Filtered noise with variable resonance.
     Noise(NoiseEngine),
-    /// Analog bass drum synthesis.
-    Bass(BassDrumEngine),
-    /// Analog snare drum synthesis.
-    Snare(SnareDrumEngine),
-    /// Metallic hi-hat synthesis.
-    Hat(HihatEngine),
 }
 
 impl PlaitsEngine {
@@ -141,21 +127,6 @@ impl PlaitsEngine {
                 e.init(sample_rate);
                 Self::Noise(e)
             }
-            Source::PlBass => {
-                let mut e = BassDrumEngine::new();
-                e.init(sample_rate);
-                Self::Bass(e)
-            }
-            Source::PlSnare => {
-                let mut e = SnareDrumEngine::new();
-                e.init(sample_rate);
-                Self::Snare(e)
-            }
-            Source::PlHat => {
-                let mut e = HihatEngine::new(BLOCK_SIZE);
-                e.init(sample_rate);
-                Self::Hat(e)
-            }
             _ => unreachable!(),
         }
     }
@@ -185,9 +156,6 @@ impl PlaitsEngine {
             Self::Chord(e) => e.render(params, out, aux, already_enveloped),
             Self::Swarm(e) => e.render(params, out, aux, already_enveloped),
             Self::Noise(e) => e.render(params, out, aux, already_enveloped),
-            Self::Bass(e) => e.render(params, out, aux, already_enveloped),
-            Self::Snare(e) => e.render(params, out, aux, already_enveloped),
-            Self::Hat(e) => e.render(params, out, aux, already_enveloped),
         }
     }
 
@@ -204,9 +172,6 @@ impl PlaitsEngine {
             Self::Chord(_) => Source::PlChord,
             Self::Swarm(_) => Source::PlSwarm,
             Self::Noise(_) => Source::PlNoise,
-            Self::Bass(_) => Source::PlBass,
-            Self::Snare(_) => Source::PlSnare,
-            Self::Hat(_) => Source::PlHat,
         }
     }
 }
