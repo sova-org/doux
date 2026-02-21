@@ -132,6 +132,10 @@ impl Voice {
                     self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
                 }
             }
+            Source::Kick | Source::Snare | Source::Hat | Source::Tom
+            | Source::Rim | Source::Cowbell | Source::Cymbal => {
+                self.run_drum(freq, isr);
+            }
             Source::PlModal
             | Source::PlVa
             | Source::PlWs
@@ -219,6 +223,10 @@ impl Voice {
                     let idx = input_idx + c;
                     self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
                 }
+            }
+            Source::Kick | Source::Snare | Source::Hat | Source::Tom
+            | Source::Rim | Source::Cowbell | Source::Cymbal => {
+                self.run_drum(freq, isr);
             }
             Source::PlModal
             | Source::PlVa

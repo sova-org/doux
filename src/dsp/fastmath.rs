@@ -95,6 +95,12 @@ pub fn powf(x: f32, y: f32) -> f32 {
     exp2f(y * log2f(x))
 }
 
+/// Fast `e^x` approximation via `2^(x * log2(e))`.
+#[inline]
+pub fn expf(x: f32) -> f32 {
+    exp2f(x * LOG2_E)
+}
+
 /// Fast `e^x - 1` approximation.
 ///
 /// Useful for small `x` where `e^x` is close to 1 and direct subtraction

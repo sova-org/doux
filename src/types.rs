@@ -19,6 +19,14 @@ pub enum Source {
     White,
     Pink,
     Brown,
+    Kick,
+    Snare,
+    Hat,
+    Tom,
+
+    Rim,
+    Cowbell,
+    Cymbal,
     Sample,    // Native: disk-loaded samples via FileSource
     Wavetable, // Sample played as wavetable oscillator with pitch tracking
     WebSample, // Web: inline PCM from JavaScript
@@ -33,6 +41,23 @@ pub enum Source {
     PlChord,
     PlSwarm,
     PlNoise,
+}
+
+impl Source {
+    /// Percussive envelope defaults: (freq, attack, decay, sustain, release)
+    pub fn drum_defaults(&self) -> Option<(f32, f32, f32, f32, f32)> {
+        match self {
+            Self::Kick => Some((55.0, 0.001, 0.3, 0.0, 0.005)),
+            Self::Snare => Some((180.0, 0.001, 0.15, 0.0, 0.005)),
+            Self::Hat => Some((320.0, 0.001, 0.08, 0.0, 0.005)),
+            Self::Tom => Some((120.0, 0.001, 0.25, 0.0, 0.005)),
+
+            Self::Rim => Some((400.0, 0.001, 0.04, 0.0, 0.005)),
+            Self::Cowbell => Some((540.0, 0.001, 0.12, 0.0, 0.005)),
+            Self::Cymbal => Some((420.0, 0.001, 0.5, 0.0, 0.005)),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for Source {
@@ -50,6 +75,14 @@ impl FromStr for Source {
             "white" => Ok(Self::White),
             "pink" => Ok(Self::Pink),
             "brown" => Ok(Self::Brown),
+            "kick" => Ok(Self::Kick),
+            "snare" | "sd" => Ok(Self::Snare),
+            "hat" | "hh" | "hihat" => Ok(Self::Hat),
+            "tom" => Ok(Self::Tom),
+
+            "rim" | "rimshot" | "rs" => Ok(Self::Rim),
+            "cowbell" | "cb" => Ok(Self::Cowbell),
+            "cymbal" | "crash" | "cy" => Ok(Self::Cymbal),
             "sample" => Ok(Self::Sample),
             "wt" => Ok(Self::Wavetable),
             "websample" => Ok(Self::WebSample),

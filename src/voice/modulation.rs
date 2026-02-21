@@ -168,6 +168,7 @@ pub enum ParamId {
     Speed,
     Detune,
     Pw,
+    Wave,
     Sub,
     Harmonics,
     Timbre,

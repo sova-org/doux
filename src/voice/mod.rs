@@ -1,5 +1,6 @@
 //! Voice - the core synthesis unit.
 
+mod drums;
 mod modulation;
 mod params;
 mod source;
@@ -83,6 +84,9 @@ pub struct Voice {
     pub lag_unit: f32,
     pub(super) seed: u32,
 
+    // Drum synthesis filter
+    pub(super) drum_svf: SvfState,
+
     // Plaits engines
     pub(super) plaits_engine: Option<PlaitsEngine>,
     pub(super) plaits_out: [f32; BLOCK_SIZE],
@@ -147,6 +151,7 @@ impl Default for Voice {
             sr,
             lag_unit: sr / 10.0,
             seed: 123456789,
+            drum_svf: SvfState::default(),
             plaits_engine: None,
             plaits_out: [0.0; BLOCK_SIZE],
             plaits_aux: [0.0; BLOCK_SIZE],
@@ -207,6 +212,7 @@ impl Clone for Voice {
             sr: self.sr,
             lag_unit: self.lag_unit,
             seed: self.seed,
+            drum_svf: self.drum_svf,
             plaits_engine: None,
             plaits_out: [0.0; BLOCK_SIZE],
             plaits_aux: [0.0; BLOCK_SIZE],
@@ -217,11 +223,13 @@ impl Clone for Voice {
 }
 
 impl Voice {
+    #[inline]
     pub(super) fn rand(&mut self) -> f32 {
         self.seed = modulation::lcg(self.seed);
         ((self.seed >> 16) & 0x7fff) as f32 / 32767.0
     }
 
+    #[inline]
     pub(super) fn white(&mut self) -> f32 {
         self.rand() * 2.0 - 1.0
     }
@@ -259,6 +267,7 @@ impl Voice {
             ParamId::Speed => self.params.speed = val,
             ParamId::Detune => self.params.detune = val,
             ParamId::Pw => self.params.pw = val,
+            ParamId::Wave => self.params.wave = val,
             ParamId::Sub => self.params.sub = val,
             ParamId::Harmonics => self.params.harmonics = val,
             ParamId::Timbre => self.params.timbre = val,

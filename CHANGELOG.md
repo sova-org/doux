@@ -3,23 +3,24 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.4] - 2026-02-21
 
 ### Added
 
-- New **space** reverb algorithm based on Vital's reverb design, with per-line T60 decay, pre/post filtering, chorus modulation, and allpass diffusion network
-
-### Performance
-
-- Cached expensive per-sample math in **space** reverb, SVF filters, and **plate** reverb buffers; eliminated heap allocations from event parsing and sample lookup on the audio thread
+- **Drum synthesis engine** with 7 sources: `kick`, `snare`, `hat`, `tom`, `rim`, `cowbell`, `cymbal` — each with percussive envelope defaults, waveform morphing (`wave`), and per-drum timbral controls via `morph`, `harmonics`, `timbre`
+- **Additive oscillator** (`add`) — stacks 1–32 sine partials with spectral tilt, even/odd morph, harmonic stretching, and phase shaping. New `partials` parameter
+- **Smear effect** — 12-stage allpass chain that turns transients into phase-shifted chirps. Parameters: `smear` (mix), `smearfreq` (break frequency), `smearfb` (feedback)
+- `wave` parameter for drum oscillator waveform (0 sine → 0.5 triangle → 1 sawtooth)
+- `expf` fast math approximation
 
 ### Removed
 
-- Removed `ftype` parameter (filter slope cascading). Ladder filters (`llpf`/`lhpf`/`lbpf`) provide steep slopes with proper nonlinear saturation.
+- Plaits percussion engines (`bass`/`snare`/`hat`) replaced by native drum synthesis
 
 ### Changed
 
-- Renamed reverb algorithms to user-facing names: "vital" is now **space**, "dattorro" is now **plate**. Old names still work as aliases.
+- `doux-sova` uses `sova_core` types directly instead of local type definitions
+- Increased sample playback gain (0.2 → 0.5)
 
 ## [0.0.2] - 2026-02-07
 

@@ -452,6 +452,9 @@ impl Engine {
             v.params.sound = source;
         }
         copy_opt!(event, v.params, pw, spread);
+        if let Some(wave) = event.wave {
+            v.params.wave = wave.clamp(0.0, 1.0);
+        }
         if let Some(sub) = event.sub {
             v.params.sub = sub.clamp(0.0, 1.0);
         }
@@ -580,13 +583,21 @@ impl Engine {
         copy_opt_some!(event, v.params, duration);
 
         // --- Gain Envelope ---
-        let gain_env = init_envelope(
-            None,
-            event.attack,
-            event.decay,
-            event.sustain,
-            event.release,
-        );
+        let (att, dec, sus, rel) =
+            if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) = v.params.sound.drum_defaults() {
+                if event.freq.is_none() {
+                    v.params.freq = d_freq;
+                }
+                (
+                    event.attack.or(Some(d_att)),
+                    event.decay.or(Some(d_dec)),
+                    event.sustain.or(Some(d_sus)),
+                    event.release.or(Some(d_rel)),
+                )
+            } else {
+                (event.attack, event.decay, event.sustain, event.release)
+            };
+        let gain_env = init_envelope(None, att, dec, sus, rel);
         if gain_env.active {
             v.params.attack = gain_env.att;
             v.params.decay = gain_env.dec;

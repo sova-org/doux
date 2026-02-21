@@ -68,6 +68,8 @@ pub struct VoiceParams {
     pub scan: f32,
     /// Wavetable cycle length in samples (0 = use entire sample as one cycle).
     pub wt_cycle_len: u32,
+    /// Drum oscillator waveform (0.0 = sine, 0.5 = triangle, 1.0 = sawtooth).
+    pub wave: f32,
     /// Sub oscillator mix level (0.0 = off, 1.0 = full).
     pub sub: f32,
     /// Sub oscillator octave offset below main (1-3).
@@ -407,6 +409,7 @@ impl Default for VoiceParams {
             cut: None,
             scan: 0.0,
             wt_cycle_len: 0,
+            wave: 0.0,
             sub: 0.0,
             sub_oct: 1,
             sub_wave: SubWave::Tri,
