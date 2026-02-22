@@ -504,6 +504,7 @@ impl Voice {
         true
     }
 
+    #[inline]
     fn apply_filters_and_effects(&mut self, env: f32) {
         let isr = 1.0 / self.sr;
         // Update filter envelopes

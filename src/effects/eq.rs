@@ -19,6 +19,7 @@ pub struct Eq {
 
 impl Eq {
     /// Process one sample. Gains are in dB (0.0 = bypass).
+    #[inline]
     pub fn process(&mut self, input: f32, lo_db: f32, mid_db: f32, hi_db: f32, sr: f32) -> f32 {
         let mut out = input;
         if lo_db != 0.0 {

@@ -218,6 +218,22 @@ pub fn fast_tanh(x: f64) -> f64 {
     x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
+/// Fast hyperbolic tangent approximation (f32).
+///
+/// Same rational cubic as [`fast_tanh`] but in single precision.
+#[inline]
+pub fn fast_tanh_f32(x: f32) -> f32 {
+    let x = x.clamp(-3.0, 3.0);
+    let x2 = x * x;
+    x * (27.0 + x2) / (27.0 + 9.0 * x2)
+}
+
+/// Fast tangent approximation via `sinf(x) / cosf(x)`.
+#[inline]
+pub fn fast_tan(x: f32) -> f32 {
+    sinf(x) / cosf(x)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

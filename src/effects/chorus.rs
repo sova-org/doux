@@ -69,6 +69,7 @@ impl Chorus {
     /// # Returns
     ///
     /// Stereo output `[left, right]` with 50/50 dry/wet mix (equal power).
+    #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,

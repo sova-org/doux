@@ -15,6 +15,7 @@ pub struct Tilt {
 
 impl Tilt {
     /// Process one sample. tilt ranges from -1.0 (dark) to 1.0 (bright).
+    #[inline]
     pub fn process(&mut self, input: f32, tilt: f32, sr: f32) -> f32 {
         let db = tilt.clamp(-1.0, 1.0) * MAX_DB;
         self.shelf

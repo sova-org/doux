@@ -36,6 +36,7 @@ impl Coarse {
     /// # Returns
     ///
     /// The held sample value. Updates only when the internal counter wraps.
+    #[inline]
     pub fn process(&mut self, input: f32, factor: f32) -> f32 {
         let n = factor.max(1.0) as usize;
         if self.t == 0 {

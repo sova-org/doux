@@ -12,8 +12,10 @@ use crate::dsp::exp2f;
 /// - `bits = 8`: Classic 8-bit crunch
 /// - `bits = 4`: Heavily degraded
 /// - `bits = 1`: Square wave (extreme)
+#[inline]
 pub fn crush(input: f32, bits: f32) -> f32 {
     let bits = bits.max(1.0);
     let x = exp2f(bits - 1.0);
-    (input * x).round() / x
+    let inv_x = 1.0 / x;
+    (input * x).round() * inv_x
 }

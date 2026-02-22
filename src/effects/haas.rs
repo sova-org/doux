@@ -20,6 +20,7 @@ impl Default for Haas {
 
 impl Haas {
     /// Delays the input by `ms` milliseconds. Returns the delayed sample.
+    #[inline]
     pub fn process(&mut self, input: f32, ms: f32, sr: f32) -> f32 {
         self.buffer[self.write_pos] = input;
         self.write_pos = (self.write_pos + 1) & (BUFFER_SIZE - 1);

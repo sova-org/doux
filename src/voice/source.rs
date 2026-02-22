@@ -11,6 +11,8 @@ use mi_plaits_dsp::engine::{EngineParameters, TriggerState};
 
 use super::Voice;
 
+const INV_MIDDLE_C: f32 = 1.0 / 261.626;
+
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
 const LOG2_TABLE: [f32; 32] = [
@@ -98,7 +100,7 @@ impl Voice {
                         self.ch[c] = rs.read(c) * 0.5;
                     }
                     if !done {
-                        rs.advance(freq / 261.626);
+                        rs.advance(freq * INV_MIDDLE_C);
                     }
                     return true;
                 }
@@ -118,7 +120,7 @@ impl Voice {
                         self.ch[c] = ws.read(web_pcm, c) * 0.5;
                     }
                     if !done {
-                        ws.advance(freq / 261.626);
+                        ws.advance(freq * INV_MIDDLE_C);
                     }
                     return true;
                 }
@@ -185,7 +187,7 @@ impl Voice {
                             self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.5;
                         }
                         if !done {
-                            fs.advance(freq / 261.626);
+                            fs.advance(freq * INV_MIDDLE_C);
                         }
                         return true;
                     }
@@ -210,7 +212,7 @@ impl Voice {
                         self.ch[c] = ws.read(web_pcm, c) * 0.5;
                     }
                     if !done {
-                        ws.advance(freq / 261.626);
+                        ws.advance(freq * INV_MIDDLE_C);
                     }
                     return true;
                 }

@@ -38,6 +38,7 @@ impl Flanger {
     /// - `feedback`: Resonance `[0.0, 0.95]`
     ///
     /// Returns 50/50 dry/wet mix.
+    #[inline]
     pub fn process(
         &mut self,
         input: f32,

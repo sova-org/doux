@@ -1,3 +1,4 @@
+use crate::dsp::fast_tan;
 use std::f32::consts::PI;
 
 const NUM_STAGES: usize = 12;
@@ -15,6 +16,7 @@ impl Default for Allpass1 {
 }
 
 impl Allpass1 {
+    #[inline]
     fn process(&mut self, input: f32, a: f32) -> f32 {
         let y = a * input + self.x1 - a * self.y1;
         self.x1 = input;
@@ -27,6 +29,9 @@ impl Allpass1 {
 pub struct Smear {
     stages: [Allpass1; NUM_STAGES],
     prev_out: f32,
+    cached_freq: f32,
+    cached_sr: f32,
+    cached_a: f32,
 }
 
 impl Default for Smear {
@@ -34,20 +39,28 @@ impl Default for Smear {
         Self {
             stages: [Allpass1::default(); NUM_STAGES],
             prev_out: 0.0,
+            cached_freq: 0.0,
+            cached_sr: 0.0,
+            cached_a: 0.0,
         }
     }
 }
 
 impl Smear {
+    #[inline]
     pub fn process(&mut self, input: f32, mix: f32, freq: f32, feedback: f32, sr: f32) -> f32 {
-        let t = (PI * freq / sr).min(PI * 0.4999);
-        let tan_t = t.tan();
-        let a = (tan_t - 1.0) / (tan_t + 1.0);
+        if freq != self.cached_freq || sr != self.cached_sr {
+            self.cached_freq = freq;
+            self.cached_sr = sr;
+            let t = (PI * freq / sr).min(PI * 0.4999);
+            let tan_t = fast_tan(t);
+            self.cached_a = (tan_t - 1.0) / (tan_t + 1.0);
+        }
 
         let x = input + self.prev_out * feedback;
         let mut wet = x;
         for stage in &mut self.stages {
-            wet = stage.process(wet, a);
+            wet = stage.process(wet, self.cached_a);
         }
         self.prev_out = wet;
 

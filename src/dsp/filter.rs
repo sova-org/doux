@@ -20,7 +20,7 @@
 //!
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
-use super::fastmath::{ftz, par_cosf, par_sinf, pow10};
+use super::fastmath::{fast_tan, ftz, par_cosf, par_sinf, pow10};
 use crate::types::FilterType;
 use std::f32::consts::PI;
 
@@ -99,7 +99,7 @@ impl SvfState {
         if self.cached_cutoff != freq || self.cached_q != q {
             self.cached_cutoff = freq;
             self.cached_q = q;
-            self.cached_g = (PI * freq / sr).tan();
+            self.cached_g = fast_tan(PI * freq / sr);
             self.cached_k = 2.0 * pow10(-2.0 * q);
         }
         self.stage.tick(input, self.cached_g, self.cached_k, mode)
@@ -176,6 +176,7 @@ impl Biquad {
     /// Processes a single sample through the filter.
     ///
     /// Convenience wrapper for [`Biquad::process_with_gain`] with `gain = 0.0`.
+    #[inline]
     pub fn process(
         &mut self,
         input: f32,
@@ -201,6 +202,7 @@ impl Biquad {
     /// - `q`: Q factor or resonance (interpretation depends on filter type)
     /// - `gain`: Boost/cut in dB (only used by peaking and shelving types)
     /// - `sr`: Sample rate in Hz
+    #[inline]
     pub fn process_with_gain(
         &mut self,
         input: f32,
