@@ -52,6 +52,12 @@ pub fn log2f(x: f32) -> f32 {
 /// Taylor-like polynomial expansion centered at 0.5.
 #[inline]
 pub fn exp2f(x: f32) -> f32 {
+    if x < -126.0 {
+        return 0.0;
+    }
+    if x > 126.0 {
+        return f32::INFINITY;
+    }
     let xf = x.floor();
     let exp_bits = ((127 + xf as i32) as u32) << 23;
     let ystep = f32::from_bits(exp_bits);
@@ -227,6 +233,15 @@ mod tests {
                 "exp2f({x}) = {fast} vs std {std}"
             );
         }
+    }
+
+    #[test]
+    fn test_exp2f_extreme_inputs() {
+        assert_eq!(exp2f(-200.0), 0.0);
+        assert_eq!(exp2f(-127.0), 0.0);
+        assert!(exp2f(-126.0).is_finite());
+        assert!(exp2f(126.0).is_finite());
+        assert_eq!(exp2f(127.0), f32::INFINITY);
     }
 
     #[test]
