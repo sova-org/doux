@@ -4,6 +4,7 @@ use crate::types::{DelayType, LfoShape, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
 const SILENCE_HOLDOFF: u32 = 48000;
+const SPACE_GAIN_COMPENSATION: f32 = 10.0;
 
 #[derive(Clone, Copy)]
 pub struct EffectParams {
@@ -171,20 +172,23 @@ impl Orbit {
                 p.verb_predelay,
                 p.verb_diff,
             ),
-            ReverbType::Space => self.vital.process(
-                verb_input,
-                p.verb_decay,
-                p.verb_damp,
-                p.verb_predelay,
-                p.verb_diff,
-                p.verb_prelow,
-                p.verb_prehigh,
-                p.verb_lowcut,
-                p.verb_highcut,
-                p.verb_lowgain,
-                p.verb_chorus,
-                p.verb_chorus_freq,
-            ),
+            ReverbType::Space => {
+                let out = self.vital.process(
+                    verb_input,
+                    p.verb_decay,
+                    p.verb_damp,
+                    p.verb_predelay,
+                    p.verb_diff,
+                    p.verb_prelow,
+                    p.verb_prehigh,
+                    p.verb_lowcut,
+                    p.verb_highcut,
+                    p.verb_lowgain,
+                    p.verb_chorus,
+                    p.verb_chorus_freq,
+                );
+                [out[0] * SPACE_GAIN_COMPENSATION, out[1] * SPACE_GAIN_COMPENSATION]
+            }
         };
 
         let comb_input = (self.comb_send[0] + self.comb_send[1]) * 0.5;

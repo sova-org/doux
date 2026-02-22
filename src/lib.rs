@@ -295,7 +295,7 @@ impl Engine {
 
     fn play_event(&mut self, mut event: Event) -> Option<usize> {
         if let Some(delta) = event.delta {
-            event.time = Some(self.time + delta);
+            event.time = Some(event.time.unwrap_or(self.time) + delta);
             event.delta = None;
         }
         if event.time.is_some() {
