@@ -362,6 +362,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Arc::new(Mutex::new(engine));
     let input_buffer: Arc<Mutex<VecDeque<f32>>> =
         Arc::new(Mutex::new(VecDeque::with_capacity(INPUT_BUFFER_SIZE)));
+    let error_queue: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let input_device = match &args.input {
         Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
@@ -389,7 +390,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         drop(b.drain(..excess));
                     }
                 },
-                |err| eprintln!("input error: {err}"),
+                {
+                    let eq = Arc::clone(&error_queue);
+                    move |err| { eq.lock().unwrap().push(format!("input error: {err}")); }
+                },
                 None,
             )
             .ok()?;
@@ -402,10 +406,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sr = sample_rate;
     let ch = output_channels;
 
+    let mut scratch = vec![0.0f32; 4096];
     let stream = device.build_output_stream(
         &config,
         move |data: &mut [f32], _| {
-            let mut scratch = vec![0.0f32; data.len()];
+            scratch.resize(data.len(), 0.0);
+            scratch[..data.len()].fill(0.0);
             {
                 let mut buf = input_buf_clone.lock().unwrap();
                 let available = buf.len().min(data.len());
@@ -419,7 +425,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             engine.metrics.load.set_buffer_time(buffer_time_ns);
             engine.process_block(data, &[], &scratch);
         },
-        |err| eprintln!("stream error: {err}"),
+        {
+            let eq = Arc::clone(&error_queue);
+            move |err| { eq.lock().unwrap().push(format!("stream error: {err}")); }
+        },
         None,
     )?;
     stream.play()?;
@@ -434,6 +443,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Type .help for commands");
 
     loop {
+        for err in error_queue.lock().unwrap().drain(..) {
+            eprintln!("{RED}[error]{RESET} {err}");
+        }
         match rl.readline("doux> ") {
             Ok(line) => {
                 let _ = rl.add_history_entry(&line);

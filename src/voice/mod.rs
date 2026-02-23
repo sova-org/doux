@@ -34,9 +34,9 @@ pub struct Voice {
     pub lp_adsr: Adsr,
     pub hp_adsr: Adsr,
     pub bp_adsr: Adsr,
-    pub lp: SvfState,
-    pub hp: SvfState,
-    pub bp: SvfState,
+    pub lp: [SvfState; CHANNELS],
+    pub hp: [SvfState; CHANNELS],
+    pub bp: [SvfState; CHANNELS],
     // Modulation
     pub pitch_adsr: Adsr,
     pub fm_adsr: Adsr,
@@ -61,17 +61,17 @@ pub struct Voice {
     // Sample playback (web)
     pub web_sample: Option<WebSampleSource>,
     // Effects
-    pub phaser: Phaser,
-    pub flanger: Flanger,
-    pub smear: Smear,
+    pub phaser: [Phaser; CHANNELS],
+    pub flanger: [Flanger; CHANNELS],
+    pub smear: [Smear; CHANNELS],
     pub chorus: Chorus,
-    pub coarse: Coarse,
-    pub eq: Eq,
-    pub tilt: Tilt,
+    pub coarse: [Coarse; CHANNELS],
+    pub eq: [Eq; CHANNELS],
+    pub tilt: [Tilt; CHANNELS],
     pub haas: Haas,
-    pub ladder_lp: LadderFilter,
-    pub ladder_hp: LadderFilter,
-    pub ladder_bp: LadderFilter,
+    pub ladder_lp: [LadderFilter; CHANNELS],
+    pub ladder_hp: [LadderFilter; CHANNELS],
+    pub ladder_bp: [LadderFilter; CHANNELS],
 
     // Inline parameter modulation
     pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
@@ -79,6 +79,7 @@ pub struct Voice {
 
     pub time: f32,
     pub ch: [f32; CHANNELS],
+    pub nch: usize,
     pub spread_side: f32,
     pub sr: f32,
     pub lag_unit: f32,
@@ -111,9 +112,9 @@ impl Default for Voice {
             lp_adsr: Adsr::default(),
             hp_adsr: Adsr::default(),
             bp_adsr: Adsr::default(),
-            lp: SvfState::default(),
-            hp: SvfState::default(),
-            bp: SvfState::default(),
+            lp: [SvfState::default(); CHANNELS],
+            hp: [SvfState::default(); CHANNELS],
+            bp: [SvfState::default(); CHANNELS],
             pitch_adsr: Adsr::default(),
             fm_adsr: Adsr::default(),
             vib_lfo: Phasor::default(),
@@ -132,21 +133,22 @@ impl Default for Voice {
             #[cfg(feature = "native")]
             registry_sample: None,
             web_sample: None,
-            phaser: Phaser::default(),
-            flanger: Flanger::default(),
-            smear: Smear::default(),
+            phaser: [Phaser::default(); CHANNELS],
+            flanger: [Flanger::default(); CHANNELS],
+            smear: [Smear::default(); CHANNELS],
             chorus: Chorus::default(),
-            coarse: Coarse::default(),
-            eq: Eq::default(),
-            tilt: Tilt::default(),
+            coarse: [Coarse::default(); CHANNELS],
+            eq: [Eq::default(); CHANNELS],
+            tilt: [Tilt::default(); CHANNELS],
             haas: Haas::default(),
-            ladder_lp: LadderFilter::default(),
-            ladder_hp: LadderFilter::default(),
-            ladder_bp: LadderFilter::default(),
+            ladder_lp: [LadderFilter::default(); CHANNELS],
+            ladder_hp: [LadderFilter::default(); CHANNELS],
+            ladder_bp: [LadderFilter::default(); CHANNELS],
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
             time: 0.0,
             ch: [0.0; CHANNELS],
+            nch: 1,
             spread_side: 0.0,
             sr,
             lag_unit: sr / 10.0,
@@ -208,6 +210,7 @@ impl Clone for Voice {
             param_mod_count: self.param_mod_count,
             time: self.time,
             ch: self.ch,
+            nch: self.nch,
             spread_side: self.spread_side,
             sr: self.sr,
             lag_unit: self.lag_unit,
@@ -507,10 +510,11 @@ impl Voice {
     #[inline]
     fn apply_filters_and_effects(&mut self, env: f32) {
         let isr = 1.0 / self.sr;
-        // Update filter envelopes
+        let nch = self.nch;
+
+        // Update filter cutoffs (envelope ticks once, applied to all channels)
         if let Some(lpf) = self.params.lpf {
-            self.lp.cutoff = lpf;
-            if self.params.lp_env_active {
+            let cutoff = if self.params.lp_env_active {
                 let lp_env = self.lp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -519,12 +523,14 @@ impl Voice {
                     self.params.lps,
                     self.params.lpr,
                 );
-                self.lp.cutoff = self.params.lpe * lp_env * lpf + lpf;
-            }
+                self.params.lpe * lp_env * lpf + lpf
+            } else {
+                lpf
+            };
+            for c in 0..nch { self.lp[c].cutoff = cutoff; }
         }
         if let Some(hpf) = self.params.hpf {
-            self.hp.cutoff = hpf;
-            if self.params.hp_env_active {
+            let cutoff = if self.params.hp_env_active {
                 let hp_env = self.hp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -533,12 +539,14 @@ impl Voice {
                     self.params.hps,
                     self.params.hpr,
                 );
-                self.hp.cutoff = self.params.hpe * hp_env * hpf + hpf;
-            }
+                self.params.hpe * hp_env * hpf + hpf
+            } else {
+                hpf
+            };
+            for c in 0..nch { self.hp[c].cutoff = cutoff; }
         }
         if let Some(bpf) = self.params.bpf {
-            self.bp.cutoff = bpf;
-            if self.params.bp_env_active {
+            let cutoff = if self.params.bp_env_active {
                 let bp_env = self.bp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -547,34 +555,36 @@ impl Voice {
                     self.params.bps,
                     self.params.bpr,
                 );
-                self.bp.cutoff = self.params.bpe * bp_env * bpf + bpf;
-            }
+                self.params.bpe * bp_env * bpf + bpf
+            } else {
+                bpf
+            };
+            for c in 0..nch { self.bp[c].cutoff = cutoff; }
         }
 
         // Pre-filter gain
-        self.ch[0] *= self.params.gain * self.params.velocity;
+        for c in 0..nch { self.ch[c] *= self.params.gain * self.params.velocity; }
 
-        // Apply filters (LP -> HP -> BP)
+        // SVF filters (LP -> HP -> BP)
         if self.params.lpf.is_some() {
-            self.ch[0] = self
-                .lp
-                .process(self.ch[0], SvfMode::Lp, self.params.lpq, self.sr);
+            for c in 0..nch {
+                self.ch[c] = self.lp[c].process(self.ch[c], SvfMode::Lp, self.params.lpq, self.sr);
+            }
         }
         if self.params.hpf.is_some() {
-            self.ch[0] = self
-                .hp
-                .process(self.ch[0], SvfMode::Hp, self.params.hpq, self.sr);
+            for c in 0..nch {
+                self.ch[c] = self.hp[c].process(self.ch[c], SvfMode::Hp, self.params.hpq, self.sr);
+            }
         }
         if self.params.bpf.is_some() {
-            self.ch[0] = self
-                .bp
-                .process(self.ch[0], SvfMode::Bp, self.params.bpq, self.sr);
+            for c in 0..nch {
+                self.ch[c] = self.bp[c].process(self.ch[c], SvfMode::Bp, self.params.bpq, self.sr);
+            }
         }
 
-        // Ladder filters (compute envelope independently from biquad filters)
+        // Ladder filters (envelope computed once, applied per-channel)
         if let Some(llpf) = self.params.llpf {
-            let mut cutoff = llpf;
-            if self.params.lp_env_active {
+            let cutoff = if self.params.lp_env_active {
                 let env = self.lp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -583,19 +593,16 @@ impl Voice {
                     self.params.lps,
                     self.params.lpr,
                 );
-                cutoff = self.params.lpe * env * llpf + llpf;
+                self.params.lpe * env * llpf + llpf
+            } else {
+                llpf
+            };
+            for c in 0..nch {
+                self.ch[c] = self.ladder_lp[c].process(self.ch[c], cutoff, self.params.llpq, LadderMode::Lp, self.sr);
             }
-            self.ch[0] = self.ladder_lp.process(
-                self.ch[0],
-                cutoff,
-                self.params.llpq,
-                LadderMode::Lp,
-                self.sr,
-            );
         }
         if let Some(lhpf) = self.params.lhpf {
-            let mut cutoff = lhpf;
-            if self.params.hp_env_active {
+            let cutoff = if self.params.hp_env_active {
                 let env = self.hp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -604,19 +611,16 @@ impl Voice {
                     self.params.hps,
                     self.params.hpr,
                 );
-                cutoff = self.params.hpe * env * lhpf + lhpf;
+                self.params.hpe * env * lhpf + lhpf
+            } else {
+                lhpf
+            };
+            for c in 0..nch {
+                self.ch[c] = self.ladder_hp[c].process(self.ch[c], cutoff, self.params.lhpq, LadderMode::Hp, self.sr);
             }
-            self.ch[0] = self.ladder_hp.process(
-                self.ch[0],
-                cutoff,
-                self.params.lhpq,
-                LadderMode::Hp,
-                self.sr,
-            );
         }
         if let Some(lbpf) = self.params.lbpf {
-            let mut cutoff = lbpf;
-            if self.params.bp_env_active {
+            let cutoff = if self.params.bp_env_active {
                 let env = self.bp_adsr.update(
                     self.time,
                     self.params.gate,
@@ -625,110 +629,122 @@ impl Voice {
                     self.params.bps,
                     self.params.bpr,
                 );
-                cutoff = self.params.bpe * env * lbpf + lbpf;
+                self.params.bpe * env * lbpf + lbpf
+            } else {
+                lbpf
+            };
+            for c in 0..nch {
+                self.ch[c] = self.ladder_bp[c].process(self.ch[c], cutoff, self.params.lbpq, LadderMode::Bp, self.sr);
             }
-            self.ch[0] = self.ladder_bp.process(
-                self.ch[0],
-                cutoff,
-                self.params.lbpq,
-                LadderMode::Bp,
-                self.sr,
-            );
         }
 
         // Distortion effects
         if let Some(coarse_factor) = self.params.coarse {
-            self.ch[0] = self.coarse.process(self.ch[0], coarse_factor);
+            for c in 0..nch { self.ch[c] = self.coarse[c].process(self.ch[c], coarse_factor); }
         }
         if let Some(crush_bits) = self.params.crush {
-            self.ch[0] = crush(self.ch[0], crush_bits);
+            for c in 0..nch { self.ch[c] = crush(self.ch[c], crush_bits); }
         }
         if let Some(fold_amount) = self.params.fold {
-            self.ch[0] = fold(self.ch[0], fold_amount);
+            for c in 0..nch { self.ch[c] = fold(self.ch[c], fold_amount); }
         }
         if let Some(wrap_amount) = self.params.wrap {
-            self.ch[0] = wrap(self.ch[0], wrap_amount);
+            for c in 0..nch { self.ch[c] = wrap(self.ch[c], wrap_amount); }
         }
         if let Some(dist_amount) = self.params.distort {
-            self.ch[0] = distort(self.ch[0], dist_amount, self.params.distortvol);
+            for c in 0..nch { self.ch[c] = distort(self.ch[c], dist_amount, self.params.distortvol); }
         }
 
-        // AM modulation
+        // AM modulation (LFO ticks once, applied per-channel)
         if self.params.am > 0.0 {
             let modulator = self.am_lfo.lfo(self.params.amshape, self.params.am, isr);
             let depth = self.params.amdepth.clamp(0.0, 1.0);
-            self.ch[0] *= 1.0 + modulator * depth;
+            let factor = 1.0 + modulator * depth;
+            for c in 0..nch { self.ch[c] *= factor; }
         }
 
         // Ring modulation
         if self.params.rm > 0.0 {
             let modulator = self.rm_lfo.lfo(self.params.rmshape, self.params.rm, isr);
             let depth = self.params.rmdepth.clamp(0.0, 1.0);
-            self.ch[0] *= (1.0 - depth) + modulator * depth;
+            let factor = (1.0 - depth) + modulator * depth;
+            for c in 0..nch { self.ch[c] *= factor; }
         }
 
         // Phaser
         if self.params.phaser > 0.0 {
-            self.ch[0] = self.phaser.process(
-                self.ch[0],
-                self.params.phaser,
-                self.params.phaserdepth,
-                self.params.phasercenter,
-                self.params.phasersweep,
-                self.sr,
-                isr,
-            );
+            for c in 0..nch {
+                self.ch[c] = self.phaser[c].process(
+                    self.ch[c],
+                    self.params.phaser,
+                    self.params.phaserdepth,
+                    self.params.phasercenter,
+                    self.params.phasersweep,
+                    self.sr,
+                    isr,
+                );
+            }
         }
 
         // Flanger
         if self.params.flanger > 0.0 {
-            self.ch[0] = self.flanger.process(
-                self.ch[0],
-                self.params.flanger,
-                self.params.flangerdepth,
-                self.params.flangerfeedback,
-                self.sr,
-                isr,
-            );
+            for c in 0..nch {
+                self.ch[c] = self.flanger[c].process(
+                    self.ch[c],
+                    self.params.flanger,
+                    self.params.flangerdepth,
+                    self.params.flangerfeedback,
+                    self.sr,
+                    isr,
+                );
+            }
         }
 
         // EQ
         if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
-            self.ch[0] = self.eq.process(
-                self.ch[0],
-                self.params.eqlo,
-                self.params.eqmid,
-                self.params.eqhi,
-                self.sr,
-            );
+            for c in 0..nch {
+                self.ch[c] = self.eq[c].process(
+                    self.ch[c],
+                    self.params.eqlo,
+                    self.params.eqmid,
+                    self.params.eqhi,
+                    self.sr,
+                );
+            }
         }
 
         // Tilt
         if self.params.tilt != 0.0 {
-            self.ch[0] = self.tilt.process(self.ch[0], self.params.tilt, self.sr);
+            for c in 0..nch {
+                self.ch[c] = self.tilt[c].process(self.ch[c], self.params.tilt, self.sr);
+            }
         }
 
         // Smear
         if self.params.smear > 0.0 {
-            self.ch[0] = self.smear.process(
-                self.ch[0],
-                self.params.smear,
-                self.params.smearfreq,
-                self.params.smearfb,
-                self.sr,
-            );
+            for c in 0..nch {
+                self.ch[c] = self.smear[c].process(
+                    self.ch[c],
+                    self.params.smear,
+                    self.params.smearfreq,
+                    self.params.smearfb,
+                    self.sr,
+                );
+            }
         }
 
         // Apply gain envelope and postgain
-        self.ch[0] *= env * self.params.postgain;
+        for c in 0..nch { self.ch[c] *= env * self.params.postgain; }
 
-        // Restore stereo for spread mode
-        if self.params.spread > 0.0 {
-            let side = self.spread_side * env * self.params.postgain;
-            self.ch[1] = self.ch[0] - side;
-            self.ch[0] += side;
-        } else {
-            self.ch[1] = self.ch[0];
+        // Mono sources: spread or duplicate to stereo
+        if nch == 1 {
+            if self.params.spread > 0.0 {
+                let side = self.spread_side * env * self.params.postgain;
+                self.ch[1] = self.ch[0] - side;
+                self.ch[0] += side;
+            } else {
+                self.ch[1] = self.ch[0];
+            }
         }
 
         // Chorus

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { doux } from '$lib/doux';
+	import { pushError } from '$lib/errors.svelte';
 	import { startScope, stopScope, registerActiveEditor, unregisterActiveEditor } from '$lib/scope';
 	import { Play, Square } from 'lucide-svelte';
 
@@ -57,7 +58,10 @@
 				const event = doux.parsePath(block);
 				return doux.prepare({ doux: 'play', ...event });
 			})
-		);
+		).catch((e) => {
+			pushError(e.message);
+			return [];
+		});
 
 		if (!active) {
 			doux.evaluate({ doux: 'reset_time' });

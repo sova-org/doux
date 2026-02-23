@@ -1,6 +1,7 @@
 <script lang="ts">
 	import "../app.css";
 	import Nav from "$lib/components/Nav.svelte";
+	import ErrorBar from "$lib/components/ErrorBar.svelte";
 	import { doux } from "$lib/doux";
 	import { stopScope, resetActiveEditor } from "$lib/scope";
 
@@ -21,3 +22,4 @@
 <div class="layout">
 	{@render children()}
 </div>
+<ErrorBar />

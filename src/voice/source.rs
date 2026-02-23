@@ -102,12 +102,14 @@ impl Voice {
                     if !done {
                         rs.advance(freq * INV_MIDDLE_C);
                     }
+                    self.nch = CHANNELS;
                     return true;
                 }
                 self.ch[0] = 0.0;
                 self.ch[1] = 0.0;
             }
             Source::Wavetable => {
+                self.nch = CHANNELS;
                 self.run_wavetable(freq, isr);
             }
             Source::WebSample => {
@@ -122,12 +124,14 @@ impl Voice {
                     if !done {
                         ws.advance(freq * INV_MIDDLE_C);
                     }
+                    self.nch = CHANNELS;
                     return true;
                 }
                 self.ch[0] = 0.0;
                 self.ch[1] = 0.0;
             }
             Source::LiveInput => {
+                self.nch = CHANNELS;
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
@@ -136,6 +140,7 @@ impl Voice {
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom
             | Source::Rim | Source::Cowbell | Source::Cymbal => {
+                self.nch = 1;
                 self.run_drum(freq, isr);
             }
             Source::PlModal
@@ -148,9 +153,11 @@ impl Voice {
             | Source::PlChord
             | Source::PlSwarm
             | Source::PlNoise => {
+                self.nch = 1;
                 self.run_plaits(freq, isr);
             }
             _ => {
+                self.nch = 1;
                 let spread = self.params.spread;
                 if spread > 0.0 {
                     self.run_spread(freq, isr);
@@ -189,6 +196,7 @@ impl Voice {
                         if !done {
                             fs.advance(freq * INV_MIDDLE_C);
                         }
+                        self.nch = CHANNELS;
                         return true;
                     }
                 }
@@ -196,6 +204,7 @@ impl Voice {
                 self.ch[1] = 0.0;
             }
             Source::Wavetable => {
+                self.nch = CHANNELS;
                 if self.web_sample.is_some() {
                     self.run_wavetable_web(freq, isr, web_pcm);
                 } else {
@@ -214,12 +223,14 @@ impl Voice {
                     if !done {
                         ws.advance(freq * INV_MIDDLE_C);
                     }
+                    self.nch = CHANNELS;
                     return true;
                 }
                 self.ch[0] = 0.0;
                 self.ch[1] = 0.0;
             }
             Source::LiveInput => {
+                self.nch = CHANNELS;
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
@@ -228,6 +239,7 @@ impl Voice {
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom
             | Source::Rim | Source::Cowbell | Source::Cymbal => {
+                self.nch = 1;
                 self.run_drum(freq, isr);
             }
             Source::PlModal
@@ -240,9 +252,11 @@ impl Voice {
             | Source::PlChord
             | Source::PlSwarm
             | Source::PlNoise => {
+                self.nch = 1;
                 self.run_plaits(freq, isr);
             }
             _ => {
+                self.nch = 1;
                 let spread = self.params.spread;
                 if spread > 0.0 {
                     self.run_spread(freq, isr);
@@ -298,7 +312,6 @@ impl Voice {
         }
 
         self.ch[0] = self.plaits_out[self.plaits_idx] * 0.2;
-        self.ch[1] = self.ch[0];
         self.plaits_idx += 1;
     }
 

@@ -1,4 +1,5 @@
 import type { DouxEvent, SoundInfo, ClockMessage, DouxOptions, PreparedMessage } from './types';
+import { pushError } from './errors.svelte';
 
 const soundMap = new Map<string, string[]>();
 const loadedSounds = new Map<string, SoundInfo>();
@@ -355,9 +356,12 @@ export class Doux {
 	private async fetchSample(url: string): Promise<Float32Array> {
 		const ac = await this.initAudio;
 		const encoded = encodeURI(url);
-		const buffer = await fetch(encoded)
-			.then((res) => res.arrayBuffer())
-			.then((buf) => ac.decodeAudioData(buf));
+		const res = await fetch(encoded);
+		if (!res.ok) throw new Error(`Failed to fetch sample ${url}: ${res.status}`);
+		const buf = await res.arrayBuffer();
+		const buffer = await ac.decodeAudioData(buf).catch(() => {
+			throw new Error(`Failed to decode audio: ${url}`);
+		});
 		return buffer.getChannelData(0);
 	}
 
@@ -440,4 +444,4 @@ export class Doux {
 export const doux = new Doux();
 
 // Load default samples
-douxsamples('github:eddyflux/crate');
+douxsamples('github:eddyflux/crate').catch((e) => pushError(e.message));
