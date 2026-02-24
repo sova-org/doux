@@ -48,7 +48,7 @@ impl Voice {
             Source::Cowbell => self.drum_cowbell(freq, isr),
             Source::Cymbal => self.drum_cymbal(freq, isr),
             _ => 0.0,
-        } * 0.2;
+        } * 0.5;
     }
 
     #[inline]

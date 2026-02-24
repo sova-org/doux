@@ -22,6 +22,7 @@ mod wasm;
 
 use dsp::init_envelope;
 use event::Event;
+use effects::Lag;
 use orbit::Orbit;
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
@@ -67,6 +68,7 @@ pub struct Engine {
     // Telemetry (native only)
     #[cfg(feature = "native")]
     pub metrics: Arc<EngineMetrics>,
+    voice_gain_lag: Lag,
 }
 
 impl Engine {
@@ -97,6 +99,8 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
+            voice_gain_lag: Lag { s: 1.0 },
+
         }
     }
 
@@ -131,6 +135,8 @@ impl Engine {
             sample_registry: registry,
             sample_loader: loader,
             metrics: Arc::new(EngineMetrics::default()),
+            voice_gain_lag: Lag { s: 1.0 },
+
         }
     }
 
@@ -165,6 +171,8 @@ impl Engine {
             sample_registry: registry,
             sample_loader: loader,
             metrics,
+            voice_gain_lag: Lag { s: 1.0 },
+
         }
     }
 
@@ -766,6 +774,13 @@ impl Engine {
         let isr = self.isr;
         let num_orbits = self.orbits.len();
 
+        let target_gain = if self.active_voices > 0 {
+            1.0 / (self.active_voices as f32).sqrt()
+        } else {
+            1.0
+        };
+        let voice_comp = self.voice_gain_lag.update(target_gain, 0.005, self.sr);
+
         let mut i = 0;
         while i < self.active_voices {
             #[cfg(feature = "native")]
@@ -794,6 +809,9 @@ impl Engine {
             let orbit_idx = self.voices[i].params.orbit % num_orbits;
             let out_pair = orbit_idx % num_pairs;
             let pair_offset = out_pair * 2;
+
+            self.voices[i].ch[0] *= voice_comp;
+            self.voices[i].ch[1] *= voice_comp;
 
             output[base_idx + pair_offset] += self.voices[i].ch[0];
             output[base_idx + pair_offset + 1] += self.voices[i].ch[1];
@@ -863,7 +881,7 @@ impl Engine {
         }
 
         for c in 0..self.output_channels {
-            output[base_idx + c] = (output[base_idx + c] * 0.5).clamp(-1.0, 1.0);
+            output[base_idx + c] = (output[base_idx + c] * 0.7).clamp(-1.0, 1.0);
         }
     }
 

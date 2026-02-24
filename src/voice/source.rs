@@ -97,7 +97,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = rs.read(c) * 0.5;
+                        self.ch[c] = rs.read(c) * 0.7;
                     }
                     if !done {
                         rs.advance(freq * INV_MIDDLE_C);
@@ -119,7 +119,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.5;
+                        self.ch[c] = ws.read(web_pcm, c) * 0.7;
                     }
                     if !done {
                         ws.advance(freq * INV_MIDDLE_C);
@@ -135,7 +135,7 @@ impl Voice {
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
+                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
                 }
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom
@@ -191,7 +191,7 @@ impl Voice {
                         }
                         let channels = info.channels as usize;
                         for c in 0..CHANNELS {
-                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.5;
+                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.7;
                         }
                         if !done {
                             fs.advance(freq * INV_MIDDLE_C);
@@ -218,7 +218,7 @@ impl Voice {
                         self.params.gate = 0.0;
                     }
                     for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.5;
+                        self.ch[c] = ws.read(web_pcm, c) * 0.7;
                     }
                     if !done {
                         ws.advance(freq * INV_MIDDLE_C);
@@ -234,7 +234,7 @@ impl Voice {
                 let input_idx = sample_idx * CHANNELS;
                 for c in 0..CHANNELS {
                     let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.5;
+                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
                 }
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom
@@ -311,7 +311,7 @@ impl Voice {
             self.plaits_idx = 0;
         }
 
-        self.ch[0] = self.plaits_out[self.plaits_idx] * 0.2;
+        self.ch[0] = self.plaits_out[self.plaits_idx] * 0.5;
         self.plaits_idx += 1;
     }
 
@@ -349,8 +349,8 @@ impl Voice {
 
         let mid = (left + right) / 2.0;
         let side = (left - right) / 2.0;
-        self.ch[0] = mid / 4.0 * 0.2;
-        self.spread_side = side / 4.0 * 0.2;
+        self.ch[0] = mid / 4.0 * 0.5;
+        self.spread_side = side / 4.0 * 0.5;
     }
 
     fn run_sub(&mut self, freq: f32, isr: f32) {
@@ -363,24 +363,24 @@ impl Voice {
             SubWave::Tri => self.sub_phasor.tri(sub_freq, isr),
             SubWave::Square => self.sub_phasor.pulse(sub_freq, 0.5, isr),
         };
-        self.ch[0] = (self.ch[0] + sample * self.params.sub * 0.2) / (1.0 + self.params.sub);
+        self.ch[0] = (self.ch[0] + sample * self.params.sub * 0.5) / (1.0 + self.params.sub);
     }
 
     fn run_single_osc(&mut self, freq: f32, isr: f32) {
         self.ch[0] = match self.params.sound {
-            Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape) * 0.2,
-            Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape) * 0.2,
-            Source::Saw => self.phasor.saw_shaped(freq, isr, &self.params.shape) * 0.2,
-            Source::Zaw => self.phasor.zaw_shaped(freq, isr, &self.params.shape) * 0.2,
+            Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape) * 0.5,
+            Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape) * 0.5,
+            Source::Saw => self.phasor.saw_shaped(freq, isr, &self.params.shape) * 0.5,
+            Source::Zaw => self.phasor.zaw_shaped(freq, isr, &self.params.shape) * 0.5,
             Source::Pulse => {
                 self.phasor
                     .pulse_shaped(freq, self.params.pw, isr, &self.params.shape)
-                    * 0.2
+                    * 0.5
             }
             Source::Pulze => {
                 self.phasor
                     .pulze_shaped(freq, self.params.pw, isr, &self.params.shape)
-                    * 0.2
+                    * 0.5
             }
             Source::Add => {
                 let dt = freq * isr;
@@ -391,16 +391,16 @@ impl Voice {
                 };
                 let s = additive_at(phase, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials);
                 self.phasor.update(freq, isr);
-                s * 0.2
+                s * 0.5
             }
-            Source::White => self.white() * 0.2,
+            Source::White => self.white() * 0.5,
             Source::Pink => {
                 let w = self.white();
-                self.pink_noise.next(w) * 0.2
+                self.pink_noise.next(w) * 0.5
             }
             Source::Brown => {
                 let w = self.white();
-                self.brown_noise.next(w) * 0.2
+                self.brown_noise.next(w) * 0.5
             }
             _ => 0.0,
         };
@@ -441,7 +441,7 @@ impl Voice {
                 let ch = c.min(channels - 1);
                 let sample_a = rs.data.read_interpolated(pos_a, ch);
                 let sample_b = rs.data.read_interpolated(pos_b, ch);
-                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
             }
 
             self.phasor.update(freq, isr);
@@ -492,7 +492,7 @@ impl Voice {
                     let ch = c.min(channels - 1);
                     let sample_a = read_interpolated(pool, offset, channels, frames, pos_a, ch);
                     let sample_b = read_interpolated(pool, offset, channels, frames, pos_b, ch);
-                    self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+                    self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
                 }
 
                 self.phasor.update(freq, isr);
@@ -539,7 +539,7 @@ impl Voice {
                 let ch = c.min(channels - 1);
                 let sample_a = read_interpolated(web_pcm, offset, channels, frames, pos_a, ch);
                 let sample_b = read_interpolated(web_pcm, offset, channels, frames, pos_b, ch);
-                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.2;
+                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
             }
 
             self.phasor.update(freq, isr);
