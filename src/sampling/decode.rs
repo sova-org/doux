@@ -346,8 +346,8 @@ fn resample_linear(samples: &[f32], channels: usize, from_sr: f32, to_sr: f32) -
 
     for out_frame in 0..out_frames {
         let in_pos = out_frame as f32 / ratio;
-        let in_frame = in_pos as usize;
-        let next_frame = (in_frame + 1).min(in_frames - 1);
+        let in_frame = (in_pos as usize).min(in_frames.saturating_sub(1));
+        let next_frame = (in_frame + 1).min(in_frames.saturating_sub(1));
         let frac = in_pos - in_frame as f32;
 
         for ch in 0..channels {
