@@ -20,7 +20,7 @@ pub mod voice;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
-use dsp::init_envelope;
+use dsp::{fast_tanh_f32, init_envelope};
 use event::Event;
 use effects::Lag;
 use orbit::Orbit;
@@ -881,7 +881,7 @@ impl Engine {
         }
 
         for c in 0..self.output_channels {
-            output[base_idx + c] = (output[base_idx + c] * 0.7).clamp(-1.0, 1.0);
+            output[base_idx + c] = fast_tanh_f32(output[base_idx + c] * 0.7);
         }
     }
 
