@@ -328,6 +328,7 @@ impl Voice {
             ParamId::Verb => self.params.verb = val,
             ParamId::Comb => self.params.comb = val,
             ParamId::Feedback => self.params.feedback = val,
+            ParamId::Comp => self.params.comp = val,
         }
     }
 

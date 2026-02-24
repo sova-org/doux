@@ -176,6 +176,12 @@ pub struct Event {
     pub combfeedback: Option<f32>,
     pub combdamp: Option<f32>,
 
+    // Sidechain compressor
+    pub comp: Option<f32>,
+    pub compattack: Option<f32>,
+    pub comprelease: Option<f32>,
+    pub comporbit: Option<usize>,
+
     // Distortion
     pub coarse: Option<f32>,
     pub crush: Option<f32>,
@@ -358,6 +364,10 @@ impl Event {
                 "combfreq" => event.combfreq = val.parse().ok(),
                 "combfeedback" => event.combfeedback = val.parse().ok(),
                 "combdamp" => event.combdamp = val.parse().ok(),
+                "comp" => parse_param!(val, comp, ParamId::Comp),
+                "compattack" | "cattack" => event.compattack = val.parse().ok(),
+                "comprelease" | "crelease" => event.comprelease = val.parse().ok(),
+                "comporbit" | "corbit" => event.comporbit = val.parse::<f32>().ok().map(|f| f as usize),
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
                 "fold" => parse_param!(val, fold, ParamId::Fold),

@@ -1,5 +1,5 @@
 use crate::dsp::Phasor;
-use crate::effects::{Comb, DattorroVerb, Delay, DelayParams, Feedback, VitalVerb};
+use crate::effects::{Comb, Compressor, DattorroVerb, Delay, DelayParams, Feedback, VitalVerb};
 use crate::types::{DelayType, LfoShape, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
@@ -31,6 +31,10 @@ pub struct EffectParams {
     pub fb_lfo: f32,
     pub fb_lfo_depth: f32,
     pub fb_lfo_shape: LfoShape,
+    pub comp: f32,
+    pub comp_attack: f32,
+    pub comp_release: f32,
+    pub comp_orbit: usize,
 }
 
 impl Default for EffectParams {
@@ -59,6 +63,10 @@ impl Default for EffectParams {
             fb_lfo: 0.0,
             fb_lfo_depth: 0.5,
             fb_lfo_shape: LfoShape::Sine,
+            comp: 0.0,
+            comp_attack: 0.01,
+            comp_release: 0.15,
+            comp_orbit: 0,
         }
     }
 }
@@ -79,6 +87,7 @@ pub struct Orbit {
     pub fb_send: [f32; CHANNELS],
     pub fb_level: f32,
     pub fb_out: [f32; CHANNELS],
+    pub comp: Compressor,
     pub params: EffectParams,
     pub sr: f32,
     silent_samples: u32,
@@ -102,6 +111,7 @@ impl Orbit {
             fb_send: [0.0; CHANNELS],
             fb_level: 0.0,
             fb_out: [0.0; CHANNELS],
+            comp: Compressor::new(),
             params: EffectParams::default(),
             sr,
             silent_samples: SILENCE_HOLDOFF + 1,

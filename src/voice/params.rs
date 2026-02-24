@@ -384,6 +384,14 @@ pub struct VoiceParams {
     pub fblfodepth: f32,
     /// Feedback LFO waveform.
     pub fblfoshape: LfoShape,
+    /// Sidechain compressor duck amount (0.0 = off, 1.0 = full duck).
+    pub comp: f32,
+    /// Sidechain compressor attack time in seconds.
+    pub compattack: f32,
+    /// Sidechain compressor release time in seconds.
+    pub comprelease: f32,
+    /// Which orbit provides the sidechain signal.
+    pub comporbit: usize,
 }
 
 impl Default for VoiceParams {
@@ -529,6 +537,10 @@ impl Default for VoiceParams {
             fblfo: 0.0,
             fblfodepth: 0.5,
             fblfoshape: LfoShape::Sine,
+            comp: 0.0,
+            compattack: 0.01,
+            comprelease: 0.15,
+            comporbit: 0,
         }
     }
 }

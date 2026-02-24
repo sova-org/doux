@@ -679,6 +679,7 @@ impl Engine {
         copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
         copy_opt!(event, v.params, feedback, fbtime, fbdamp, fblfo, fblfodepth, fblfoshape);
+        copy_opt!(event, v.params, comp, compattack, comprelease, comporbit);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
         copy_opt!(event, v.params, width, haas);
@@ -781,6 +782,7 @@ impl Engine {
         };
         let voice_comp = self.voice_gain_lag.update(target_gain, 0.005, self.sr);
 
+        let mut orbit_dry = [[0.0f32; CHANNELS]; MAX_ORBITS];
         let mut i = 0;
         while i < self.active_voices {
             #[cfg(feature = "native")]
@@ -807,14 +809,12 @@ impl Engine {
             }
 
             let orbit_idx = self.voices[i].params.orbit % num_orbits;
-            let out_pair = orbit_idx % num_pairs;
-            let pair_offset = out_pair * 2;
 
             self.voices[i].ch[0] *= voice_comp;
             self.voices[i].ch[1] *= voice_comp;
 
-            output[base_idx + pair_offset] += self.voices[i].ch[0];
-            output[base_idx + pair_offset + 1] += self.voices[i].ch[1];
+            orbit_dry[orbit_idx][0] += self.voices[i].ch[0];
+            orbit_dry[orbit_idx][1] += self.voices[i].ch[1];
 
             // Add to orbit sends
             if self.voices[i].params.delay > 0.0 {
@@ -865,19 +865,58 @@ impl Engine {
                 self.orbits[orbit_idx].params.fb_lfo_depth = self.voices[i].params.fblfodepth;
                 self.orbits[orbit_idx].params.fb_lfo_shape = self.voices[i].params.fblfoshape;
             }
+            if self.voices[i].params.comp > 0.0 {
+                self.orbits[orbit_idx].params.comp = self.voices[i].params.comp;
+                self.orbits[orbit_idx].params.comp_attack = self.voices[i].params.compattack;
+                self.orbits[orbit_idx].params.comp_release = self.voices[i].params.comprelease;
+                self.orbits[orbit_idx].params.comp_orbit = self.voices[i].params.comporbit;
+            }
 
             i += 1;
         }
 
-        for (orbit_idx, orbit) in self.orbits.iter_mut().enumerate() {
+        // Phase 1: process all orbits, store output levels
+        let mut orbit_levels = [[0.0f32; CHANNELS]; MAX_ORBITS];
+        for (oi, orbit) in self.orbits.iter_mut().enumerate() {
             orbit.process();
+            orbit_levels[oi] = [
+                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0] + orbit.fb_out[0],
+                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1] + orbit.fb_out[1],
+            ];
+        }
 
-            let out_pair = orbit_idx % num_pairs;
+        // Phase 2: mix to output with optional sidechain compression
+        let isr = self.isr;
+        let num_orbs = self.orbits.len();
+        for (oi, orbit) in self.orbits.iter_mut().enumerate() {
+            let out_pair = oi % num_pairs;
             let pair_offset = out_pair * 2;
-            output[base_idx + pair_offset] +=
-                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0] + orbit.fb_out[0];
-            output[base_idx + pair_offset + 1] +=
-                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1] + orbit.fb_out[1];
+            let p = &orbit.params;
+
+            let total = [
+                orbit_dry[oi][0] + orbit_levels[oi][0],
+                orbit_dry[oi][1] + orbit_levels[oi][1],
+            ];
+
+            if p.comp > 0.0 {
+                let sc = p.comp_orbit % num_orbs;
+                let sc_total = [
+                    orbit_dry[sc][0] + orbit_levels[sc][0],
+                    orbit_dry[sc][1] + orbit_levels[sc][1],
+                ];
+                let sc_level = sc_total[0].abs().max(sc_total[1].abs());
+                let attack_coeff = (isr / p.comp_attack.max(0.0001)).min(1.0);
+                let release_coeff = (isr / p.comp_release.max(0.0001)).min(1.0);
+                let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
+                let gain = (1.0 - env).powf(1.0 + p.comp * 4.0);
+                for c in 0..CHANNELS {
+                    output[base_idx + pair_offset + c] += total[c] * gain;
+                }
+            } else {
+                for c in 0..CHANNELS {
+                    output[base_idx + pair_offset + c] += total[c];
+                }
+            }
         }
 
         for c in 0..self.output_channels {

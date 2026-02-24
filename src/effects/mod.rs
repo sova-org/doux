@@ -1,6 +1,7 @@
 mod chorus;
 mod coarse;
 mod comb;
+mod compressor;
 mod crush;
 mod delay;
 mod distort;
@@ -19,6 +20,7 @@ mod vital_reverb;
 pub use chorus::Chorus;
 pub use coarse::Coarse;
 pub use comb::Comb;
+pub use compressor::Compressor;
 pub use crush::crush;
 pub use delay::{Delay, DelayParams};
 pub use distort::{distort, fold, wrap};

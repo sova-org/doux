@@ -226,6 +226,7 @@ pub enum ParamId {
     Comb,
     Wrap,
     Feedback,
+    Comp,
 }
 
 #[derive(Clone, Copy)]
