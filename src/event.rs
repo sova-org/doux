@@ -220,6 +220,9 @@ pub struct Event {
     pub verblowgain: Option<f32>,
     pub verbchorus: Option<f32>,
     pub verbchorusfreq: Option<f32>,
+
+    // Recorder
+    pub overdub: Option<bool>,
 }
 
 impl Event {
@@ -397,6 +400,7 @@ impl Event {
                 "verblowgain" => event.verblowgain = val.parse().ok(),
                 "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
                 "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
+                "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
                 _ => {}
             }
         }

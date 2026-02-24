@@ -10,6 +10,8 @@ pub mod event;
 pub mod orbit;
 #[cfg(feature = "native")]
 pub mod osc;
+#[cfg(feature = "native")]
+mod recorder;
 pub mod plaits;
 pub mod sampling;
 pub mod schedule;
@@ -31,6 +33,8 @@ use sampling::SampleEntry;
 pub use sampling::SampleLoader;
 #[cfg(feature = "native")]
 pub use sampling::{SampleData, SampleRegistry};
+#[cfg(feature = "native")]
+use recorder::Recorder;
 #[cfg(not(feature = "native"))]
 use sampling::{SampleInfo, SamplePool};
 use schedule::Schedule;
@@ -65,6 +69,10 @@ pub struct Engine {
     pub sample_registry: Arc<SampleRegistry>,
     #[cfg(feature = "native")]
     pub sample_loader: SampleLoader,
+    #[cfg(feature = "native")]
+    recorder: Recorder,
+    #[cfg(feature = "native")]
+    orbit_rec_bus: Vec<f32>,
     // Telemetry (native only)
     #[cfg(feature = "native")]
     pub metrics: Arc<EngineMetrics>,
@@ -134,6 +142,8 @@ impl Engine {
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
+            recorder: Recorder::new(sample_rate),
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
             metrics: Arc::new(EngineMetrics::default()),
             voice_gain_lag: Lag { s: 1.0 },
 
@@ -170,6 +180,8 @@ impl Engine {
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
+            recorder: Recorder::new(sample_rate),
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
             metrics,
             voice_gain_lag: Lag { s: 1.0 },
 
@@ -257,6 +269,11 @@ impl Engine {
 
         match cmd {
             "play" => self.play_event(event),
+            #[cfg(feature = "native")]
+            "rec" => {
+                self.handle_rec(&event);
+                None
+            }
             "hush" => {
                 self.hush();
                 None
@@ -313,6 +330,27 @@ impl Engine {
             return None;
         }
         self.process_event(&event)
+    }
+
+    #[cfg(feature = "native")]
+    fn handle_rec(&mut self, event: &Event) {
+        let overdub = event.overdub.unwrap_or(false);
+        let name = event.sound.as_deref();
+        let orbit = event.orbit;
+
+        if self.recorder.toggle(name, overdub, orbit, &self.sample_registry).is_some() {
+            if let Some((name, data)) = self.recorder.finalize() {
+                let key = format!("{name}/0");
+                self.sample_registry.insert(key.clone(), data);
+                if !self.sample_index.iter().any(|e| e.name == key) {
+                    self.sample_index.push(SampleEntry {
+                        name: key,
+                        path: std::path::PathBuf::new(),
+                    });
+                }
+
+            }
+        }
     }
 
     pub fn play(&mut self, params: VoiceParams) -> Option<usize> {
@@ -750,10 +788,12 @@ impl Engine {
         }
     }
 
+    #[allow(unused_variables)]
     pub fn gen_sample(
         &mut self,
         output: &mut [f32],
         sample_idx: usize,
+        block_samples: usize,
         web_pcm: &[f32],
         live_input: &[f32],
     ) {
@@ -912,9 +952,21 @@ impl Engine {
                 for c in 0..CHANNELS {
                     output[base_idx + pair_offset + c] += total[c] * gain;
                 }
+                #[cfg(feature = "native")]
+                if self.recorder.target_orbit().is_some() {
+                    let bus_idx = (oi * block_samples + sample_idx) * CHANNELS;
+                    self.orbit_rec_bus[bus_idx] = total[0] * gain;
+                    self.orbit_rec_bus[bus_idx + 1] = total[1] * gain;
+                }
             } else {
                 for c in 0..CHANNELS {
                     output[base_idx + pair_offset + c] += total[c];
+                }
+                #[cfg(feature = "native")]
+                if self.recorder.target_orbit().is_some() {
+                    let bus_idx = (oi * block_samples + sample_idx) * CHANNELS;
+                    self.orbit_rec_bus[bus_idx] = total[0];
+                    self.orbit_rec_bus[bus_idx + 1] = total[1];
                 }
             }
         }
@@ -929,11 +981,31 @@ impl Engine {
         let start = std::time::Instant::now();
 
         let samples = output.len() / self.output_channels;
+
+        #[cfg(feature = "native")]
+        {
+            let needed = MAX_ORBITS * samples * CHANNELS;
+            if self.orbit_rec_bus.len() < needed {
+                self.orbit_rec_bus.resize(needed, 0.0);
+            }
+        }
+
         for i in 0..samples {
             self.process_schedule();
             self.tick += 1;
             self.time = self.tick as f64 / self.sr as f64;
-            self.gen_sample(output, i, web_pcm, live_input);
+            self.gen_sample(output, i, samples, web_pcm, live_input);
+        }
+
+        #[cfg(feature = "native")]
+        {
+            let n = samples * CHANNELS;
+            if let Some(oi) = self.recorder.target_orbit() {
+                let start_idx = oi * samples * CHANNELS;
+                self.recorder.capture_block(&self.orbit_rec_bus[start_idx..start_idx + n], samples, CHANNELS);
+            } else {
+                self.recorder.capture_block(output, samples, self.output_channels);
+            }
         }
 
         #[cfg(feature = "native")]
