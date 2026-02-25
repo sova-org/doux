@@ -338,7 +338,7 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
 ///
 /// Simple but fast resampling suitable for non-critical applications.
 /// For higher quality, consider using a dedicated resampling library like rubato.
-fn resample_linear(samples: &[f32], channels: usize, from_sr: f32, to_sr: f32) -> Vec<f32> {
+pub(crate) fn resample_linear(samples: &[f32], channels: usize, from_sr: f32, to_sr: f32) -> Vec<f32> {
     let ratio = to_sr / from_sr;
     let in_frames = samples.len() / channels;
     let out_frames = (in_frames as f32 * ratio) as usize;

@@ -359,12 +359,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.sample_index = index;
 
         #[cfg(feature = "soundfont")]
-        if let Some(sf2_path) = doux::soundfont::find_sf2_file(dir) {
-            println!("Loading soundfont: {}", sf2_path.display());
-            if let Err(e) = engine.load_soundfont(&sf2_path) {
-                eprintln!("Failed to load soundfont: {e}");
-            }
-        }
+        engine.load_soundfont_from_dir(dir);
     }
 
     let engine = Arc::new(Mutex::new(engine));

@@ -4,7 +4,7 @@ use std::path::Path;
 use soundfont::raw::GeneratorType;
 use soundfont::SoundFont2;
 
-use crate::sampling::SampleData;
+use crate::sampling::{resample_linear, SampleData};
 use crate::types::midi2freq;
 
 struct ZoneEntry {
@@ -68,14 +68,11 @@ impl GmBank {
     }
 
     pub fn preset_count(&self) -> usize {
-        let mut seen = Vec::new();
-        for z in &self.zones {
-            let key = (z.preset, z.bank);
-            if !seen.contains(&key) {
-                seen.push(key);
-            }
-        }
-        seen.len()
+        self.zones
+            .iter()
+            .map(|z| (z.preset, z.bank))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
     }
 }
 
@@ -213,8 +210,6 @@ pub fn load_sf2(path: &Path, target_sr: f32) -> Result<(Vec<(String, SampleData)
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
         .collect();
-    drop(raw_bytes);
-
     // Extract each sample into SampleData, keyed by index
     let mut samples = Vec::new();
     let mut sample_ratios: Vec<f32> = Vec::new();
@@ -251,8 +246,6 @@ pub fn load_sf2(path: &Path, target_sr: f32) -> Result<(Vec<(String, SampleData)
         let name = format!("_sf2_{i}");
         samples.push((name, SampleData::new(pcm, 1, root_freq)));
     }
-
-    drop(raw_i16);
 
     // Build zone lookup table
     let zones = build_zone_table(&sf2, &sample_ratios);
@@ -386,28 +379,6 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
     }
 
     entries
-}
-
-fn resample_linear(samples: &[f32], channels: usize, from_sr: f32, to_sr: f32) -> Vec<f32> {
-    let ratio = to_sr / from_sr;
-    let in_frames = samples.len() / channels;
-    let out_frames = (in_frames as f32 * ratio) as usize;
-    let mut output = vec![0.0; out_frames * channels];
-
-    for out_frame in 0..out_frames {
-        let in_pos = out_frame as f32 / ratio;
-        let in_frame = (in_pos as usize).min(in_frames.saturating_sub(1));
-        let next_frame = (in_frame + 1).min(in_frames.saturating_sub(1));
-        let frac = in_pos - in_frame as f32;
-
-        for ch in 0..channels {
-            let s0 = samples[in_frame * channels + ch];
-            let s1 = samples[next_frame * channels + ch];
-            output[out_frame * channels + ch] = s0 + frac * (s1 - s0);
-        }
-    }
-
-    output
 }
 
 /// Find the first .sf2 file in a directory.

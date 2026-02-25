@@ -212,8 +212,7 @@ impl Engine {
 
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont(&mut self, path: &std::path::Path) -> Result<(), String> {
-        let (samples, bank): (Vec<(String, SampleData)>, _) =
-            soundfont::load_sf2(path, self.sr)?;
+        let (samples, bank) = soundfont::load_sf2(path, self.sr)?;
         let presets = bank.preset_count();
         let sample_count = samples.len();
         let batch: Vec<_> = samples
@@ -224,6 +223,15 @@ impl Engine {
         self.gm_bank = Some(bank);
         println!("SF2: {sample_count} samples, {presets} presets");
         Ok(())
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn load_soundfont_from_dir(&mut self, dir: &std::path::Path) {
+        if let Some(sf2_path) = soundfont::find_sf2_file(dir) {
+            if let Err(e) = self.load_soundfont(&sf2_path) {
+                eprintln!("Failed to load soundfont: {e}");
+            }
+        }
     }
 
     #[cfg(not(feature = "native"))]
@@ -297,7 +305,7 @@ impl Engine {
 
         let note = event
             .freq
-            .map(|f| types::freq2midi(f).round() as u8)
+            .map(|f| (types::freq2midi(f).round() as i32).clamp(0, 127) as u8)
             .unwrap_or(60);
         let vel = (event.velocity.unwrap_or(1.0) * 127.0).clamp(1.0, 127.0) as u8;
 
@@ -458,12 +466,12 @@ impl Engine {
                 // Check if sample is loaded. If not, request loading and skip this event.
                 #[cfg(feature = "native")]
                 {
-                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    let n = event.n_as_index();
                     self.get_registry_sample(&effective_name, n)?;
                 }
                 #[cfg(not(feature = "native"))]
                 {
-                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    let n = event.n_as_index();
                     self.get_or_load_sample(&effective_name, n)?;
                 }
             }
@@ -533,7 +541,7 @@ impl Engine {
                         Some(b) => format!("{sound_str}_{b}"),
                         None => sound_str.clone(),
                     };
-                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    let n = event.n_as_index();
                     self.get_registry_sample(&effective_name, n)
                 }
             } else {
@@ -561,7 +569,7 @@ impl Engine {
                     Some(b) => format!("{sound_str}_{b}"),
                     None => sound_str.clone(),
                 };
-                let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                let n = event.n_as_index();
                 self.get_or_load_sample(&effective_name, n)
             } else {
                 None

@@ -226,6 +226,10 @@ pub struct Event {
 }
 
 impl Event {
+    pub fn n_as_index(&self) -> usize {
+        self.n.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0)
+    }
+
     pub fn parse(input: &str) -> Self {
         let mut event = Self::default();
         let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
