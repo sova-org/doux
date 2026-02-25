@@ -66,6 +66,13 @@ fn main() {
             }
         }
         engine.sample_index = index;
+
+        #[cfg(feature = "soundfont")]
+        if let Some(sf2_path) = doux::soundfont::find_sf2_file(dir) {
+            if let Err(e) = engine.load_soundfont(&sf2_path) {
+                eprintln!("Failed to load soundfont: {e}");
+            }
+        }
     }
 
     for cmd in &args.eval {

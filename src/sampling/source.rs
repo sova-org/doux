@@ -14,14 +14,16 @@ use super::registry::SampleData;
 pub struct RegistrySample {
     pub name: String,
     pub data: Arc<SampleData>,
+    pub root_freq: f32,
     cursor: Cursor,
 }
 
 impl RegistrySample {
     /// Creates a new sample playback source.
     pub fn new(name: String, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
+        let root_freq = data.freq;
         let cursor = Cursor::new(data.frame_count, begin, end);
-        Self { name, data, cursor }
+        Self { name, data, root_freq, cursor }
     }
 
     /// Returns true if this is a head preload (not fully decoded yet).
@@ -60,6 +62,11 @@ impl RegistrySample {
         self.cursor.advance(speed);
     }
 
+    /// Sets loop points (in frames relative to sample start).
+    pub fn set_loop(&mut self, loop_start: f32, loop_end: f32) {
+        self.cursor.set_loop(loop_start, loop_end);
+    }
+
     /// Returns true if playback has finished.
     #[inline]
     pub fn is_done(&self) -> bool {
@@ -72,6 +79,7 @@ impl Clone for RegistrySample {
         Self {
             name: self.name.clone(),
             data: Arc::clone(&self.data),
+            root_freq: self.root_freq,
             cursor: self.cursor,
         }
     }

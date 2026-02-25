@@ -15,6 +15,8 @@ mod recorder;
 pub mod plaits;
 pub mod sampling;
 pub mod schedule;
+#[cfg(feature = "soundfont")]
+pub mod soundfont;
 #[cfg(feature = "native")]
 pub mod telemetry;
 pub mod types;
@@ -44,6 +46,20 @@ use std::sync::Arc;
 pub use telemetry::EngineMetrics;
 use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
 use voice::{Voice, VoiceParams};
+
+#[cfg(feature = "soundfont")]
+struct GmResolved {
+    data: Arc<SampleData>,
+    name: String,
+    root_freq: f32,
+    loop_start: f32,
+    loop_end: f32,
+    looping: bool,
+    attack: f32,
+    decay: f32,
+    sustain: f32,
+    release: f32,
+}
 
 pub struct Engine {
     pub sr: f32,
@@ -76,6 +92,8 @@ pub struct Engine {
     // Telemetry (native only)
     #[cfg(feature = "native")]
     pub metrics: Arc<EngineMetrics>,
+    #[cfg(feature = "soundfont")]
+    pub gm_bank: Option<soundfont::GmBank>,
     voice_gain_lag: Lag,
 }
 
@@ -145,6 +163,8 @@ impl Engine {
             recorder: Recorder::new(sample_rate),
             orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
             metrics: Arc::new(EngineMetrics::default()),
+            #[cfg(feature = "soundfont")]
+            gm_bank: None,
             voice_gain_lag: Lag { s: 1.0 },
 
         }
@@ -183,9 +203,27 @@ impl Engine {
             recorder: Recorder::new(sample_rate),
             orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
             metrics,
+            #[cfg(feature = "soundfont")]
+            gm_bank: None,
             voice_gain_lag: Lag { s: 1.0 },
 
         }
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn load_soundfont(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let (samples, bank): (Vec<(String, SampleData)>, _) =
+            soundfont::load_sf2(path, self.sr)?;
+        let presets = bank.preset_count();
+        let sample_count = samples.len();
+        let batch: Vec<_> = samples
+            .into_iter()
+            .map(|(name, data)| (name, Arc::new(data)))
+            .collect();
+        self.sample_registry.insert_batch(batch);
+        self.gm_bank = Some(bank);
+        println!("SF2: {sample_count} samples, {presets} presets");
+        Ok(())
     }
 
     #[cfg(not(feature = "native"))]
@@ -246,6 +284,38 @@ impl Engine {
         self.sample_loader.request(sample_name, path, self.sr);
 
         None
+    }
+
+    /// Resolve a GM soundfont zone: extract program from sound string, look up zone, get sample.
+    #[cfg(feature = "soundfont")]
+    fn resolve_gm(&self, event: &Event) -> Option<GmResolved> {
+        let sound_str = event.sound.as_ref()?;
+        if sound_str != "gm" {
+            return None;
+        }
+        let program_str = event.n.as_deref().unwrap_or("0");
+
+        let note = event
+            .freq
+            .map(|f| types::freq2midi(f).round() as u8)
+            .unwrap_or(60);
+        let vel = (event.velocity.unwrap_or(1.0) * 127.0).clamp(1.0, 127.0) as u8;
+
+        let bank = self.gm_bank.as_ref()?;
+        let zone = bank.find(program_str, note, vel)?;
+        let data = self.sample_registry.get(zone.sample_name)?;
+        Some(GmResolved {
+            data,
+            name: zone.sample_name.to_string(),
+            root_freq: zone.root_freq,
+            loop_start: zone.loop_start,
+            loop_end: zone.loop_end,
+            looping: zone.looping,
+            attack: zone.attack,
+            decay: zone.decay,
+            sustain: zone.sustain,
+            release: zone.release,
+        })
     }
 
     /// Get a loaded sample index (WASM only - uses legacy pool)
@@ -388,11 +458,13 @@ impl Engine {
                 // Check if sample is loaded. If not, request loading and skip this event.
                 #[cfg(feature = "native")]
                 {
-                    self.get_registry_sample(&effective_name, event.n.unwrap_or(0))?;
+                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    self.get_registry_sample(&effective_name, n)?;
                 }
                 #[cfg(not(feature = "native"))]
                 {
-                    self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))?;
+                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    self.get_or_load_sample(&effective_name, n)?;
                 }
             }
         }
@@ -461,7 +533,8 @@ impl Engine {
                         Some(b) => format!("{sound_str}_{b}"),
                         None => sound_str.clone(),
                     };
-                    self.get_registry_sample(&effective_name, event.n.unwrap_or(0))
+                    let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                    self.get_registry_sample(&effective_name, n)
                 }
             } else {
                 None
@@ -472,6 +545,15 @@ impl Engine {
         } else {
             None
         };
+
+        // Resolve GM soundfont zone (before borrowing voice)
+        #[cfg(feature = "soundfont")]
+        let gm_resolved: Option<GmResolved> = if parsed_source == Some(Source::Gm) {
+                self.resolve_gm(event)
+            } else {
+                None
+            };
+
         #[cfg(not(feature = "native"))]
         let loaded_sample = if let Some(ref sound_str) = event.sound {
             if sound_str.parse::<Source>().is_err() {
@@ -479,7 +561,8 @@ impl Engine {
                     Some(b) => format!("{sound_str}_{b}"),
                     None => sound_str.clone(),
                 };
-                self.get_or_load_sample(&effective_name, event.n.unwrap_or(0))
+                let n = event.n.as_ref().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+                self.get_or_load_sample(&effective_name, n)
             } else {
                 None
             }
@@ -542,6 +625,32 @@ impl Engine {
         }
         if let Some(wtlen) = event.wtlen {
             v.params.wt_cycle_len = wtlen;
+        }
+
+        // GM soundfont sample setup
+        #[cfg(feature = "soundfont")]
+        if let Some(gm) = gm_resolved {
+            let mut rs = RegistrySample::new(gm.name, gm.data, 0.0, 1.0);
+            rs.root_freq = gm.root_freq;
+            if gm.looping {
+                rs.set_loop(gm.loop_start, gm.loop_end);
+            }
+            v.registry_sample = Some(rs);
+            if event.freq.is_none() {
+                v.params.freq = 261.626;
+            }
+            if event.attack.is_none() {
+                v.params.attack = gm.attack;
+            }
+            if event.decay.is_none() {
+                v.params.decay = gm.decay;
+            }
+            if event.sustain.is_none() {
+                v.params.sustain = gm.sustain;
+            }
+            if event.release.is_none() {
+                v.params.release = gm.release;
+            }
         }
 
         // Sample playback via lock-free registry (native)

@@ -357,6 +357,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let index = doux::sampling::scan_samples_dir(dir);
         println!("Samples: {} from {}", index.len(), dir.display());
         engine.sample_index = index;
+
+        #[cfg(feature = "soundfont")]
+        if let Some(sf2_path) = doux::soundfont::find_sf2_file(dir) {
+            println!("Loading soundfont: {}", sf2_path.display());
+            if let Err(e) = engine.load_soundfont(&sf2_path) {
+                eprintln!("Failed to load soundfont: {e}");
+            }
+        }
     }
 
     let engine = Arc::new(Mutex::new(engine));

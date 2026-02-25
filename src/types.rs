@@ -27,6 +27,7 @@ pub enum Source {
     Rim,
     Cowbell,
     Cymbal,
+    Gm,        // General MIDI via soundfont
     Sample,    // Native: disk-loaded samples via FileSource
     Wavetable, // Sample played as wavetable oscillator with pitch tracking
     WebSample, // Web: inline PCM from JavaScript
@@ -65,6 +66,7 @@ impl FromStr for Source {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "gm" => return Ok(Self::Gm),
             "triangle" | "tri" => Ok(Self::Tri),
             "sine" => Ok(Self::Sine),
             "sawtooth" | "saw" => Ok(Self::Saw),

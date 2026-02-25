@@ -28,6 +28,7 @@ required-features = ["render"]
 default = ["native"]
 native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline", "dep:arc-swap", "dep:crossbeam-channel"]
 render = ["dep:clap", "dep:symphonia", "dep:arc-swap", "dep:hound"]
+soundfont = ["native", "dep:soundfont"]
 
 [dependencies]
 clap = { version = "4", optional = true, features = ["derive"] }
@@ -39,6 +40,7 @@ rustyline = { version = "14", optional = true }
 arc-swap = { version = "1.7", optional = true }
 crossbeam-channel = { version = "0.5", optional = true }
 mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4" }
+soundfont = { version = "0.1.0", optional = true }
 
 [profile.release]
 opt-level = 3

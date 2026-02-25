@@ -90,6 +90,24 @@ impl Voice {
         live_input: &[f32],
     ) -> bool {
         match self.params.sound {
+            Source::Gm => {
+                if let Some(ref mut rs) = self.registry_sample {
+                    let done = rs.is_done();
+                    if done {
+                        self.params.gate = 0.0;
+                    }
+                    for c in 0..CHANNELS {
+                        self.ch[c] = rs.read(c) * 0.7;
+                    }
+                    if !done {
+                        rs.advance(freq / rs.root_freq);
+                    }
+                    self.nch = CHANNELS;
+                    return true;
+                }
+                self.ch[0] = 0.0;
+                self.ch[1] = 0.0;
+            }
             Source::Sample => {
                 if let Some(ref mut rs) = self.registry_sample {
                     let done = rs.is_done();

@@ -21,6 +21,10 @@ pub struct Cursor {
     length: f32,
     /// Whether playback has started (for reverse init).
     started: bool,
+    /// Loop start position in frames (relative to start_pos).
+    loop_start: f32,
+    /// Loop end position in frames (relative to start_pos). 0 = no loop.
+    loop_end: f32,
 }
 
 impl Default for Cursor {
@@ -30,6 +34,8 @@ impl Default for Cursor {
             start_pos: 0.0,
             length: 0.0,
             started: false,
+            loop_start: 0.0,
+            loop_end: 0.0,
         }
     }
 }
@@ -50,6 +56,8 @@ impl Cursor {
             start_pos,
             length,
             started: false,
+            loop_start: 0.0,
+            loop_end: 0.0,
         }
     }
 
@@ -91,9 +99,16 @@ impl Cursor {
         self.length = length;
     }
 
+    /// Sets loop points (in frames relative to start_pos).
+    pub fn set_loop(&mut self, loop_start: f32, loop_end: f32) {
+        self.loop_start = loop_start;
+        self.loop_end = loop_end;
+    }
+
     /// Advances the cursor by the given speed (frames per sample).
     ///
     /// On first call, if speed is negative, position jumps to end for reverse playback.
+    /// If loop points are set, wraps position back to loop_start when reaching loop_end.
     #[inline]
     pub fn advance(&mut self, speed: f32) {
         if !self.started {
@@ -103,11 +118,21 @@ impl Cursor {
             }
         }
         self.pos += speed;
+        if self.loop_end > 0.0 && self.pos >= self.loop_end {
+            let loop_len = self.loop_end - self.loop_start;
+            if loop_len > 0.0 {
+                self.pos = self.loop_start + (self.pos - self.loop_end) % loop_len;
+            }
+        }
     }
 
     /// Returns true if playback has finished (position out of bounds).
+    /// Looping cursors never finish from position — voice dies from ADSR release.
     #[inline]
     pub fn is_done(&self) -> bool {
+        if self.loop_end > 0.0 {
+            return false;
+        }
         self.pos < 0.0 || self.pos >= self.length
     }
 
