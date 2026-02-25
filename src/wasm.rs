@@ -364,6 +364,7 @@ pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
                     Source::Rim => 29,
                     Source::Cowbell => 30,
                     Source::Cymbal => 31,
+                    Source::Gm => 32,
                 }
             } else {
                 -1
