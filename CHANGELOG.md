@@ -3,6 +3,16 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.5] - 2026-02-27
+
+### Changed
+
+- **Per-orbit voice gain compensation** — each orbit now scales independently (`1/sqrt(n)` per orbit) instead of globally, so voices on one orbit no longer attenuate unrelated orbits
+
+### Fixed
+
+- `resample_linear` re-export gated on `soundfont` feature instead of `native` to silence unused import warning
+
 ## [0.0.4] - 2026-02-26
 
 ### Added

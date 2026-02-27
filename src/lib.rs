@@ -94,7 +94,7 @@ pub struct Engine {
     pub metrics: Arc<EngineMetrics>,
     #[cfg(feature = "soundfont")]
     pub gm_bank: Option<soundfont::GmBank>,
-    voice_gain_lag: Lag,
+    voice_gain_lag: [Lag; MAX_ORBITS],
 }
 
 impl Engine {
@@ -125,7 +125,7 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            voice_gain_lag: Lag { s: 1.0 },
+            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
 
         }
     }
@@ -165,7 +165,7 @@ impl Engine {
             metrics: Arc::new(EngineMetrics::default()),
             #[cfg(feature = "soundfont")]
             gm_bank: None,
-            voice_gain_lag: Lag { s: 1.0 },
+            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
 
         }
     }
@@ -205,7 +205,7 @@ impl Engine {
             metrics,
             #[cfg(feature = "soundfont")]
             gm_bank: None,
-            voice_gain_lag: Lag { s: 1.0 },
+            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
 
         }
     }
@@ -932,12 +932,19 @@ impl Engine {
         let isr = self.isr;
         let num_orbits = self.orbits.len();
 
-        let target_gain = if self.active_voices > 0 {
-            1.0 / (self.active_voices as f32).sqrt()
-        } else {
-            1.0
-        };
-        let voice_comp = self.voice_gain_lag.update(target_gain, 0.005, self.sr);
+        let mut voices_per_orbit = [0u32; MAX_ORBITS];
+        for i in 0..self.active_voices {
+            voices_per_orbit[self.voices[i].params.orbit % num_orbits] += 1;
+        }
+        let mut voice_comp = [0.0f32; MAX_ORBITS];
+        for o in 0..num_orbits {
+            let target = if voices_per_orbit[o] > 0 {
+                1.0 / (voices_per_orbit[o] as f32).sqrt()
+            } else {
+                1.0
+            };
+            voice_comp[o] = self.voice_gain_lag[o].update(target, 0.005, self.sr);
+        }
 
         let mut orbit_dry = [[0.0f32; CHANNELS]; MAX_ORBITS];
         let mut i = 0;
@@ -967,8 +974,8 @@ impl Engine {
 
             let orbit_idx = self.voices[i].params.orbit % num_orbits;
 
-            self.voices[i].ch[0] *= voice_comp;
-            self.voices[i].ch[1] *= voice_comp;
+            self.voices[i].ch[0] *= voice_comp[orbit_idx];
+            self.voices[i].ch[1] *= voice_comp[orbit_idx];
 
             orbit_dry[orbit_idx][0] += self.voices[i].ch[0];
             orbit_dry[orbit_idx][1] += self.voices[i].ch[1];
