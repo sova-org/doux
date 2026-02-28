@@ -58,6 +58,9 @@ pub struct Voice {
     // Sample playback (native lock-free registry)
     #[cfg(feature = "native")]
     pub registry_sample: Option<RegistrySample>,
+    #[cfg(feature = "native")]
+    pub registry_sample_b: Option<RegistrySample>,
+    pub sample_blend: f32,
     // Sample playback (web)
     pub web_sample: Option<WebSampleSource>,
     // Effects
@@ -132,6 +135,9 @@ impl Default for Voice {
             file_source: None,
             #[cfg(feature = "native")]
             registry_sample: None,
+            #[cfg(feature = "native")]
+            registry_sample_b: None,
+            sample_blend: 0.0,
             web_sample: None,
             phaser: [Phaser::default(); CHANNELS],
             flanger: [Flanger::default(); CHANNELS],
@@ -194,6 +200,9 @@ impl Clone for Voice {
             file_source: self.file_source,
             #[cfg(feature = "native")]
             registry_sample: self.registry_sample.clone(),
+            #[cfg(feature = "native")]
+            registry_sample_b: self.registry_sample_b.clone(),
+            sample_blend: self.sample_blend,
             web_sample: self.web_sample,
             phaser: self.phaser,
             flanger: self.flanger,

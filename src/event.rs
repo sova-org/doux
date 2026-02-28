@@ -45,6 +45,8 @@ pub struct Event {
     pub cut: Option<usize>,
     pub begin: Option<f32>,
     pub end: Option<f32>,
+    pub slice: Option<f32>,
+    pub pick: Option<f32>,
     pub bank: Option<String>,
     pub wave: Option<f32>,
     pub sub: Option<f32>,
@@ -230,6 +232,26 @@ impl Event {
         self.n.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0)
     }
 
+    pub fn n_as_float(&self) -> f32 {
+        self.n.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
+
+    pub fn resolve_range(&self) -> (f32, f32) {
+        if self.begin.is_some() || self.end.is_some() {
+            return (self.begin.unwrap_or(0.0), self.end.unwrap_or(1.0));
+        }
+        if let Some(slices) = self.slice {
+            let slices = (slices as u32).max(1);
+            let pick = self.pick.unwrap_or(0.0) as i32;
+            let idx = pick.rem_euclid(slices as i32) as u32;
+            let step = 1.0 / slices as f32;
+            let begin = idx as f32 * step;
+            (begin, begin + step)
+        } else {
+            (0.0, 1.0)
+        }
+    }
+
     pub fn parse(input: &str) -> Self {
         let mut event = Self::default();
         let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
@@ -276,6 +298,8 @@ impl Event {
                 "cut" => event.cut = val.parse::<f32>().ok().map(|f| f as usize),
                 "begin" => event.begin = val.parse().ok(),
                 "end" => event.end = val.parse().ok(),
+                "slice" => event.slice = val.parse().ok(),
+                "pick" => event.pick = val.parse().ok(),
                 "bank" => event.bank = Some(val.to_string()),
                 "wave" | "waveform" => parse_param!(val, wave, ParamId::Wave),
                 "sub" => parse_param!(val, sub, ParamId::Sub),
@@ -409,5 +433,58 @@ impl Event {
             }
         }
         event
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slice_pick_basic() {
+        let e = Event::parse("slice/8/pick/3");
+        let (b, end) = e.resolve_range();
+        assert!((b - 0.375).abs() < 1e-6);
+        assert!((end - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn slice_defaults_pick_zero() {
+        let e = Event::parse("slice/4");
+        let (b, end) = e.resolve_range();
+        assert!((b - 0.0).abs() < 1e-6);
+        assert!((end - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pick_without_slice_full_range() {
+        let e = Event::parse("pick/3");
+        assert_eq!(e.resolve_range(), (0.0, 1.0));
+    }
+
+    #[test]
+    fn slice_pick_wraps() {
+        let e = Event::parse("slice/8/pick/10");
+        let (b, end) = e.resolve_range();
+        // 10 % 8 = 2
+        assert!((b - 0.25).abs() < 1e-6);
+        assert!((end - 0.375).abs() < 1e-6);
+    }
+
+    #[test]
+    fn slice_pick_negative() {
+        let e = Event::parse("slice/8/pick/-1");
+        let (b, end) = e.resolve_range();
+        // rem_euclid(-1, 8) = 7
+        assert!((b - 0.875).abs() < 1e-6);
+        assert!((end - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn begin_end_takes_precedence() {
+        let e = Event::parse("begin/0.1/slice/8/pick/3");
+        let (b, end) = e.resolve_range();
+        assert!((b - 0.1).abs() < 1e-6);
+        assert!((end - 1.0).abs() < 1e-6);
     }
 }

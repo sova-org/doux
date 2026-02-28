@@ -532,20 +532,28 @@ impl Engine {
         // Resolve sound/sample first (before borrowing voice)
         // If sound parses as a Source, use it; otherwise treat as sample folder name
         #[cfg(feature = "native")]
-        let registry_sample_data: Option<(String, Arc<SampleData>)> =
+        let (registry_sample_data, registry_sample_data_b, sample_blend) =
             if let Some(ref sound_str) = event.sound {
                 if sound_str.parse::<Source>().is_ok() {
-                    None
+                    (None, None, 0.0f32)
                 } else {
                     let effective_name = match &event.bank {
                         Some(b) => format!("{sound_str}_{b}"),
                         None => sound_str.clone(),
                     };
-                    let n = event.n_as_index();
-                    self.get_registry_sample(&effective_name, n)
+                    let n_float = event.n_as_float();
+                    let n_floor = n_float.floor() as usize;
+                    let blend = n_float.fract();
+                    let a = self.get_registry_sample(&effective_name, n_floor);
+                    let b = if blend > 0.0 {
+                        self.get_registry_sample(&effective_name, n_floor + 1)
+                    } else {
+                        None
+                    };
+                    (a, b, blend)
                 }
             } else {
-                None
+                (None, None, 0.0)
             };
 
         let parsed_source = if let Some(ref sound_str) = event.sound {
@@ -670,10 +678,16 @@ impl Engine {
             } else {
                 Source::Sample
             };
-            let begin = event.begin.unwrap_or(0.0);
-            let end = event.end.unwrap_or(1.0);
+            let (begin, end) = event.resolve_range();
             let frame_count = sample_data.total_frames;
             v.registry_sample = Some(RegistrySample::new(sample_name, sample_data, begin, end));
+            if let Some((name_b, data_b)) = registry_sample_data_b {
+                v.registry_sample_b = Some(RegistrySample::new(name_b, data_b, begin, end));
+                v.sample_blend = sample_blend;
+            } else {
+                v.registry_sample_b = None;
+                v.sample_blend = 0.0;
+            }
             if event.freq.is_none() {
                 v.params.freq = 261.626;
             }
@@ -681,10 +695,17 @@ impl Engine {
                 let sample_dur = frame_count as f32 * (end - begin) / self.sr;
                 v.params.speed = sample_dur / target_dur;
             }
-        } else if event.begin.is_some() || event.end.is_some() {
+        } else if event.begin.is_some() || event.end.is_some() || event.slice.is_some() {
             #[cfg(feature = "native")]
-            if let Some(ref mut rs) = v.registry_sample {
-                rs.update_range(event.begin, event.end);
+            {
+                if let Some(ref mut rs) = v.registry_sample {
+                    let (begin, end) = event.resolve_range();
+                    rs.update_range(Some(begin), Some(end));
+                }
+                if let Some(ref mut rs) = v.registry_sample_b {
+                    let (begin, end) = event.resolve_range();
+                    rs.update_range(Some(begin), Some(end));
+                }
             }
         }
 
@@ -699,8 +720,7 @@ impl Engine {
                 } else {
                     Source::Sample
                 };
-                let begin = event.begin.unwrap_or(0.0);
-                let end = event.end.unwrap_or(1.0);
+                let (begin, end) = event.resolve_range();
                 v.file_source = Some(FileSource::new(sample_idx, info.frames, begin, end));
                 if event.freq.is_none() {
                     v.params.freq = 261.626;
@@ -710,11 +730,12 @@ impl Engine {
                     v.params.speed = sample_dur / target_dur;
                 }
             }
-        } else if event.begin.is_some() || event.end.is_some() {
+        } else if event.begin.is_some() || event.end.is_some() || event.slice.is_some() {
             #[cfg(not(feature = "native"))]
             if let Some(ref mut fs) = v.file_source {
                 if let Some(info) = self.samples.get(fs.sample_idx) {
-                    fs.update_range(info.frames, event.begin, event.end);
+                    let (begin, end) = event.resolve_range();
+                    fs.update_range(info.frames, Some(begin), Some(end));
                 }
             }
         }
@@ -722,6 +743,7 @@ impl Engine {
         // Web sample playback (set by JavaScript)
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
             use sampling::WebSampleSource;
+            let (begin, end) = event.resolve_range();
             // Use Wavetable mode if scan param present, otherwise WebSample
             v.params.sound = if event.scan.is_some() {
                 Source::Wavetable
@@ -733,8 +755,8 @@ impl Engine {
                 frames as u32,
                 event.file_channels.unwrap_or(1),
                 event.file_freq.unwrap_or(65.406),
-                event.begin.unwrap_or(0.0),
-                event.end.unwrap_or(1.0),
+                begin,
+                end,
             ));
             if event.freq.is_none() {
                 v.params.freq = 261.626;
@@ -950,11 +972,22 @@ impl Engine {
         let mut i = 0;
         while i < self.active_voices {
             #[cfg(feature = "native")]
-            if let Some(ref mut rs) = self.voices[i].registry_sample {
-                if rs.is_head() {
-                    if let Some(full) = self.sample_registry.get(&rs.name) {
-                        if full.frame_count >= full.total_frames {
-                            rs.upgrade(full);
+            {
+                if let Some(ref mut rs) = self.voices[i].registry_sample {
+                    if rs.is_head() {
+                        if let Some(full) = self.sample_registry.get(&rs.name) {
+                            if full.frame_count >= full.total_frames {
+                                rs.upgrade(full);
+                            }
+                        }
+                    }
+                }
+                if let Some(ref mut rs) = self.voices[i].registry_sample_b {
+                    if rs.is_head() {
+                        if let Some(full) = self.sample_registry.get(&rs.name) {
+                            if full.frame_count >= full.total_frames {
+                                rs.upgrade(full);
+                            }
                         }
                     }
                 }

@@ -32,7 +32,7 @@ soundfont = ["native", "dep:soundfont"]
 
 [dependencies]
 clap = { version = "4", optional = true, features = ["derive"] }
-cpal = { version = "0.17", optional = true, features = ["jack"] }
+cpal = { version = "0.17", optional = true }
 rosc = { version = "0.10", optional = true }
 symphonia = { version = "0.5", optional = true, default-features = false, features = ["wav", "pcm", "mp3", "ogg", "flac", "aac"] }
 hound = { version = "3.5", optional = true }
@@ -41,6 +41,9 @@ arc-swap = { version = "1.7", optional = true }
 crossbeam-channel = { version = "0.5", optional = true }
 mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4" }
 soundfont = { version = "0.1.0", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.17", optional = true, features = ["jack"] }
 
 [profile.release]
 opt-level = 3

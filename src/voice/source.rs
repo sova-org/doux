@@ -109,22 +109,42 @@ impl Voice {
                 self.ch[1] = 0.0;
             }
             Source::Sample => {
-                if let Some(ref mut rs) = self.registry_sample {
-                    let done = rs.is_done();
-                    if done {
-                        self.params.gate = 0.0;
+                let speed = freq * INV_MIDDLE_C;
+                let blend = self.sample_blend;
+                match (&mut self.registry_sample, &mut self.registry_sample_b) {
+                    (Some(a), Some(b)) if blend > 0.0 => {
+                        let done_a = a.is_done();
+                        let done_b = b.is_done();
+                        if done_a && done_b {
+                            self.params.gate = 0.0;
+                        }
+                        for c in 0..CHANNELS {
+                            self.ch[c] = (a.read(c) + blend * (b.read(c) - a.read(c))) * 0.7;
+                        }
+                        if !done_a { a.advance(speed); }
+                        if !done_b { b.advance(speed); }
+                        self.nch = CHANNELS;
+                        return true;
                     }
-                    for c in 0..CHANNELS {
-                        self.ch[c] = rs.read(c) * 0.7;
+                    (Some(rs), _) => {
+                        let done = rs.is_done();
+                        if done {
+                            self.params.gate = 0.0;
+                        }
+                        for c in 0..CHANNELS {
+                            self.ch[c] = rs.read(c) * 0.7;
+                        }
+                        if !done {
+                            rs.advance(speed);
+                        }
+                        self.nch = CHANNELS;
+                        return true;
                     }
-                    if !done {
-                        rs.advance(freq * INV_MIDDLE_C);
+                    _ => {
+                        self.ch[0] = 0.0;
+                        self.ch[1] = 0.0;
                     }
-                    self.nch = CHANNELS;
-                    return true;
                 }
-                self.ch[0] = 0.0;
-                self.ch[1] = 0.0;
             }
             Source::Wavetable => {
                 self.nch = CHANNELS;
