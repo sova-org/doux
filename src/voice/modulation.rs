@@ -61,6 +61,21 @@ impl ModChain {
         }
     }
 
+    pub fn map_values(self, f: impl Fn(f32) -> f32) -> Self {
+        match self {
+            ModChain::Transition { start, mut segments, count, looping } => {
+                let start = f(start);
+                for seg in segments.iter_mut().take(count as usize) {
+                    seg.target = f(seg.target);
+                }
+                ModChain::Transition { start, segments, count, looping }
+            }
+            ModChain::Oscillate { min, max, freq, shape } => {
+                ModChain::Oscillate { min: f(min), max: f(max), freq, shape }
+            }
+        }
+    }
+
     fn parse_transition(s: &str) -> Option<Self> {
         let parts: Vec<&str> = s.split('>').collect();
         if parts.len() < 2 || parts.len() > 5 {

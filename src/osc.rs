@@ -23,7 +23,9 @@
 
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::Engine;
 
@@ -51,6 +53,37 @@ pub fn run(engine: Arc<Mutex<Engine>>, port: u16) {
                     handle_packet(&engine, &packet.1);
                 }
             }
+            Err(e) => {
+                eprintln!("OSC recv error: {e}");
+            }
+        }
+    }
+}
+
+/// Like `run`, but returns when `device_lost` is set.
+///
+/// Uses a 500ms socket timeout so the loop periodically checks the flag.
+/// Returns `true` if it exited due to device loss, `false` otherwise.
+pub fn run_recoverable(engine: Arc<Mutex<Engine>>, port: u16, device_lost: &AtomicBool) -> bool {
+    let addr = format!("0.0.0.0:{port}");
+    let socket = UdpSocket::bind(&addr).expect("failed to bind OSC socket");
+    socket
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .expect("failed to set socket timeout");
+
+    let mut buf = [0u8; BUFFER_SIZE];
+
+    loop {
+        if device_lost.load(Ordering::Acquire) {
+            return true;
+        }
+        match socket.recv_from(&mut buf) {
+            Ok((size, _addr)) => {
+                if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
+                    handle_packet(&engine, &packet.1);
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
             Err(e) => {
                 eprintln!("OSC recv error: {e}");
             }

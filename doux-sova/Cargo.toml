@@ -3,9 +3,13 @@ name = "doux-sova"
 version = "0.0.1"
 edition = "2021"
 
+[features]
+default = []
+soundfont = ["doux/soundfont"]
+
 [dependencies]
 doux = { path = "..", features = ["native"] }
 crossbeam-channel = "0.5"
 cpal = "0.17"
 serde = { version = "1", features = ["derive"] }
-sova_core = { path = "../../Sova/core", package = "core" }
+sova_core = { git = "https://github.com/sova-org/sova", package = "core" }

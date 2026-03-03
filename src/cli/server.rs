@@ -9,6 +9,7 @@ use doux::audio::{get_host, list_hosts, max_output_channels, print_diagnostics, 
 use doux::Engine;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Command-line arguments for the doux audio engine.
@@ -156,55 +157,49 @@ fn main() {
         return;
     }
 
-    // Resolve output device
-    let device = match &args.output {
-        Some(spec) => host
-            .output_devices()
-            .ok()
-            .and_then(|d| find_device(d, spec))
-            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
-        None => host.default_output_device().expect("no output device"),
-    };
+    // Resolve output device for initial config (sample rate, channels)
+    let (output_channels, sample_rate, config) = {
+        let device = match &args.output {
+            Some(spec) => host
+                .output_devices()
+                .ok()
+                .and_then(|d| find_device(d, spec))
+                .unwrap_or_else(|| panic!("output device '{spec}' not found")),
+            None => host.default_output_device().expect("no output device"),
+        };
 
-    // Clamp channels to device maximum
-    let max_channels = max_output_channels(&device);
-    let output_channels = (args.channels as usize).min(max_channels as usize);
-    if args.channels as usize > output_channels {
-        eprintln!(
-            "Warning: device supports max {} channels, using that instead of {}",
-            max_channels, args.channels
-        );
-    }
-
-    let default_config = device.default_output_config().unwrap();
-    let sample_rate = default_config.sample_rate() as f32;
-
-    let is_jack = doux::audio::is_jack_host();
-    let buffer_size = match args.buffer_size {
-        Some(buf) if !is_jack => cpal::BufferSize::Fixed(buf),
-        Some(_) => {
-            eprintln!("Note: JACK controls buffer size, ignoring -b flag");
-            cpal::BufferSize::Default
+        let max_channels = max_output_channels(&device);
+        let output_channels = (args.channels as usize).min(max_channels as usize);
+        if args.channels as usize > output_channels {
+            eprintln!(
+                "Warning: device supports max {} channels, using that instead of {}",
+                max_channels, args.channels
+            );
         }
-        None => cpal::BufferSize::Default,
-    };
 
-    let config = cpal::StreamConfig {
-        channels: output_channels as u16,
-        sample_rate: default_config.sample_rate(),
-        buffer_size,
+        let default_config = device.default_output_config().unwrap();
+        let sample_rate = default_config.sample_rate() as f32;
+
+        let is_jack = doux::audio::is_jack_host();
+        let buffer_size = match args.buffer_size {
+            Some(buf) if !is_jack => cpal::BufferSize::Fixed(buf),
+            Some(_) => {
+                eprintln!("Note: JACK controls buffer size, ignoring -b flag");
+                cpal::BufferSize::Default
+            }
+            None => cpal::BufferSize::Default,
+        };
+
+        let config = cpal::StreamConfig {
+            channels: output_channels as u16,
+            sample_rate: default_config.sample_rate(),
+            buffer_size,
+        };
+
+        (output_channels, sample_rate, config)
     };
 
     println!("Audio host: {}", host.id().name());
-    println!(
-        "Output: {} @ {}Hz, {}ch",
-        device
-            .description()
-            .map(|d| d.name().to_string())
-            .unwrap_or_default(),
-        sample_rate as u32,
-        output_channels
-    );
     if let Some(buf) = args.buffer_size {
         let latency_ms = buf as f32 / sample_rate * 1000.0;
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
@@ -244,27 +239,68 @@ fn main() {
     }
 
     let engine = Arc::new(Mutex::new(engine));
+    let device_lost = Arc::new(AtomicBool::new(false));
 
-    // Ring buffer for live audio input
+    println!("Listening for OSC on port {}", args.port);
+    println!("Press Ctrl+C to stop");
+
+    loop {
+        let streams = build_streams(
+            &host,
+            &args,
+            &config,
+            output_channels,
+            sample_rate,
+            &engine,
+            &device_lost,
+        );
+
+        let lost = doux::osc::run_recoverable(
+            Arc::clone(&engine),
+            args.port,
+            &device_lost,
+        );
+
+        drop(streams);
+
+        if !lost {
+            break;
+        }
+
+        eprintln!("Audio device lost, attempting to reconnect...");
+        device_lost.store(false, Ordering::Release);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+struct Streams {
+    _output: cpal::Stream,
+    _input: Option<cpal::Stream>,
+}
+
+fn build_streams(
+    host: &cpal::Host,
+    args: &Args,
+    config: &cpal::StreamConfig,
+    output_channels: usize,
+    sample_rate: f32,
+    engine: &Arc<Mutex<Engine>>,
+    device_lost: &Arc<AtomicBool>,
+) -> Streams {
     let input_buffer: Arc<Mutex<VecDeque<f32>>> =
         Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
 
-    // Set up input stream if device available
     let input_device = match &args.input {
         Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
         None => doux::audio::default_input_device(),
     };
-    let _input_stream = input_device.and_then(|input_device| {
-        let input_config = input_device.default_input_config().ok()?;
-        println!(
-            "Input: {}",
-            input_device
-                .description()
-                .map(|d| d.name().to_string())
-                .unwrap_or_default()
-        );
+
+    let flag = Arc::clone(device_lost);
+    let input_stream = input_device.and_then(|input_dev| {
+        let input_config = input_dev.default_input_config().ok()?;
         let buf = Arc::clone(&input_buffer);
-        let stream = input_device
+        let flag = Arc::clone(&flag);
+        let stream = input_dev
             .build_input_stream(
                 &input_config.into(),
                 move |data: &[f32], _| {
@@ -276,7 +312,10 @@ fn main() {
                         }
                     }
                 },
-                |err| eprintln!("input stream error: {err}"),
+                move |err| {
+                    eprintln!("input stream error: {err}");
+                    flag.store(true, Ordering::Release);
+                },
                 None,
             )
             .ok()?;
@@ -284,14 +323,24 @@ fn main() {
         Some(stream)
     });
 
-    // Build output stream with audio callback
-    let engine_clone = Arc::clone(&engine);
+    let device = match &args.output {
+        Some(spec) => host
+            .output_devices()
+            .ok()
+            .and_then(|d| find_device(d, spec))
+            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
+        None => host.default_output_device().expect("no output device"),
+    };
+
+    let engine_clone = Arc::clone(engine);
     let input_buf_clone = Arc::clone(&input_buffer);
     let live_scratch: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(vec![0.0; 1024]));
     let live_scratch_clone = Arc::clone(&live_scratch);
-    let stream = device
+    let flag = Arc::clone(device_lost);
+
+    let output_stream = device
         .build_output_stream(
-            &config,
+            config,
             move |data: &mut [f32], _| {
                 let mut buf = input_buf_clone.lock().unwrap();
                 let mut scratch = live_scratch_clone.lock().unwrap();
@@ -307,15 +356,28 @@ fn main() {
                     .unwrap()
                     .process_block(data, &[], &scratch[..data.len()]);
             },
-            |err| eprintln!("stream error: {err}"),
+            move |err| {
+                eprintln!("stream error: {err}");
+                flag.store(true, Ordering::Release);
+            },
             None,
         )
         .unwrap();
 
-    stream.play().unwrap();
-    println!("Listening for OSC on port {}", args.port);
-    println!("Press Ctrl+C to stop");
+    output_stream.play().unwrap();
 
-    // Block on OSC server (runs until interrupted)
-    doux::osc::run(engine, args.port);
+    println!(
+        "Output: {} @ {}Hz, {}ch",
+        device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default(),
+        sample_rate as u32,
+        output_channels
+    );
+
+    Streams {
+        _output: output_stream,
+        _input: input_stream,
+    }
 }

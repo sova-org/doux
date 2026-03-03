@@ -37,6 +37,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host};
 use doux::audio::{get_host, list_hosts, print_diagnostics, HostSelection};
 use doux::Engine;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -293,62 +294,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let device = match &args.output {
-        Some(spec) => host
-            .output_devices()
-            .ok()
-            .and_then(|d| find_device(d, spec))
-            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
-        None => host.default_output_device().expect("no output device"),
-    };
+    let (output_channels, sample_rate, config) = {
+        let device = match &args.output {
+            Some(spec) => host
+                .output_devices()
+                .ok()
+                .and_then(|d| find_device(d, spec))
+                .unwrap_or_else(|| panic!("output device '{spec}' not found")),
+            None => host.default_output_device().expect("no output device"),
+        };
 
-    let max_channels = device
-        .supported_output_configs()
-        .map(|configs| configs.map(|c| c.channels()).max().unwrap_or(2))
-        .unwrap_or(2);
+        let max_channels = device
+            .supported_output_configs()
+            .map(|configs| configs.map(|c| c.channels()).max().unwrap_or(2))
+            .unwrap_or(2);
 
-    let output_channels = (args.channels as usize).min(max_channels as usize);
-    if args.channels as usize > output_channels {
-        eprintln!(
-            "Warning: device supports max {} channels, using that instead of {}",
-            max_channels, args.channels
-        );
-    }
-
-    let default_config = device.default_output_config()?;
-    let sample_rate = default_config.sample_rate() as f32;
-
-    let is_jack = doux::audio::is_jack_host();
-    let buffer_size = match args.buffer_size {
-        Some(buf) if !is_jack => cpal::BufferSize::Fixed(buf),
-        Some(_) => {
-            eprintln!("Note: JACK controls buffer size, ignoring -b flag");
-            cpal::BufferSize::Default
+        let output_channels = (args.channels as usize).min(max_channels as usize);
+        if args.channels as usize > output_channels {
+            eprintln!(
+                "Warning: device supports max {} channels, using that instead of {}",
+                max_channels, args.channels
+            );
         }
-        None => cpal::BufferSize::Default,
-    };
 
-    let config = cpal::StreamConfig {
-        channels: output_channels as u16,
-        sample_rate: default_config.sample_rate(),
-        buffer_size,
+        let default_config = device.default_output_config()?;
+        let sample_rate = default_config.sample_rate() as f32;
+
+        let is_jack = doux::audio::is_jack_host();
+        let buffer_size = match args.buffer_size {
+            Some(buf) if !is_jack => cpal::BufferSize::Fixed(buf),
+            Some(_) => {
+                eprintln!("Note: JACK controls buffer size, ignoring -b flag");
+                cpal::BufferSize::Default
+            }
+            None => cpal::BufferSize::Default,
+        };
+
+        let config = cpal::StreamConfig {
+            channels: output_channels as u16,
+            sample_rate: default_config.sample_rate(),
+            buffer_size,
+        };
+
+        (output_channels, sample_rate, config)
     };
 
     println!("doux-repl ({})", host.id().name());
-    print!(
-        "Output: {} @ {}Hz, {}ch",
-        device
-            .description()
-            .map(|d| d.name().to_string())
-            .unwrap_or_default(),
-        sample_rate as u32,
-        output_channels
-    );
     if let Some(buf) = args.buffer_size {
         let latency_ms = buf as f32 / sample_rate * 1000.0;
-        println!(", {buf} samples ({latency_ms:.1} ms)");
-    } else {
-        println!();
+        println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
     }
 
     let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
@@ -363,78 +357,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let engine = Arc::new(Mutex::new(engine));
-    let input_buffer: Arc<Mutex<VecDeque<f32>>> =
-        Arc::new(Mutex::new(VecDeque::with_capacity(INPUT_BUFFER_SIZE)));
-    let error_queue: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let device_lost = Arc::new(AtomicBool::new(false));
 
-    let input_device = match &args.input {
-        Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
-        None => doux::audio::default_input_device(),
-    };
-
-    let _input_stream = input_device.and_then(|input_device| {
-        let input_config = input_device.default_input_config().ok()?;
-        println!(
-            "Input: {}",
-            input_device
-                .description()
-                .map(|d| d.name().to_string())
-                .unwrap_or_default()
-        );
-        let buf = Arc::clone(&input_buffer);
-        let stream = input_device
-            .build_input_stream(
-                &input_config.into(),
-                move |data: &[f32], _| {
-                    let mut b = buf.lock().unwrap();
-                    b.extend(data.iter().copied());
-                    let excess = b.len().saturating_sub(INPUT_BUFFER_SIZE);
-                    if excess > 0 {
-                        drop(b.drain(..excess));
-                    }
-                },
-                {
-                    let eq = Arc::clone(&error_queue);
-                    move |err| { eq.lock().unwrap().push(format!("input error: {err}")); }
-                },
-                None,
-            )
-            .ok()?;
-        stream.play().ok()?;
-        Some(stream)
-    });
-
-    let engine_clone = Arc::clone(&engine);
-    let input_buf_clone = Arc::clone(&input_buffer);
-    let sr = sample_rate;
-    let ch = output_channels;
-
-    let mut scratch = vec![0.0f32; 4096];
-    let stream = device.build_output_stream(
-        &config,
-        move |data: &mut [f32], _| {
-            scratch.resize(data.len(), 0.0);
-            scratch[..data.len()].fill(0.0);
-            {
-                let mut buf = input_buf_clone.lock().unwrap();
-                let available = buf.len().min(data.len());
-                for (i, sample) in buf.drain(..available).enumerate() {
-                    scratch[i] = sample;
-                }
-            }
-            let mut engine = engine_clone.lock().unwrap();
-            let buffer_samples = data.len() / ch;
-            let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
-            engine.metrics.load.set_buffer_time(buffer_time_ns);
-            engine.process_block(data, &[], &scratch);
-        },
-        {
-            let eq = Arc::clone(&error_queue);
-            move |err| { eq.lock().unwrap().push(format!("stream error: {err}")); }
-        },
-        None,
-    )?;
-    stream.play()?;
+    let (mut input_stream, mut output_stream): (Option<cpal::Stream>, Option<cpal::Stream>) =
+        build_repl_streams(
+            &host, &args, &config, output_channels, sample_rate, &engine, &device_lost,
+        )?;
 
     let mut rl = rustyline::Editor::new()?;
     rl.set_helper(Some(DouxHighlighter));
@@ -446,8 +374,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Type .help for commands");
 
     loop {
-        for err in error_queue.lock().unwrap().drain(..) {
-            eprintln!("{RED}[error]{RESET} {err}");
+        if device_lost.load(Ordering::Acquire) {
+            eprintln!("{RED}[error]{RESET} Audio device lost, reconnecting...");
+            device_lost.store(false, Ordering::Release);
+            drop(output_stream.take());
+            drop(input_stream.take());
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            match build_repl_streams(
+                &host, &args, &config, output_channels, sample_rate, &engine, &device_lost,
+            ) {
+                Ok((inp, out)) => {
+                    input_stream = inp;
+                    output_stream = out;
+                    eprintln!("Audio device reconnected");
+                }
+                Err(e) => {
+                    eprintln!("{RED}[error]{RESET} Reconnection failed: {e}");
+                }
+            }
         }
         match rl.readline("doux> ") {
             Ok(line) => {
@@ -504,4 +448,110 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = rl.save_history(&history_path);
     Ok(())
+}
+
+fn build_repl_streams(
+    host: &Host,
+    args: &Args,
+    config: &cpal::StreamConfig,
+    output_channels: usize,
+    sample_rate: f32,
+    engine: &Arc<Mutex<Engine>>,
+    device_lost: &Arc<AtomicBool>,
+) -> Result<(Option<cpal::Stream>, Option<cpal::Stream>), Box<dyn std::error::Error>> {
+    let input_buffer: Arc<Mutex<VecDeque<f32>>> =
+        Arc::new(Mutex::new(VecDeque::with_capacity(INPUT_BUFFER_SIZE)));
+
+    let input_device = match &args.input {
+        Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
+        None => doux::audio::default_input_device(),
+    };
+
+    let flag = Arc::clone(device_lost);
+    let input_stream = input_device.and_then(|input_dev| {
+        let input_config = input_dev.default_input_config().ok()?;
+        println!(
+            "Input: {}",
+            input_dev
+                .description()
+                .map(|d| d.name().to_string())
+                .unwrap_or_default()
+        );
+        let buf = Arc::clone(&input_buffer);
+        let flag = Arc::clone(&flag);
+        let stream = input_dev
+            .build_input_stream(
+                &input_config.into(),
+                move |data: &[f32], _| {
+                    let mut b = buf.lock().unwrap();
+                    b.extend(data.iter().copied());
+                    let excess = b.len().saturating_sub(INPUT_BUFFER_SIZE);
+                    if excess > 0 {
+                        drop(b.drain(..excess));
+                    }
+                },
+                move |err| {
+                    eprintln!("input stream error: {err}");
+                    flag.store(true, Ordering::Release);
+                },
+                None,
+            )
+            .ok()?;
+        stream.play().ok()?;
+        Some(stream)
+    });
+
+    let device = match &args.output {
+        Some(spec) => host
+            .output_devices()
+            .ok()
+            .and_then(|d| find_device(d, spec))
+            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
+        None => host.default_output_device().expect("no output device"),
+    };
+
+    let engine_clone = Arc::clone(engine);
+    let input_buf_clone = Arc::clone(&input_buffer);
+    let sr = sample_rate;
+    let ch = output_channels;
+    let flag = Arc::clone(device_lost);
+
+    let mut scratch = vec![0.0f32; 4096];
+    let output_stream = device.build_output_stream(
+        config,
+        move |data: &mut [f32], _| {
+            scratch.resize(data.len(), 0.0);
+            scratch[..data.len()].fill(0.0);
+            {
+                let mut buf = input_buf_clone.lock().unwrap();
+                let available = buf.len().min(data.len());
+                for (i, sample) in buf.drain(..available).enumerate() {
+                    scratch[i] = sample;
+                }
+            }
+            let mut engine = engine_clone.lock().unwrap();
+            let buffer_samples = data.len() / ch;
+            let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
+            engine.metrics.load.set_buffer_time(buffer_time_ns);
+            engine.process_block(data, &[], &scratch);
+        },
+        move |err| {
+            eprintln!("stream error: {err}");
+            flag.store(true, Ordering::Release);
+        },
+        None,
+    )?;
+    output_stream.play()?;
+
+    println!(
+        "Output: {} @ {}Hz, {}ch",
+        device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default(),
+        sr as u32,
+        ch,
+    );
+
+    Ok((input_stream, Some(output_stream)))
 }

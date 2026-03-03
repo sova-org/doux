@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -67,6 +68,7 @@ pub struct DouxManager {
     input_stream: Option<Stream>,
     receiver_handle: Option<JoinHandle<()>>,
     scope: Option<Arc<ScopeCapture>>,
+    device_lost: Arc<AtomicBool>,
 }
 
 fn resolve_output_device(config: &DouxConfig) -> Result<Device, DouxError> {
@@ -113,6 +115,7 @@ impl DouxManager {
             input_stream: None,
             receiver_handle: None,
             scope: None,
+            device_lost: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -126,6 +129,17 @@ impl DouxManager {
         let (tx, rx) = crossbeam_channel::unbounded();
         let proxy = AudioEngineProxy::new(tx);
 
+        self.build_streams()?;
+
+        let time_converter = TimeConverter::new(initial_sync_time);
+        let receiver = SovaReceiver::new(Arc::clone(&self.engine), rx, time_converter);
+        let handle = std::thread::spawn(move || receiver.run());
+        self.receiver_handle = Some(handle);
+
+        Ok(proxy)
+    }
+
+    fn build_streams(&mut self) -> Result<(), DouxError> {
         let output_device = resolve_output_device(&self.config)?;
         let (device_config, _) = get_device_config(&output_device)?;
 
@@ -147,9 +161,11 @@ impl DouxManager {
             None => default_input_device(),
         };
 
+        let flag = Arc::clone(&self.device_lost);
         self.input_stream = input_device.and_then(|input_dev| {
             let input_config = input_dev.default_input_config().ok()?;
             let buf = Arc::clone(&input_buffer);
+            let flag = Arc::clone(&flag);
             let stream = input_dev
                 .build_input_stream(
                     &input_config.into(),
@@ -162,7 +178,10 @@ impl DouxManager {
                             }
                         }
                     },
-                    |err| eprintln!("input stream error: {err}"),
+                    move |err| {
+                        eprintln!("input stream error: {err}");
+                        flag.store(true, Ordering::Release);
+                    },
                     None,
                 )
                 .ok()?;
@@ -179,6 +198,7 @@ impl DouxManager {
         let live_scratch_clone = Arc::clone(&live_scratch);
         let sample_rate = self.sample_rate;
         let output_channels = self.actual_channels;
+        let flag = Arc::clone(&self.device_lost);
 
         let output_stream = output_device
             .build_output_stream(
@@ -206,7 +226,10 @@ impl DouxManager {
                         }
                     }
                 },
-                |err| eprintln!("output stream error: {err}"),
+                move |err| {
+                    eprintln!("output stream error: {err}");
+                    flag.store(true, Ordering::Release);
+                },
                 None,
             )
             .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
@@ -218,12 +241,39 @@ impl DouxManager {
         self.output_stream = Some(output_stream);
         self.scope = Some(scope);
 
-        let time_converter = TimeConverter::new(initial_sync_time);
-        let receiver = SovaReceiver::new(Arc::clone(&self.engine), rx, time_converter);
-        let handle = std::thread::spawn(move || receiver.run());
-        self.receiver_handle = Some(handle);
+        Ok(())
+    }
 
-        Ok(proxy)
+    pub fn needs_reconnect(&self) -> bool {
+        self.device_lost.load(Ordering::Acquire)
+    }
+
+    pub fn device_lost_flag(&self) -> &Arc<AtomicBool> {
+        &self.device_lost
+    }
+
+    pub fn reconnect_streams(&mut self) -> Result<(), DouxError> {
+        self.device_lost.store(false, Ordering::Release);
+        self.output_stream = None;
+        self.input_stream = None;
+        self.scope = None;
+
+        let output_device = resolve_output_device(&self.config)?;
+        let (_, sample_rate) = get_device_config(&output_device)?;
+        let actual_channels = compute_channels(&output_device, self.config.channels);
+
+        if (sample_rate - self.sample_rate).abs() > f32::EPSILON
+            || actual_channels != self.actual_channels
+        {
+            self.sample_rate = sample_rate;
+            self.actual_channels = actual_channels;
+            if let Ok(mut engine) = self.engine.lock() {
+                engine.sr = sample_rate;
+                engine.isr = 1.0 / sample_rate;
+            }
+        }
+
+        self.build_streams()
     }
 
     pub fn stop(&mut self) {
@@ -242,6 +292,7 @@ impl DouxManager {
         initial_sync_time: SyncTime,
     ) -> Result<AudioEngineProxy, DouxError> {
         self.stop();
+        self.device_lost.store(false, Ordering::Release);
 
         let output_device = resolve_output_device(&config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
@@ -275,7 +326,7 @@ impl DouxManager {
     }
 
     pub fn is_running(&self) -> bool {
-        self.output_stream.is_some()
+        self.output_stream.is_some() && !self.needs_reconnect()
     }
 
     pub fn state(&self) -> AudioEngineState {
@@ -307,7 +358,11 @@ impl DouxManager {
             buffer_size: self.config.buffer_size,
             active_voices,
             sample_paths: self.config.sample_paths.clone(),
-            error: None,
+            error: if self.needs_reconnect() {
+                Some("Audio device disconnected".to_string())
+            } else {
+                None
+            },
             cpu_load,
             peak_voices,
             max_voices: self.config.max_voices,
@@ -349,6 +404,23 @@ impl DouxManager {
     pub fn panic(&self) {
         if let Ok(mut engine) = self.engine.lock() {
             engine.panic();
+        }
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn load_soundfont_from_paths(&self, sample_paths: &[PathBuf]) {
+        for path in sample_paths {
+            if let Some(sf2_path) = doux::soundfont::find_sf2_file(path) {
+                if let Ok(mut engine) = self.engine.lock() {
+                    match engine.load_soundfont(&sf2_path) {
+                        Ok(()) => {
+                            println!("Loaded soundfont: {}", sf2_path.display());
+                            return;
+                        }
+                        Err(e) => eprintln!("Failed to load soundfont {}: {e}", sf2_path.display()),
+                    }
+                }
+            }
         }
     }
 

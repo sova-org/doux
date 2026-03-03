@@ -278,7 +278,13 @@ impl Event {
                 "reset" => event.reset = Some(val == "1" || val == "true"),
                 "orbit" => event.orbit = val.parse::<f32>().ok().map(|f| f as usize),
                 "freq" => parse_param!(val, freq, ParamId::Freq),
-                "note" => event.freq = val.parse().ok().map(midi2freq),
+                "note" => {
+                    if let Some(chain) = ModChain::parse(val).map(|c| c.map_values(midi2freq)) {
+                        event.mods.push((ParamId::Freq, chain));
+                    } else {
+                        event.freq = val.parse().ok().map(midi2freq);
+                    }
+                },
                 "detune" => parse_param!(val, detune, ParamId::Detune),
                 "speed" => parse_param!(val, speed, ParamId::Speed),
                 "fit" => event.fit = val.parse().ok(),

@@ -3,6 +3,29 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.6] - 2026-03-03
+
+### Added
+
+- **Sample slicing** — `slice` and `pick` parameters for dividing samples into equal segments with wrap-around and negative indexing
+- **Sample crossfading** — fractional `n` values blend between adjacent samples (e.g. `n/1.5` crossfades between sample 1 and 2)
+- **Modulation on `note` parameter** — `note` now supports mod chains (transitions, oscillation) mapped through `midi2freq`
+- **ModChain `map_values`** — transforms modulation target values through an arbitrary function
+- **Auto-recovery from audio device disconnection** — `DouxManager` detects stream errors via `device_lost` flag, exposes `needs_reconnect()` and `reconnect_streams()` for consumers to handle reconnection
+- **`osc::run_recoverable`** — OSC server variant that returns on device loss instead of blocking forever, enabling reconnection loops
+- **doux-sova soundfont feature** — `doux-sova` now exposes an optional `soundfont` feature flag, re-exports `doux::soundfont`
+- **`doux-sova` `load_soundfont_from_paths`** — convenience method to scan paths and load the first valid SF2 file
+
+### Changed
+
+- **JACK is now Linux-only** — `cpal` JACK feature is only enabled on `cfg(target_os = "linux")` instead of all platforms, fixing build issues on macOS and Windows
+- **CLI binaries refactored for reconnection** — `doux-repl` and `doux-server` extract stream building into restartable functions (`build_repl_streams`, `build_streams`), enabling device hot-swap
+- **`doux-sova` uses git dependency** — `sova_core` switched from local path to `git+https://github.com/sova-org/sova`
+- **`DouxManager::start` refactored** — stream creation extracted into `build_streams()` method, reused by `reconnect_streams()`
+- **`DouxManager::is_running` checks device state** — returns false when `device_lost` flag is set
+- **`DouxManager::state()` reports device errors** — populates `error` field with "Audio device disconnected" when flag is set
+- **`Event::resolve_range` replaces inline begin/end logic** — single method used by all sample sources (registry, file, web)
+
 ## [0.0.5] - 2026-02-27
 
 ### Changed

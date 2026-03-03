@@ -411,6 +411,7 @@ dependencies = [
 [[package]]
 name = "core"
 version = "0.1.0"
+source = "git+https://github.com/sova-org/sova#8e463cccb6dc156bc435562875a7a48afe058318"
 dependencies = [
  "audio_thread_priority",
  "clap",
