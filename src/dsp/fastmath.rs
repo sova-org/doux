@@ -228,6 +228,31 @@ pub fn fast_tanh_f32(x: f32) -> f32 {
     x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
+/// Fast atan2 approximation.
+///
+/// Uses octant reduction with a linear-corrected polynomial:
+/// `atan(a) ≈ a * (π/4 + 0.273·(1-a))` for `0 ≤ a ≤ 1`.
+/// Max error < 0.005 rad.
+#[inline]
+pub fn atan2f(y: f32, x: f32) -> f32 {
+    use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
+
+    let ax = x.abs();
+    let ay = y.abs();
+    let (min, max) = if ax < ay { (ax, ay) } else { (ay, ax) };
+
+    if max == 0.0 {
+        return 0.0;
+    }
+
+    let a = min / max;
+    let r = a * (FRAC_PI_4 + 0.273 * (1.0 - a));
+
+    let r = if ax < ay { FRAC_PI_2 - r } else { r };
+    let r = if x < 0.0 { PI - r } else { r };
+    if y < 0.0 { -r } else { r }
+}
+
 /// Fast tangent approximation via `sinf(x) / cosf(x)`.
 #[inline]
 pub fn fast_tan(x: f32) -> f32 {

@@ -589,6 +589,9 @@ impl Engine {
 
         // --- Pitch ---
         copy_opt!(event, v.params, freq, detune, speed);
+        if let Some(stretch) = event.stretch {
+            v.params.stretch = stretch.max(0.0);
+        }
         copy_opt_some!(event, v.params, glide);
 
         // --- Source ---

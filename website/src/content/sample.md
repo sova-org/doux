@@ -49,3 +49,18 @@ Choke group. Voices with the same cut value silence each other. Use for hi-hats 
 <CodeEditor code={`/s/crate_hh/n/0/cut/1\n\n/s/crate_hh/n/1/cut/1/time/.25`} rows={4} />
 
 </CommandEntry>
+
+<CommandEntry name="stretch" type="number" min={0} default={1} mod>
+
+Time stretch factor. Controls playback duration independently from pitch.
+1 = normal speed, 2 = twice as long (same pitch), 0.5 = half as long (same pitch), 0 = freeze.
+
+<CodeEditor code={`/s/crate_rd/n/0/stretch/2`} rows={2} />
+
+<CodeEditor code={`/s/crate_rd/n/0/stretch/0.5`} rows={2} />
+
+<CodeEditor code={`/s/crate_rd/n/0/stretch/0`} rows={2} />
+
+<CodeEditor code={`/s/crate_rd/n/0/stretch/0.5~2:4`} rows={2} />
+
+</CommandEntry>

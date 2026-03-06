@@ -26,6 +26,9 @@ pub struct Event {
     pub speed: Option<f32>,
     pub glide: Option<f32>,
 
+    // Time stretch
+    pub stretch: Option<f32>,
+
     // Fit sample playback into a target duration (seconds)
     pub fit: Option<f32>,
 
@@ -294,6 +297,7 @@ impl Event {
                 },
                 "detune" => parse_param!(val, detune, ParamId::Detune),
                 "speed" => parse_param!(val, speed, ParamId::Speed),
+                "stretch" => parse_param!(val, stretch, ParamId::Stretch),
                 "fit" => event.fit = val.parse().ok(),
                 "glide" => event.glide = val.parse().ok(),
                 "sound" | "s" => event.sound = Some(val.to_string()),

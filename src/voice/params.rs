@@ -30,6 +30,8 @@ pub struct VoiceParams {
     pub detune: f32,
     /// Playback speed multiplier (also affects pitch for samples).
     pub speed: f32,
+    /// Time stretch factor (duration multiplier). 1.0 = normal, 2.0 = twice as long, 0 = freeze.
+    pub stretch: f32,
     /// Pre-filter gain (0.0 to 1.0+).
     pub gain: f32,
     /// MIDI velocity (0.0 to 1.0), multiplied with gain.
@@ -400,6 +402,7 @@ impl Default for VoiceParams {
             freq: 330.0,
             detune: 0.0,
             speed: 1.0,
+            stretch: 1.0,
             gain: 1.0,
             velocity: 1.0,
             postgain: 1.0,

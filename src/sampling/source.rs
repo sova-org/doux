@@ -72,6 +72,24 @@ impl RegistrySample {
     pub fn is_done(&self) -> bool {
         self.cursor.is_done()
     }
+
+    /// Returns the cursor start position as f64 for stretch state.
+    #[inline]
+    pub fn cursor_start(&self) -> f64 {
+        self.cursor.start_pos() as f64
+    }
+
+    /// Returns the cursor end position as f64 for stretch state.
+    #[inline]
+    pub fn cursor_end(&self) -> f64 {
+        self.cursor.end_pos() as f64
+    }
+
+    /// Returns true if the cursor has active loop points.
+    #[inline]
+    pub fn is_looping(&self) -> bool {
+        self.cursor.is_looping()
+    }
 }
 
 impl Clone for RegistrySample {

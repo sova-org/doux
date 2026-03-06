@@ -109,6 +109,46 @@ impl Voice {
                 self.ch[1] = 0.0;
             }
             Source::Sample => {
+                let stretch = self.params.stretch;
+                if stretch != 1.0 {
+                    let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
+                    match (&self.registry_sample, &self.registry_sample_b) {
+                        (Some(a), Some(b)) if self.sample_blend > 0.0 => {
+                            if self.stretch.needs_init() {
+                                self.stretch.reset(a.cursor_start(), a.cursor_end(), a.is_looping());
+                            }
+                            if self.stretch.is_done() { self.params.gate = 0.0; }
+                            self.stretch.ensure_available(&a.data, stretch);
+                            let blend = self.sample_blend;
+                            for c in 0..CHANNELS {
+                                let sa = self.stretch.read(c);
+                                // Sample B reads from a fixed position (start of region)
+                                let sb = b.data.read_interpolated(
+                                    a.cursor_start() as f32, c,
+                                );
+                                self.ch[c] = (sa + blend * (sb - sa)) * 0.7;
+                            }
+                            self.stretch.advance(pitch_ratio);
+                        }
+                        (Some(rs), _) => {
+                            if self.stretch.needs_init() {
+                                self.stretch.reset(rs.cursor_start(), rs.cursor_end(), rs.is_looping());
+                            }
+                            if self.stretch.is_done() { self.params.gate = 0.0; }
+                            self.stretch.ensure_available(&rs.data, stretch);
+                            for c in 0..CHANNELS {
+                                self.ch[c] = self.stretch.read(c) * 0.7;
+                            }
+                            self.stretch.advance(pitch_ratio);
+                        }
+                        _ => {
+                            self.ch[0] = 0.0;
+                            self.ch[1] = 0.0;
+                        }
+                    }
+                    self.nch = CHANNELS;
+                    return true;
+                }
                 let speed = freq * INV_MIDDLE_C;
                 let blend = self.sample_blend;
                 match (&mut self.registry_sample, &mut self.registry_sample_b) {

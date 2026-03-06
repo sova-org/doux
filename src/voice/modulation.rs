@@ -181,6 +181,7 @@ pub enum ParamId {
     Postgain,
     Pan,
     Speed,
+    Stretch,
     Detune,
     Pw,
     Wave,

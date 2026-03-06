@@ -4,6 +4,8 @@ mod cursor;
 #[cfg(feature = "native")]
 mod decode;
 #[cfg(feature = "native")]
+pub mod stretch;
+#[cfg(feature = "native")]
 mod loader;
 #[cfg(feature = "native")]
 mod registry;
@@ -27,3 +29,5 @@ pub use loader::SampleLoader;
 pub use registry::{SampleData, SampleRegistry};
 #[cfg(feature = "native")]
 pub use source::RegistrySample;
+#[cfg(feature = "native")]
+pub use stretch::StretchState;

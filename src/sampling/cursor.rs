@@ -171,6 +171,24 @@ impl Cursor {
     pub fn length(&self) -> f32 {
         self.length
     }
+
+    /// Returns the absolute start position in frames.
+    #[inline]
+    pub fn start_pos(&self) -> f32 {
+        self.start_pos
+    }
+
+    /// Returns the absolute end position in frames.
+    #[inline]
+    pub fn end_pos(&self) -> f32 {
+        self.start_pos + self.length
+    }
+
+    /// Returns true if loop points are active.
+    #[inline]
+    pub fn is_looping(&self) -> bool {
+        self.loop_end > 0.0
+    }
 }
 
 #[cfg(test)]

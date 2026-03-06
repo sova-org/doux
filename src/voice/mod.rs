@@ -11,6 +11,8 @@ pub use params::VoiceParams;
 use std::f32::consts::PI;
 
 use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, Phasor, PinkNoise, SvfMode, SvfState};
+#[cfg(feature = "native")]
+use crate::sampling::StretchState;
 use crate::effects::{
     crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter,
     LadderMode, Lag, Phaser, Smear, Tilt,
@@ -61,6 +63,8 @@ pub struct Voice {
     #[cfg(feature = "native")]
     pub registry_sample_b: Option<RegistrySample>,
     pub sample_blend: f32,
+    #[cfg(feature = "native")]
+    pub stretch: StretchState,
     // Sample playback (web)
     pub web_sample: Option<WebSampleSource>,
     // Effects
@@ -138,6 +142,8 @@ impl Default for Voice {
             #[cfg(feature = "native")]
             registry_sample_b: None,
             sample_blend: 0.0,
+            #[cfg(feature = "native")]
+            stretch: StretchState::default(),
             web_sample: None,
             phaser: [Phaser::default(); CHANNELS],
             flanger: [Flanger::default(); CHANNELS],
@@ -203,6 +209,8 @@ impl Clone for Voice {
             #[cfg(feature = "native")]
             registry_sample_b: self.registry_sample_b.clone(),
             sample_blend: self.sample_blend,
+            #[cfg(feature = "native")]
+            stretch: self.stretch,
             web_sample: self.web_sample,
             phaser: self.phaser,
             flanger: self.flanger,
@@ -277,6 +285,7 @@ impl Voice {
             ParamId::Postgain => self.params.postgain = val,
             ParamId::Pan => self.params.pan = val,
             ParamId::Speed => self.params.speed = val,
+            ParamId::Stretch => self.params.stretch = val,
             ParamId::Detune => self.params.detune = val,
             ParamId::Pw => self.params.pw = val,
             ParamId::Wave => self.params.wave = val,
