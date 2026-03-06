@@ -398,7 +398,8 @@ impl Engine {
 
     fn play_event(&mut self, mut event: Event) -> Option<usize> {
         if let Some(delta) = event.delta {
-            event.tick = Some(event.tick.unwrap_or(self.tick) + delta);
+            let base = event.tick.unwrap_or(self.tick) as i64;
+            event.tick = Some((base + delta).max(0) as u64);
             event.delta = None;
         }
         if event.tick.is_some() {

@@ -7,7 +7,7 @@ pub struct Event {
 
     // Timing (sample-accurate)
     pub tick: Option<u64>,
-    pub delta: Option<u64>,
+    pub delta: Option<i64>,
     pub repeat: Option<u64>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
