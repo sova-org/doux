@@ -1,15 +1,15 @@
-//! Time-based event scheduling with sorted storage.
+//! Tick-based event scheduling with sorted storage.
 //!
-//! Manages a queue of [`Event`]s that should fire at specific times.
-//! Events are kept sorted by time for O(1) early-exit when no events are ready.
+//! Manages a queue of [`Event`]s that should fire at specific sample ticks.
+//! Events are kept sorted by tick for O(1) early-exit when no events are ready.
 //!
 //! # Event Lifecycle
 //!
-//! 1. Event with `time` field is parsed → inserted in sorted order
+//! 1. Event with `tick` field is parsed → inserted in sorted order
 //! 2. Engine calls `process_schedule()` each sample
-//! 3. When `event.time <= engine.time`:
+//! 3. When `event.tick <= engine.tick`:
 //!    - Event fires (triggers voice/sound)
-//!    - If `repeat` is set, event is re-inserted with new time
+//!    - If `repeat` is set, event is re-inserted with new tick
 //!    - Otherwise, event is removed
 //!
 //! # Complexity
@@ -28,10 +28,10 @@ use std::collections::VecDeque;
 use crate::event::Event;
 use crate::types::MAX_EVENTS;
 
-/// Queue of time-scheduled events, sorted by time ascending.
+/// Queue of tick-scheduled events, sorted by tick ascending.
 ///
-/// Invariant: `events[i].time <= events[i+1].time` for all valid indices.
-/// This enables O(1) early-exit: if `events[0].time > now`, no events are ready.
+/// Invariant: `events[i].tick <= events[i+1].tick` for all valid indices.
+/// This enables O(1) early-exit: if `events[0].tick > now`, no events are ready.
 pub struct Schedule {
     events: VecDeque<Event>,
 }
@@ -52,18 +52,18 @@ impl Schedule {
         if self.events.len() >= MAX_EVENTS {
             return;
         }
-        let time = event.time.unwrap_or(f64::MAX);
+        let tick = event.tick.unwrap_or(u64::MAX);
         let pos = self
             .events
             .make_contiguous()
-            .partition_point(|e| e.time.unwrap_or(f64::MAX) < time);
+            .partition_point(|e| e.tick.unwrap_or(u64::MAX) < tick);
         self.events.insert(pos, event);
     }
 
-    /// Returns the time of the earliest event, if any.
+    /// Returns the tick of the earliest event, if any.
     #[inline]
-    pub fn peek_time(&self) -> Option<f64> {
-        self.events.front().and_then(|e| e.time)
+    pub fn peek_tick(&self) -> Option<u64> {
+        self.events.front().and_then(|e| e.tick)
     }
 
     /// Removes and returns the earliest event.

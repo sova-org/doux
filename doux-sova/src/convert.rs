@@ -5,13 +5,14 @@ use crate::time::TimeConverter;
 pub fn payload_to_command(
     payload: AudioEnginePayload,
     time_converter: &TimeConverter,
+    sr: f64,
 ) -> String {
     use std::fmt::Write;
     let mut cmd = String::with_capacity(payload.args.len() * 16 + 32);
 
     if let Some(tt) = payload.timetag {
-        let engine_time = time_converter.sync_to_engine_time(tt);
-        write!(cmd, "/time/{engine_time}").unwrap();
+        let tick = time_converter.sync_to_engine_tick(tt, sr);
+        write!(cmd, "/tick/{tick}").unwrap();
     }
 
     for (key, value) in payload.args {

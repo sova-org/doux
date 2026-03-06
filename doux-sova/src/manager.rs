@@ -132,7 +132,7 @@ impl DouxManager {
         self.build_streams()?;
 
         let time_converter = TimeConverter::new(initial_sync_time);
-        let receiver = SovaReceiver::new(Arc::clone(&self.engine), rx, time_converter);
+        let receiver = SovaReceiver::new(Arc::clone(&self.engine), rx, time_converter, self.sample_rate as f64);
         let handle = std::thread::spawn(move || receiver.run());
         self.receiver_handle = Some(handle);
 

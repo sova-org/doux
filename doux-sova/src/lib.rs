@@ -31,8 +31,9 @@ pub fn create_integration(
     engine: Arc<Mutex<Engine>>,
     rx: Receiver<AudioEnginePayload>,
     initial_sync_time: SyncTime,
+    sr: f64,
 ) -> JoinHandle<()> {
     let time_converter = TimeConverter::new(initial_sync_time);
-    let receiver = SovaReceiver::new(engine, rx, time_converter);
+    let receiver = SovaReceiver::new(engine, rx, time_converter, sr);
     thread::spawn(move || receiver.run())
 }

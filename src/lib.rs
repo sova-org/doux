@@ -340,7 +340,7 @@ impl Engine {
     }
 
     pub fn evaluate(&mut self, input: &str) -> Option<usize> {
-        let event = Event::parse(input);
+        let event = Event::parse(input, self.sr);
 
         // Default to "play" if no explicit command - matches dough's JS wrapper behavior
         let cmd = event.cmd.as_deref().unwrap_or("play");
@@ -398,12 +398,10 @@ impl Engine {
 
     fn play_event(&mut self, mut event: Event) -> Option<usize> {
         if let Some(delta) = event.delta {
-            event.time = Some(event.time.unwrap_or(self.time) + delta);
+            event.tick = Some(event.tick.unwrap_or(self.tick) + delta);
             event.delta = None;
         }
-        if event.time.is_some() {
-            // ALL events with time go to schedule (like dough.c)
-            // This ensures repeat works correctly for time=0 events
+        if event.tick.is_some() {
             self.schedule.push(event);
             return None;
         }
@@ -904,26 +902,24 @@ impl Engine {
     }
 
     fn process_schedule(&mut self) {
+        let tolerance = (0.02 * self.sr as f64) as u64;
         loop {
-            // O(1) early-exit: check only the first (earliest) event
-            let t = match self.schedule.peek_time() {
-                Some(t) if t <= self.time => t,
+            let t = match self.schedule.peek_tick() {
+                Some(t) if t <= self.tick => t,
                 _ => return,
             };
 
-            let diff = self.time - t;
+            let diff = self.tick - t;
             let mut event = self.schedule.pop_front().unwrap();
 
-            if diff < 0.02 {
+            if diff < tolerance {
                 self.process_event(&event);
             }
 
-            // Reschedule repeating events (re-insert in sorted order)
             if let Some(rep) = event.repeat {
-                event.time = Some(t + rep as f64);
+                event.tick = Some(t + rep);
                 self.schedule.push(event);
             }
-            // Loop continues for catch-up behavior
         }
     }
 
@@ -1199,6 +1195,10 @@ impl Engine {
 
     pub fn get_time(&self) -> f64 {
         self.time
+    }
+
+    pub fn get_tick(&self) -> u64 {
+        self.tick
     }
 
     pub fn hush(&mut self) {

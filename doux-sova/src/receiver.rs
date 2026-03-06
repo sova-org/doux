@@ -11,6 +11,7 @@ pub struct SovaReceiver {
     engine: Arc<Mutex<Engine>>,
     rx: Receiver<AudioEnginePayload>,
     time_converter: TimeConverter,
+    sr: f64,
 }
 
 impl SovaReceiver {
@@ -18,17 +19,19 @@ impl SovaReceiver {
         engine: Arc<Mutex<Engine>>,
         rx: Receiver<AudioEnginePayload>,
         time_converter: TimeConverter,
+        sr: f64,
     ) -> Self {
         Self {
             engine,
             rx,
             time_converter,
+            sr,
         }
     }
 
     pub fn run(self) {
         while let Ok(payload) = self.rx.recv() {
-            let cmd = payload_to_command(payload, &self.time_converter);
+            let cmd = payload_to_command(payload, &self.time_converter, self.sr);
             if let Ok(mut engine) = self.engine.lock() {
                 engine.evaluate(&cmd);
             }

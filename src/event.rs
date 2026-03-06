@@ -5,10 +5,10 @@ use crate::voice::{ModChain, ParamId};
 pub struct Event {
     pub cmd: Option<String>,
 
-    // Timing
-    pub time: Option<f64>,
-    pub delta: Option<f64>,
-    pub repeat: Option<f32>,
+    // Timing (sample-accurate)
+    pub tick: Option<u64>,
+    pub delta: Option<u64>,
+    pub repeat: Option<u64>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
 
@@ -252,7 +252,7 @@ impl Event {
         }
     }
 
-    pub fn parse(input: &str) -> Self {
+    pub fn parse(input: &str, sr: f32) -> Self {
         let mut event = Self::default();
         let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
 
@@ -269,7 +269,14 @@ impl Event {
         while let (Some(key), Some(val)) = (iter.next(), iter.next()) {
             match key {
                 "doux" | "dirt" => event.cmd = Some(val.to_string()),
-                "time" | "t" => event.time = val.parse().ok(),
+                "tick" => event.tick = val.parse().ok(),
+                "time" | "t" => {
+                    // Legacy: convert seconds to ticks
+                    event.tick = val
+                        .parse::<f64>()
+                        .ok()
+                        .map(|t| (t * sr as f64).round() as u64);
+                }
                 "delta" => event.delta = val.parse().ok(),
                 "repeat" | "rep" => event.repeat = val.parse().ok(),
                 "duration" | "dur" | "d" => event.duration = val.parse().ok(),
@@ -446,9 +453,11 @@ impl Event {
 mod tests {
     use super::*;
 
+    const SR: f32 = 48000.0;
+
     #[test]
     fn slice_pick_basic() {
-        let e = Event::parse("slice/8/pick/3");
+        let e = Event::parse("slice/8/pick/3", SR);
         let (b, end) = e.resolve_range();
         assert!((b - 0.375).abs() < 1e-6);
         assert!((end - 0.5).abs() < 1e-6);
@@ -456,7 +465,7 @@ mod tests {
 
     #[test]
     fn slice_defaults_pick_zero() {
-        let e = Event::parse("slice/4");
+        let e = Event::parse("slice/4", SR);
         let (b, end) = e.resolve_range();
         assert!((b - 0.0).abs() < 1e-6);
         assert!((end - 0.25).abs() < 1e-6);
@@ -464,13 +473,13 @@ mod tests {
 
     #[test]
     fn pick_without_slice_full_range() {
-        let e = Event::parse("pick/3");
+        let e = Event::parse("pick/3", SR);
         assert_eq!(e.resolve_range(), (0.0, 1.0));
     }
 
     #[test]
     fn slice_pick_wraps() {
-        let e = Event::parse("slice/8/pick/10");
+        let e = Event::parse("slice/8/pick/10", SR);
         let (b, end) = e.resolve_range();
         // 10 % 8 = 2
         assert!((b - 0.25).abs() < 1e-6);
@@ -479,7 +488,7 @@ mod tests {
 
     #[test]
     fn slice_pick_negative() {
-        let e = Event::parse("slice/8/pick/-1");
+        let e = Event::parse("slice/8/pick/-1", SR);
         let (b, end) = e.resolve_range();
         // rem_euclid(-1, 8) = 7
         assert!((b - 0.875).abs() < 1e-6);
@@ -488,7 +497,7 @@ mod tests {
 
     #[test]
     fn begin_end_takes_precedence() {
-        let e = Event::parse("begin/0.1/slice/8/pick/3");
+        let e = Event::parse("begin/0.1/slice/8/pick/3", SR);
         let (b, end) = e.resolve_range();
         assert!((b - 0.1).abs() < 1e-6);
         assert!((end - 1.0).abs() < 1e-6);

@@ -11,8 +11,8 @@ impl TimeConverter {
         }
     }
 
-    pub fn sync_to_engine_time(&self, timetag: SyncTime) -> f64 {
+    pub fn sync_to_engine_tick(&self, timetag: SyncTime, sr: f64) -> u64 {
         let delta = timetag.saturating_sub(self.engine_start_micros);
-        (delta as f64) / 1_000_000.0
+        ((delta as f64 * sr) / 1_000_000.0).round() as u64
     }
 }

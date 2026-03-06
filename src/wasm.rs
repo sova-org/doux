@@ -269,6 +269,18 @@ pub extern "C" fn get_time() -> f64 {
     }
 }
 
+/// Returns the current engine tick (sample position).
+#[no_mangle]
+pub extern "C" fn get_tick() -> u64 {
+    unsafe {
+        if let Some(ref engine) = ENGINE {
+            engine.tick
+        } else {
+            0
+        }
+    }
+}
+
 /// Returns the engine's sample rate.
 #[no_mangle]
 pub extern "C" fn get_sample_rate() -> f32 {
