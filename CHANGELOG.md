@@ -3,6 +3,26 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.8] - 2026-03-07
+
+### Added
+
+- **Time stretching** — phase vocoder for independent pitch and time control during sample playback. New `stretch` parameter controls playback duration without affecting pitch. Includes in-place radix-2 FFT, transient detection via spectral flux, and phase locking to spectral peaks
+
+### Changed
+
+- **Engine performance optimizations** — pre-initialized FFT twiddle factors, relative threshold caching on SVF/ladder filter coefficients (skip recalculation on <0.1% delta), power-of-2 delay buffer with bitwise masking, fast math replacements in reverb (`exp2f`/`expf` instead of `powf`), boxed Plaits arrays to shrink Voice struct, pre-block voice gain compensation moved out of hot loop
+
+### Fixed
+
+- **Event delta** now uses `i64` to support negative time deltas, with clamping to prevent underflow
+
+## [0.0.7] - 2026-03-06
+
+### Changed
+
+- **Tick-based event scheduling** — engine timing refactored from floating-point seconds to integer sample ticks (`u64`) for sample-accurate scheduling. `Event.time` → `Event.tick`, `peek_time()` → `peek_tick()`, tolerance calculated in samples. SOVA integration updated with `sync_to_engine_tick()` and `/tick/` command protocol
+
 ## [0.0.6] - 2026-03-03
 
 ### Added
