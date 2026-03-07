@@ -16,6 +16,11 @@ static TWIDDLES: LazyLock<([f32; TWIDDLE_N / 2], [f32; TWIDDLE_N / 2])> = LazyLo
     (re, im)
 });
 
+/// Force twiddle factor initialization (call from non-audio thread).
+pub fn init_twiddles() {
+    let _ = &*TWIDDLES;
+}
+
 /// In-place radix-2 Cooley-Tukey FFT.
 /// Arrays must have the same power-of-2 length.
 pub fn fft(re: &mut [f32], im: &mut [f32], inverse: bool) {

@@ -95,6 +95,7 @@ pub struct Engine {
     #[cfg(feature = "soundfont")]
     pub gm_bank: Option<soundfont::GmBank>,
     voice_gain_lag: [Lag; MAX_ORBITS],
+    voice_comp_targets: [f32; MAX_ORBITS],
 }
 
 impl Engine {
@@ -105,6 +106,8 @@ impl Engine {
 
     #[cfg(not(feature = "native"))]
     pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
+        dsp::fft::init_twiddles();
+
         let mut orbits = Vec::with_capacity(MAX_ORBITS);
         for _ in 0..MAX_ORBITS {
             orbits.push(Orbit::new(sample_rate));
@@ -126,6 +129,7 @@ impl Engine {
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
     }
@@ -137,6 +141,8 @@ impl Engine {
 
     #[cfg(feature = "native")]
     pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
+        dsp::fft::init_twiddles();
+
         let registry = Arc::new(SampleRegistry::new());
         let loader = SampleLoader::new(Arc::clone(&registry));
 
@@ -166,6 +172,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
     }
@@ -177,6 +184,8 @@ impl Engine {
         max_voices: usize,
         metrics: Arc<EngineMetrics>,
     ) -> Self {
+        dsp::fft::init_twiddles();
+
         let registry = Arc::new(SampleRegistry::new());
         let loader = SampleLoader::new(Arc::clone(&registry));
 
@@ -206,6 +215,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
     }
@@ -954,44 +964,17 @@ impl Engine {
         let isr = self.isr;
         let num_orbits = self.orbits.len();
 
-        let mut voices_per_orbit = [0u32; MAX_ORBITS];
-        for i in 0..self.active_voices {
-            voices_per_orbit[self.voices[i].params.orbit % num_orbits] += 1;
-        }
         let mut voice_comp = [0.0f32; MAX_ORBITS];
-        for o in 0..num_orbits {
-            let target = if voices_per_orbit[o] > 0 {
-                1.0 / (voices_per_orbit[o] as f32).sqrt()
-            } else {
-                1.0
-            };
-            voice_comp[o] = self.voice_gain_lag[o].update(target, 0.005, self.sr);
+        for (vc, (lag, &target)) in voice_comp.iter_mut()
+            .zip(self.voice_gain_lag.iter_mut().zip(self.voice_comp_targets.iter()))
+            .take(num_orbits)
+        {
+            *vc = lag.update(target, 0.005, self.sr);
         }
 
         let mut orbit_dry = [[0.0f32; CHANNELS]; MAX_ORBITS];
         let mut i = 0;
         while i < self.active_voices {
-            #[cfg(feature = "native")]
-            {
-                if let Some(ref mut rs) = self.voices[i].registry_sample {
-                    if rs.is_head() {
-                        if let Some(full) = self.sample_registry.get(&rs.name) {
-                            if full.frame_count >= full.total_frames {
-                                rs.upgrade(full);
-                            }
-                        }
-                    }
-                }
-                if let Some(ref mut rs) = self.voices[i].registry_sample_b {
-                    if rs.is_head() {
-                        if let Some(full) = self.sample_registry.get(&rs.name) {
-                            if full.frame_count >= full.total_frames {
-                                rs.upgrade(full);
-                            }
-                        }
-                    }
-                }
-            }
             #[cfg(feature = "native")]
             let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input);
             #[cfg(not(feature = "native"))]
@@ -1144,6 +1127,48 @@ impl Engine {
             let needed = MAX_ORBITS * samples * CHANNELS;
             if self.orbit_rec_bus.len() < needed {
                 self.orbit_rec_bus.resize(needed, 0.0);
+            }
+        }
+
+        // Pre-block: count voices per orbit for gain compensation (item 1)
+        let num_orbits = self.orbits.len();
+        let mut voices_per_orbit = [0u32; MAX_ORBITS];
+        for i in 0..self.active_voices {
+            voices_per_orbit[self.voices[i].params.orbit % num_orbits] += 1;
+        }
+        for (target, &count) in self.voice_comp_targets.iter_mut()
+            .zip(voices_per_orbit.iter())
+            .take(num_orbits)
+        {
+            *target = if count > 0 {
+                1.0 / (count as f32).sqrt()
+            } else {
+                1.0
+            };
+        }
+
+        // Pre-block: upgrade registry samples (item 3)
+        #[cfg(feature = "native")]
+        {
+            for i in 0..self.active_voices {
+                if let Some(ref mut rs) = self.voices[i].registry_sample {
+                    if rs.is_head() {
+                        if let Some(full) = self.sample_registry.get(&rs.name) {
+                            if full.frame_count >= full.total_frames {
+                                rs.upgrade(full);
+                            }
+                        }
+                    }
+                }
+                if let Some(ref mut rs) = self.voices[i].registry_sample_b {
+                    if rs.is_head() {
+                        if let Some(full) = self.sample_registry.get(&rs.name) {
+                            if full.frame_count >= full.total_frames {
+                                rs.upgrade(full);
+                            }
+                        }
+                    }
+                }
             }
         }
 

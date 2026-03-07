@@ -95,10 +95,10 @@ pub struct Voice {
     // Drum synthesis filter
     pub(super) drum_svf: SvfState,
 
-    // Plaits engines
+    // Plaits engines (boxed to keep hot-path Voice struct compact)
     pub(super) plaits_engine: Option<PlaitsEngine>,
-    pub(super) plaits_out: [f32; BLOCK_SIZE],
-    pub(super) plaits_aux: [f32; BLOCK_SIZE],
+    pub(super) plaits_out: Box<[f32; BLOCK_SIZE]>,
+    pub(super) plaits_aux: Box<[f32; BLOCK_SIZE]>,
     pub(super) plaits_idx: usize,
     pub(super) plaits_prev_gate: bool,
 }
@@ -167,8 +167,8 @@ impl Default for Voice {
             seed: 123456789,
             drum_svf: SvfState::default(),
             plaits_engine: None,
-            plaits_out: [0.0; BLOCK_SIZE],
-            plaits_aux: [0.0; BLOCK_SIZE],
+            plaits_out: Box::new([0.0; BLOCK_SIZE]),
+            plaits_aux: Box::new([0.0; BLOCK_SIZE]),
             plaits_idx: BLOCK_SIZE,
             plaits_prev_gate: false,
         }
@@ -234,8 +234,8 @@ impl Clone for Voice {
             seed: self.seed,
             drum_svf: self.drum_svf,
             plaits_engine: None,
-            plaits_out: [0.0; BLOCK_SIZE],
-            plaits_aux: [0.0; BLOCK_SIZE],
+            plaits_out: Box::new([0.0; BLOCK_SIZE]),
+            plaits_aux: Box::new([0.0; BLOCK_SIZE]),
             plaits_idx: BLOCK_SIZE,
             plaits_prev_gate: false,
         }

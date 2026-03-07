@@ -382,8 +382,8 @@ impl Voice {
             let mut already_enveloped = false;
             engine.render(
                 &params,
-                &mut self.plaits_out,
-                &mut self.plaits_aux,
+                self.plaits_out.as_mut_slice(),
+                self.plaits_aux.as_mut_slice(),
                 &mut already_enveloped,
             );
             self.plaits_idx = 0;

@@ -1,4 +1,4 @@
-use crate::dsp::{ftz, sinf};
+use crate::dsp::{exp2f, expf, ftz, pow10, sinf};
 
 const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
@@ -32,7 +32,7 @@ fn next_pow2(n: usize) -> usize {
 }
 
 fn midikey2hz(key: f32) -> f32 {
-    440.0 * 2.0f32.powf((key - 69.0) / 12.0)
+    440.0 * exp2f((key - 69.0) / 12.0)
 }
 
 // 4-point Lagrange cubic interpolation into a power-of-2 buffer.
@@ -93,7 +93,7 @@ fn high_shelf(state: &mut f32, input: f32, coeff: f32, gain_linear: f32) -> f32 
 }
 
 fn db2linear(db: f32) -> f32 {
-    10.0f32.powf(db * 0.05)
+    pow10(db * 0.05)
 }
 
 // Map 0-1 normalized param using vital's MIDI key mapping: key 16-135 -> Hz.
@@ -268,8 +268,8 @@ impl VitalVerb {
             || c.lowcut != lowcut || c.highcut != highcut
         {
             let size_exp = -3.0 + size * 4.0;
-            let size_mult = 2.0f32.powf(size_exp);
-            let decay_sec = (-6.0 + decay * 12.0).exp().clamp(0.1, 100.0);
+            let size_mult = exp2f(size_exp);
+            let decay_sec = expf(-6.0 + decay * 12.0).clamp(0.1, 100.0);
             let decay_samples = decay_sec * sr;
 
             c.decay = decay;
@@ -294,7 +294,7 @@ impl VitalVerb {
                 let ct = line / CONTAINER_SIZE;
                 let l = line % CONTAINER_SIZE;
                 let delay_len = FEEDBACK_DELAYS[ct][l] * size_mult * sr_ratio;
-                c.decay_coeffs[line] = 0.001f32.powf(delay_len / decay_samples);
+                c.decay_coeffs[line] = exp2f(-9.965_784 * delay_len / decay_samples);
             }
         }
 
@@ -313,7 +313,7 @@ impl VitalVerb {
         let chorus_depth = chorus_amt * chorus_amt * 2500.0 * sr_ratio * size_mult;
 
         // Chorus frequency: exp(remap(0,1,-8,3)) Hz, clamp 16Hz.
-        let chorus_hz = (-8.0 + chorus_freq * 11.0).exp().min(16.0);
+        let chorus_hz = expf(-8.0 + chorus_freq * 11.0).min(16.0);
         let lfo_inc = chorus_hz / sr;
 
         // --- Step 1: Write input to predelay, read back ---

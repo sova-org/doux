@@ -19,6 +19,9 @@ pub struct LadderFilter {
     v: [f32; 4],
     dv: [f32; 4],
     tv: [f32; 4],
+    cached_cutoff: f32,
+    cached_g: f32,
+    cached_inv_2sr: f32,
 }
 
 impl Default for LadderFilter {
@@ -27,6 +30,9 @@ impl Default for LadderFilter {
             v: [0.0; 4],
             dv: [0.0; 4],
             tv: [0.0; 4],
+            cached_cutoff: 0.0,
+            cached_g: 0.0,
+            cached_inv_2sr: 0.0,
         }
     }
 }
@@ -42,10 +48,16 @@ impl LadderFilter {
         sr: f32,
     ) -> f32 {
         let cutoff = cutoff.clamp(20.0, sr * 0.45);
-        let x = (PI * cutoff) / sr;
-        let g = 4.0 * PI * VT * cutoff * (1.0 - x) / (1.0 + x);
+        let cutoff_delta = (cutoff - self.cached_cutoff).abs() / self.cached_cutoff.max(1.0);
+        if cutoff_delta > 0.001 || self.cached_inv_2sr == 0.0 {
+            self.cached_cutoff = cutoff;
+            let x = (PI * cutoff) / sr;
+            self.cached_g = 4.0 * PI * VT * cutoff * (1.0 - x) / (1.0 + x);
+            self.cached_inv_2sr = 0.5 / sr;
+        }
+        let g = self.cached_g;
         let res = resonance.clamp(0.0, 1.0) * 4.0;
-        let inv_2sr = 0.5 / sr;
+        let inv_2sr = self.cached_inv_2sr;
 
         let dv0 = -g * (fast_tanh_f32((input + res * self.v[3]) / VT2) + self.tv[0]);
         self.v[0] += (dv0 + self.dv[0]) * inv_2sr;

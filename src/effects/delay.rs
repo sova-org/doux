@@ -1,49 +1,42 @@
 use crate::dsp::ftz;
 use crate::types::{DelayType, CHANNELS};
 
-const MAX_DELAY_SAMPLES: usize = 48000;
+const MAX_DELAY_SAMPLES: usize = 65536;
 
 #[derive(Clone)]
 struct DelayLine {
     buffer: Vec<f32>,
+    mask: usize,
     write_pos: usize,
 }
 
 impl DelayLine {
     fn new(max_samples: usize) -> Self {
+        debug_assert!(max_samples.is_power_of_two());
         Self {
             buffer: vec![0.0; max_samples],
+            mask: max_samples - 1,
             write_pos: 0,
         }
     }
 
     fn process(&mut self, input: f32, delay_samples: usize) -> f32 {
-        let delay_samples = delay_samples.min(self.buffer.len() - 1);
+        let delay_samples = delay_samples.min(self.mask);
         self.buffer[self.write_pos] = input;
-
-        let read_pos = if self.write_pos >= delay_samples {
-            self.write_pos - delay_samples
-        } else {
-            self.buffer.len() - (delay_samples - self.write_pos)
-        };
-
-        self.write_pos = (self.write_pos + 1) % self.buffer.len();
+        let read_pos = self.write_pos.wrapping_sub(delay_samples) & self.mask;
+        self.write_pos = (self.write_pos + 1) & self.mask;
         self.buffer[read_pos]
     }
 
     fn read_at(&self, delay_samples: usize) -> f32 {
-        let delay_samples = delay_samples.min(self.buffer.len() - 1);
-        let read_pos = if self.write_pos >= delay_samples {
-            self.write_pos - delay_samples
-        } else {
-            self.buffer.len() - (delay_samples - self.write_pos)
-        };
+        let delay_samples = delay_samples.min(self.mask);
+        let read_pos = self.write_pos.wrapping_sub(delay_samples) & self.mask;
         self.buffer[read_pos]
     }
 
     fn write(&mut self, input: f32) {
         self.buffer[self.write_pos] = input;
-        self.write_pos = (self.write_pos + 1) % self.buffer.len();
+        self.write_pos = (self.write_pos + 1) & self.mask;
     }
 
     fn clear(&mut self) {

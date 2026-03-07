@@ -83,8 +83,8 @@ impl Default for SvfState {
         Self {
             cutoff: 0.0,
             stage: Svf::default(),
-            cached_cutoff: f32::NAN,
-            cached_q: f32::NAN,
+            cached_cutoff: 0.0,
+            cached_q: 0.0,
             cached_g: 0.0,
             cached_k: 0.0,
         }
@@ -96,7 +96,9 @@ impl SvfState {
     pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
         let freq = self.cutoff.clamp(1.0, sr * 0.45);
         let q = q.clamp(0.0, 1.0);
-        if self.cached_cutoff != freq || self.cached_q != q {
+        let freq_delta = (freq - self.cached_cutoff).abs() / self.cached_cutoff.max(1.0);
+        let q_delta = (q - self.cached_q).abs() / self.cached_q.max(0.1);
+        if freq_delta > 0.001 || q_delta > 0.001 {
             self.cached_cutoff = freq;
             self.cached_q = q;
             self.cached_g = fast_tan(PI * freq / sr);
