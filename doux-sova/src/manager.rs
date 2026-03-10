@@ -179,8 +179,21 @@ impl DouxManager {
         let (input_producer, input_consumer) = HeapRb::<f32>::new(INPUT_BUFFER_SIZE).split();
 
         let input_device = match &self.config.input_device {
-            Some(spec) => find_input_device(spec),
-            None => default_input_device(),
+            Some(spec) => {
+                let dev = find_input_device(spec);
+                if dev.is_none() {
+                    eprintln!("[doux] input device not found: {spec}");
+                }
+                dev
+            }
+            None => {
+                let dev = default_input_device();
+                match &dev {
+                    Some(_) => eprintln!("[doux] using default input device"),
+                    None => eprintln!("[doux] no input device available"),
+                }
+                dev
+            }
         };
 
         let input_channels: usize = input_device
@@ -188,12 +201,14 @@ impl DouxManager {
             .and_then(|dev| dev.default_input_config().ok())
             .map_or(0, |cfg| cfg.channels() as usize);
 
+        eprintln!("[doux] input channels: {input_channels}");
+
         let flag = Arc::clone(&self.device_lost);
         self.input_stream = input_device.and_then(|input_dev| {
             let input_cfg = match input_dev.default_input_config() {
                 Ok(cfg) => cfg,
                 Err(e) => {
-                    eprintln!("input config error: {e}");
+                    eprintln!("[doux] input config error: {e}");
                     return None;
                 }
             };
@@ -206,21 +221,33 @@ impl DouxManager {
             }
             let mut input_producer = input_producer;
             let flag = Arc::clone(&flag);
-            let stream = input_dev
-                .build_input_stream(
-                    &input_cfg.into(),
-                    move |data: &[f32], _| {
-                        input_producer.push_slice(data);
-                    },
-                    move |err| {
-                        eprintln!("input stream error: {err}");
-                        flag.store(true, Ordering::Release);
-                    },
-                    None,
-                )
-                .ok()?;
-            stream.play().ok()?;
-            Some(stream)
+            let stream = match input_dev.build_input_stream(
+                &input_cfg.into(),
+                move |data: &[f32], _| {
+                    input_producer.push_slice(data);
+                },
+                move |err| {
+                    eprintln!("[doux] input stream error: {err}");
+                    flag.store(true, Ordering::Release);
+                },
+                None,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[doux] failed to build input stream: {e}");
+                    return None;
+                }
+            };
+            match stream.play() {
+                Ok(()) => {
+                    eprintln!("[doux] input stream started");
+                    Some(stream)
+                }
+                Err(e) => {
+                    eprintln!("[doux] failed to play input stream: {e}");
+                    None
+                }
+            }
         });
 
         let scope = Arc::new(ScopeCapture::new());
