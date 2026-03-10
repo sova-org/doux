@@ -271,7 +271,14 @@ impl Event {
 
         while let (Some(key), Some(val)) = (iter.next(), iter.next()) {
             match key {
-                "doux" | "dirt" => event.cmd = Some(val.to_string()),
+                "doux" | "dirt" => {
+                    event.cmd = Some(val.to_string());
+                    if val == "rec" && iter.clone().count() % 2 == 1 {
+                        if let Some(name) = iter.next() {
+                            event.sound = Some(name.to_string());
+                        }
+                    }
+                }
                 "tick" => event.tick = val.parse().ok(),
                 "time" | "t" => {
                     // Legacy: convert seconds to ticks

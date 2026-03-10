@@ -24,9 +24,9 @@ Toggle recording. Auto-named <code>rec0</code>, <code>rec1</code>, etc. First se
 
 <CommandEntry name="rec + name" type="source">
 
-Set an explicit name via <code>/s/name</code>. The recording is registered under that name for playback.
+Set an explicit name as a positional argument. The recording is registered under that name for playback.
 
-<CodeEditor code={`/doux/rec/s/myloop`} rows={2} />
+<CodeEditor code={`/doux/rec/myloop`} rows={2} />
 
 <CodeEditor code={`/s/myloop`} rows={2} />
 
@@ -36,7 +36,7 @@ Set an explicit name via <code>/s/name</code>. The recording is registered under
 
 Layers new output on top of an existing recording. Wraps at buffer end. Falls back to fresh recording if the target does not exist.
 
-<CodeEditor code={`/doux/rec/overdub/1/s/myloop`} rows={2} />
+<CodeEditor code={`/doux/rec/myloop/overdub/1`} rows={2} />
 
 </CommandEntry>
 
