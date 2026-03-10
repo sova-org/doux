@@ -3,6 +3,13 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.8] - 2026-03-10
+
+### Changed
+
+- Doux-sova needs a fix to use live input (similar to Cagire)
+
+
 ## [0.0.8] - 2026-03-07
 
 ### Added
