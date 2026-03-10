@@ -11,5 +11,6 @@ soundfont = ["doux/soundfont"]
 doux = { path = "..", features = ["native"] }
 crossbeam-channel = "0.5"
 cpal = "0.17"
+ringbuf = "0.4"
 serde = { version = "1", features = ["derive"] }
 sova_core = { git = "https://github.com/sova-org/sova", package = "core" }

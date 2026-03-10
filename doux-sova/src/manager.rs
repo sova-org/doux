@@ -1,11 +1,12 @@
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{Device, Stream, SupportedStreamConfig};
+use crossbeam_channel::Sender;
+use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
 
 use doux::audio::{
@@ -14,6 +15,7 @@ use doux::audio::{
 };
 use doux::config::DouxConfig;
 use doux::error::DouxError;
+use doux::telemetry::EngineMetrics;
 use doux::Engine;
 use sova_core::clock::SyncTime;
 use sova_core::protocol::audio_engine_proxy::AudioEngineProxy;
@@ -21,6 +23,17 @@ use sova_core::protocol::audio_engine_proxy::AudioEngineProxy;
 use crate::receiver::SovaReceiver;
 use crate::scope::ScopeCapture;
 use crate::time::TimeConverter;
+
+pub enum AudioCmd {
+    Evaluate(String),
+    Hush,
+    Panic,
+    LoadSamples(Vec<doux::sampling::SampleEntry>),
+    ClearSamples,
+    RescanSamples(Vec<PathBuf>),
+    #[cfg(feature = "soundfont")]
+    LoadSoundfont(PathBuf),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioEngineState {
@@ -60,7 +73,9 @@ impl Default for AudioEngineState {
 }
 
 pub struct DouxManager {
-    engine: Arc<Mutex<Engine>>,
+    pending_engine: Option<Engine>,
+    metrics: Arc<EngineMetrics>,
+    cmd_tx: Option<Sender<AudioCmd>>,
     config: DouxConfig,
     sample_rate: f32,
     actual_channels: usize,
@@ -99,7 +114,9 @@ impl DouxManager {
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
 
-        let mut engine = Engine::new_with_channels(sample_rate, actual_channels, config.max_voices);
+        let metrics = Arc::new(EngineMetrics::default());
+        let mut engine =
+            Engine::new_with_metrics(sample_rate, actual_channels, config.max_voices, Arc::clone(&metrics));
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
@@ -107,7 +124,9 @@ impl DouxManager {
         }
 
         Ok(Self {
-            engine: Arc::new(Mutex::new(engine)),
+            pending_engine: Some(engine),
+            metrics,
+            cmd_tx: None,
             config,
             sample_rate,
             actual_channels,
@@ -119,9 +138,6 @@ impl DouxManager {
         })
     }
 
-    /// Starts the audio streams and receiver thread.
-    ///
-    /// The receiver consumes `AudioPayload` messages from the given channel.
     pub fn start(
         &mut self,
         initial_sync_time: SyncTime,
@@ -131,8 +147,9 @@ impl DouxManager {
 
         self.build_streams()?;
 
+        let cmd_tx = self.cmd_tx.as_ref().expect("build_streams sets cmd_tx");
         let time_converter = TimeConverter::new(initial_sync_time);
-        let receiver = SovaReceiver::new(Arc::clone(&self.engine), rx, time_converter, self.sample_rate as f64);
+        let receiver = SovaReceiver::new(cmd_tx.clone(), rx, time_converter, self.sample_rate as f64);
         let handle = std::thread::spawn(move || receiver.run());
         self.receiver_handle = Some(handle);
 
@@ -140,6 +157,11 @@ impl DouxManager {
     }
 
     fn build_streams(&mut self) -> Result<(), DouxError> {
+        let mut engine = self
+            .pending_engine
+            .take()
+            .expect("pending_engine must be set before build_streams");
+
         let output_device = resolve_output_device(&self.config)?;
         let (device_config, _) = get_device_config(&output_device)?;
 
@@ -153,30 +175,42 @@ impl DouxManager {
                 .unwrap_or(cpal::BufferSize::Default),
         };
 
-        let input_buffer: Arc<Mutex<VecDeque<f32>>> =
-            Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
+        const INPUT_BUFFER_SIZE: usize = 8192;
+        let (input_producer, input_consumer) = HeapRb::<f32>::new(INPUT_BUFFER_SIZE).split();
 
         let input_device = match &self.config.input_device {
             Some(spec) => find_input_device(spec),
             None => default_input_device(),
         };
 
+        let input_channels: usize = input_device
+            .as_ref()
+            .and_then(|dev| dev.default_input_config().ok())
+            .map_or(0, |cfg| cfg.channels() as usize);
+
         let flag = Arc::clone(&self.device_lost);
         self.input_stream = input_device.and_then(|input_dev| {
-            let input_config = input_dev.default_input_config().ok()?;
-            let buf = Arc::clone(&input_buffer);
+            let input_cfg = match input_dev.default_input_config() {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    eprintln!("input config error: {e}");
+                    return None;
+                }
+            };
+            if input_cfg.sample_rate() != device_config.sample_rate() {
+                eprintln!(
+                    "warning: input sample rate ({}Hz) differs from output ({}Hz)",
+                    input_cfg.sample_rate(),
+                    device_config.sample_rate()
+                );
+            }
+            let mut input_producer = input_producer;
             let flag = Arc::clone(&flag);
             let stream = input_dev
                 .build_input_stream(
-                    &input_config.into(),
+                    &input_cfg.into(),
                     move |data: &[f32], _| {
-                        let mut b = buf.lock().unwrap();
-                        for &sample in data {
-                            b.push_back(sample);
-                            if b.len() > 8192 {
-                                b.pop_front();
-                            }
-                        }
+                        input_producer.push_slice(data);
                     },
                     move |err| {
                         eprintln!("input stream error: {err}");
@@ -192,10 +226,14 @@ impl DouxManager {
         let scope = Arc::new(ScopeCapture::new());
         let scope_clone = Arc::clone(&scope);
 
-        let engine_clone = Arc::clone(&self.engine);
-        let input_buf_clone = Arc::clone(&input_buffer);
-        let live_scratch: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(vec![0.0; 1024]));
-        let live_scratch_clone = Arc::clone(&live_scratch);
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+
+        // Update sample rate on engine if it changed during reconnect
+        engine.sr = self.sample_rate;
+        engine.isr = 1.0 / self.sample_rate;
+
+        let mut input_consumer = input_consumer;
+        let mut live_scratch = vec![0.0f32; 4096];
         let sample_rate = self.sample_rate;
         let output_channels = self.actual_channels;
         let flag = Arc::clone(&self.device_lost);
@@ -204,20 +242,77 @@ impl DouxManager {
             .build_output_stream(
                 &stream_config,
                 move |data: &mut [f32], _| {
-                    let mut buf = input_buf_clone.lock().unwrap();
-                    let mut scratch = live_scratch_clone.lock().unwrap();
-                    if scratch.len() < data.len() {
-                        scratch.resize(data.len(), 0.0);
+                    // Drain command channel (lock-free)
+                    while let Ok(cmd) = cmd_rx.try_recv() {
+                        match cmd {
+                            AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
+                            AudioCmd::Hush => engine.hush(),
+                            AudioCmd::Panic => engine.panic(),
+                            AudioCmd::LoadSamples(samples) => {
+                                engine.sample_index.extend(samples);
+                            }
+                            AudioCmd::ClearSamples => {
+                                engine.sample_index.clear();
+                            }
+                            AudioCmd::RescanSamples(paths) => {
+                                engine.sample_index.clear();
+                                for path in &paths {
+                                    let index = doux::sampling::scan_samples_dir(path);
+                                    engine.sample_index.extend(index);
+                                }
+                            }
+                            #[cfg(feature = "soundfont")]
+                            AudioCmd::LoadSoundfont(path) => {
+                                if let Err(e) = engine.load_soundfont(&path) {
+                                    eprintln!("Failed to load soundfont {}: {e}", path.display());
+                                }
+                            }
+                        }
                     }
-                    for sample in scratch[..data.len()].iter_mut() {
-                        *sample = buf.pop_front().unwrap_or(0.0);
-                    }
-                    drop(buf);
-                    let mut engine = engine_clone.lock().unwrap();
+
+                    // Fill live input buffer
                     let buffer_samples = data.len() / output_channels;
+                    let stereo_len = buffer_samples * 2;
+                    if live_scratch.len() < stereo_len {
+                        live_scratch.resize(stereo_len, 0.0);
+                    }
+                    match input_channels {
+                        0 => {
+                            live_scratch[..stereo_len].fill(0.0);
+                        }
+                        1 => {
+                            for i in 0..buffer_samples {
+                                let s = input_consumer.try_pop().unwrap_or(0.0);
+                                live_scratch[i * 2] = s;
+                                live_scratch[i * 2 + 1] = s;
+                            }
+                        }
+                        2 => {
+                            for sample in &mut live_scratch[..stereo_len] {
+                                *sample = input_consumer.try_pop().unwrap_or(0.0);
+                            }
+                        }
+                        _ => {
+                            for i in 0..buffer_samples {
+                                let l = input_consumer.try_pop().unwrap_or(0.0);
+                                let r = input_consumer.try_pop().unwrap_or(0.0);
+                                for _ in 2..input_channels {
+                                    input_consumer.try_pop();
+                                }
+                                live_scratch[i * 2] = l;
+                                live_scratch[i * 2 + 1] = r;
+                            }
+                        }
+                    }
+                    let excess = input_consumer.occupied_len().saturating_sub(INPUT_BUFFER_SIZE / 2);
+                    for _ in 0..excess {
+                        input_consumer.try_pop();
+                    }
+
                     let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
                     engine.metrics.load.set_buffer_time(buffer_time_ns);
-                    engine.process_block(data, &[], &scratch[..data.len()]);
+                    engine.process_block(data, &[], &live_scratch[..stereo_len]);
+
                     for chunk in data.chunks(output_channels) {
                         if output_channels >= 2 {
                             scope_clone.push_stereo(chunk[0], chunk[1]);
@@ -240,6 +335,7 @@ impl DouxManager {
 
         self.output_stream = Some(output_stream);
         self.scope = Some(scope);
+        self.cmd_tx = Some(cmd_tx);
 
         Ok(())
     }
@@ -254,24 +350,32 @@ impl DouxManager {
 
     pub fn reconnect_streams(&mut self) -> Result<(), DouxError> {
         self.device_lost.store(false, Ordering::Release);
+        // Drop old streams — this drops the audio callback and the engine with it
         self.output_stream = None;
         self.input_stream = None;
         self.scope = None;
+        self.cmd_tx = None;
 
         let output_device = resolve_output_device(&self.config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, self.config.channels);
 
-        if (sample_rate - self.sample_rate).abs() > f32::EPSILON
-            || actual_channels != self.actual_channels
-        {
-            self.sample_rate = sample_rate;
-            self.actual_channels = actual_channels;
-            if let Ok(mut engine) = self.engine.lock() {
-                engine.sr = sample_rate;
-                engine.isr = 1.0 / sample_rate;
-            }
+        self.sample_rate = sample_rate;
+        self.actual_channels = actual_channels;
+
+        // Create fresh engine for the new audio callback
+        self.metrics = Arc::new(EngineMetrics::default());
+        let mut engine = Engine::new_with_metrics(
+            sample_rate,
+            actual_channels,
+            self.config.max_voices,
+            Arc::clone(&self.metrics),
+        );
+        for path in &self.config.sample_paths {
+            let index = doux::sampling::scan_samples_dir(path);
+            engine.sample_index.extend(index);
         }
+        self.pending_engine = Some(engine);
 
         self.build_streams()
     }
@@ -280,6 +384,7 @@ impl DouxManager {
         self.output_stream = None;
         self.input_stream = None;
         self.scope = None;
+        self.cmd_tx = None;
 
         if let Some(handle) = self.receiver_handle.take() {
             let _ = handle.join();
@@ -298,14 +403,21 @@ impl DouxManager {
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
 
-        let mut engine = Engine::new_with_channels(sample_rate, actual_channels, config.max_voices);
+        let metrics = Arc::new(EngineMetrics::default());
+        let mut engine = Engine::new_with_metrics(
+            sample_rate,
+            actual_channels,
+            config.max_voices,
+            Arc::clone(&metrics),
+        );
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
             engine.sample_index.extend(index);
         }
 
-        self.engine = Arc::new(Mutex::new(engine));
+        self.pending_engine = Some(engine);
+        self.metrics = metrics;
         self.config = config;
         self.sample_rate = sample_rate;
         self.actual_channels = actual_channels;
@@ -330,22 +442,6 @@ impl DouxManager {
     }
 
     pub fn state(&self) -> AudioEngineState {
-        use std::sync::atomic::Ordering;
-
-        let (active_voices, cpu_load, peak_voices, schedule_depth, sample_pool_mb) = self
-            .engine
-            .lock()
-            .map(|e| {
-                (
-                    e.active_voices,
-                    e.metrics.load.get_load(),
-                    e.metrics.peak_voices.load(Ordering::Relaxed) as usize,
-                    e.metrics.schedule_depth.load(Ordering::Relaxed) as usize,
-                    e.metrics.sample_pool_mb(),
-                )
-            })
-            .unwrap_or((0, 0.0, 0, 0, 0.0));
-
         AudioEngineState {
             running: self.is_running(),
             device: self
@@ -356,76 +452,63 @@ impl DouxManager {
             sample_rate: self.sample_rate,
             channels: self.actual_channels,
             buffer_size: self.config.buffer_size,
-            active_voices,
+            active_voices: self.metrics.active_voices.load(Ordering::Relaxed) as usize,
             sample_paths: self.config.sample_paths.clone(),
             error: if self.needs_reconnect() {
                 Some("Audio device disconnected".to_string())
             } else {
                 None
             },
-            cpu_load,
-            peak_voices,
+            cpu_load: self.metrics.load.get_load(),
+            peak_voices: self.metrics.peak_voices.load(Ordering::Relaxed) as usize,
             max_voices: self.config.max_voices,
-            schedule_depth,
-            sample_pool_mb,
+            schedule_depth: self.metrics.schedule_depth.load(Ordering::Relaxed) as usize,
+            sample_pool_mb: self.metrics.sample_pool_mb(),
         }
     }
 
     pub fn add_sample_path(&mut self, path: std::path::PathBuf) {
         let index = doux::sampling::scan_samples_dir(&path);
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.sample_index.extend(index);
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(AudioCmd::LoadSamples(index));
         }
         self.config.sample_paths.push(path);
     }
 
     pub fn rescan_samples(&mut self) {
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.sample_index.clear();
-            for path in &self.config.sample_paths {
-                let index = doux::sampling::scan_samples_dir(path);
-                engine.sample_index.extend(index);
-            }
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(AudioCmd::RescanSamples(self.config.sample_paths.clone()));
         }
     }
 
     pub fn clear_samples(&mut self) {
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.sample_index.clear();
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(AudioCmd::ClearSamples);
         }
     }
 
     pub fn hush(&self) {
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.hush();
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(AudioCmd::Hush);
         }
     }
 
     pub fn panic(&self) {
-        if let Ok(mut engine) = self.engine.lock() {
-            engine.panic();
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(AudioCmd::Panic);
         }
     }
 
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont_from_paths(&self, sample_paths: &[PathBuf]) {
-        for path in sample_paths {
-            if let Some(sf2_path) = doux::soundfont::find_sf2_file(path) {
-                if let Ok(mut engine) = self.engine.lock() {
-                    match engine.load_soundfont(&sf2_path) {
-                        Ok(()) => {
-                            println!("Loaded soundfont: {}", sf2_path.display());
-                            return;
-                        }
-                        Err(e) => eprintln!("Failed to load soundfont {}: {e}", sf2_path.display()),
-                    }
+        if let Some(tx) = &self.cmd_tx {
+            for path in sample_paths {
+                if let Some(sf2_path) = doux::soundfont::find_sf2_file(path) {
+                    let _ = tx.send(AudioCmd::LoadSoundfont(sf2_path));
+                    return;
                 }
             }
         }
-    }
-
-    pub fn engine_handle(&self) -> Arc<Mutex<Engine>> {
-        Arc::clone(&self.engine)
     }
 
     pub fn scope_capture(&self) -> Option<Arc<ScopeCapture>> {
