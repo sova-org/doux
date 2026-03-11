@@ -87,6 +87,7 @@ pub struct EngineMetrics {
     pub peak_voices: AtomicU32,
     pub schedule_depth: AtomicU32,
     pub sample_pool_bytes: AtomicU64,
+    pub time_bits: AtomicU64,
 }
 
 impl Default for EngineMetrics {
@@ -97,6 +98,7 @@ impl Default for EngineMetrics {
             peak_voices: AtomicU32::new(0),
             schedule_depth: AtomicU32::new(0),
             sample_pool_bytes: AtomicU64::new(0),
+            time_bits: AtomicU64::new(0),
         }
     }
 }

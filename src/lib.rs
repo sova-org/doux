@@ -1204,6 +1204,9 @@ impl Engine {
             self.metrics
                 .schedule_depth
                 .store(self.schedule.len() as u32, Ordering::Relaxed);
+            self.metrics
+                .time_bits
+                .store(self.time.to_bits(), Ordering::Relaxed);
         }
 
         let copy_len = output.len().min(self.output.len());

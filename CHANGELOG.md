@@ -3,12 +3,18 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.0.8] - 2026-03-10
+## [0.0.9] - 2026-03-11
+
+### Added
+
+- **Tweakable EQ frequencies** — `eqlofreq`, `eqmidfreq`, `eqhifreq` parameters for per-voice EQ band frequency control (defaults: 200, 1000, 5000 Hz)
+- **Simplified recording syntax** — `/doux/rec/<name>` shorthand for naming recordings directly
 
 ### Changed
 
-- Doux-sova needs a fix to use live input (similar to Cagire)
-
+- **Lock-free audio architecture** — CLI binaries (`doux`, `doux-repl`) no longer wrap the engine in `Arc<Mutex<Engine>>`. The engine is now owned by the audio callback, commands flow via `crossbeam_channel`, and live audio input uses a `ringbuf` SPSC ring buffer. Eliminates mutex contention between audio and control threads
+- **REPL metrics read from atomics** — `.voices`, `.time`, `.stats` commands read directly from `Arc<EngineMetrics>` instead of locking the engine. New `time_bits` atomic field exposes engine time without a mutex
+- Doux-sova live input fix (similar to Cagire)
 
 ## [0.0.8] - 2026-03-07
 

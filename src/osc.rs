@@ -21,13 +21,17 @@
 //! - Default bind: `0.0.0.0:<port>` (all interfaces)
 //! - Supports both single messages and bundles (bundles are flattened)
 
+use crossbeam_channel::Sender;
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::Engine;
+pub enum AudioCmd {
+    Evaluate(String),
+    Hush,
+    Panic,
+}
 
 /// Maximum UDP packet size for incoming OSC messages.
 const BUFFER_SIZE: usize = 4096;
@@ -40,7 +44,7 @@ const BUFFER_SIZE: usize = 4096;
 /// # Panics
 ///
 /// Panics if the UDP socket cannot be bound (e.g., port already in use).
-pub fn run(engine: Arc<Mutex<Engine>>, port: u16) {
+pub fn run(tx: Sender<AudioCmd>, port: u16) {
     let addr = format!("0.0.0.0:{port}");
     let socket = UdpSocket::bind(&addr).expect("failed to bind OSC socket");
 
@@ -50,7 +54,7 @@ pub fn run(engine: Arc<Mutex<Engine>>, port: u16) {
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {
                 if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&engine, &packet.1);
+                    handle_packet(&tx, &packet.1);
                 }
             }
             Err(e) => {
@@ -64,7 +68,7 @@ pub fn run(engine: Arc<Mutex<Engine>>, port: u16) {
 ///
 /// Uses a 500ms socket timeout so the loop periodically checks the flag.
 /// Returns `true` if it exited due to device loss, `false` otherwise.
-pub fn run_recoverable(engine: Arc<Mutex<Engine>>, port: u16, device_lost: &AtomicBool) -> bool {
+pub fn run_recoverable(tx: Sender<AudioCmd>, port: u16, device_lost: &AtomicBool) -> bool {
     let addr = format!("0.0.0.0:{port}");
     let socket = UdpSocket::bind(&addr).expect("failed to bind OSC socket");
     socket
@@ -80,7 +84,7 @@ pub fn run_recoverable(engine: Arc<Mutex<Engine>>, port: u16, device_lost: &Atom
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {
                 if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&engine, &packet.1);
+                    handle_packet(&tx, &packet.1);
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -92,24 +96,22 @@ pub fn run_recoverable(engine: Arc<Mutex<Engine>>, port: u16, device_lost: &Atom
 }
 
 /// Recursively processes an OSC packet, handling both messages and bundles.
-fn handle_packet(engine: &Arc<Mutex<Engine>>, packet: &OscPacket) {
+fn handle_packet(tx: &Sender<AudioCmd>, packet: &OscPacket) {
     match packet {
-        OscPacket::Message(msg) => handle_message(engine, msg),
+        OscPacket::Message(msg) => handle_message(tx, msg),
         OscPacket::Bundle(bundle) => {
             for p in &bundle.content {
-                handle_packet(engine, p);
+                handle_packet(tx, p);
             }
         }
     }
 }
 
-/// Converts an OSC message to a path string and evaluates it on the engine.
-fn handle_message(engine: &Arc<Mutex<Engine>>, msg: &OscMessage) {
+/// Converts an OSC message to a path string and sends it as an AudioCmd.
+fn handle_message(tx: &Sender<AudioCmd>, msg: &OscMessage) {
     let path = osc_to_path(msg);
     if !path.is_empty() {
-        if let Ok(mut e) = engine.lock() {
-            e.evaluate(&path);
-        }
+        let _ = tx.send(AudioCmd::Evaluate(path));
     }
 }
 

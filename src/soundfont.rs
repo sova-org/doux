@@ -7,6 +7,7 @@ use soundfont::SoundFont2;
 use crate::sampling::{resample_linear, SampleData};
 use crate::types::midi2freq;
 
+#[derive(Clone)]
 struct ZoneEntry {
     preset: u16,
     bank: u16,
@@ -37,6 +38,7 @@ pub struct GmZone<'a> {
     pub release: f32,
 }
 
+#[derive(Clone)]
 pub struct GmBank {
     zones: Vec<ZoneEntry>,
 }

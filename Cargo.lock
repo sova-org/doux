@@ -629,6 +629,7 @@ dependencies = [
  "crossbeam-channel",
  "hound",
  "mi-plaits-dsp",
+ "ringbuf",
  "rosc",
  "rustyline",
  "soundfont",

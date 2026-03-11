@@ -5,12 +5,15 @@
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crossbeam_channel::Receiver;
 use doux::audio::{get_host, list_hosts, max_output_channels, print_diagnostics, HostSelection};
+use doux::osc::AudioCmd;
 use doux::Engine;
-use std::collections::VecDeque;
+use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::HeapRb;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Command-line arguments for the doux audio engine.
 #[derive(Parser)]
@@ -238,11 +241,17 @@ fn main() {
         engine.load_soundfont_from_dir(dir);
     }
 
-    let engine = Arc::new(Mutex::new(engine));
+    let sample_index = engine.sample_index.clone();
+    let sample_registry = Arc::clone(&engine.sample_registry);
+    #[cfg(feature = "soundfont")]
+    let gm_bank = engine.gm_bank.take();
+
     let device_lost = Arc::new(AtomicBool::new(false));
 
     println!("Listening for OSC on port {}", args.port);
     println!("Press Ctrl+C to stop");
+
+    let (mut cmd_tx, mut cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
 
     loop {
         let streams = build_streams(
@@ -251,15 +260,12 @@ fn main() {
             &config,
             output_channels,
             sample_rate,
-            &engine,
+            engine,
+            cmd_rx,
             &device_lost,
         );
 
-        let lost = doux::osc::run_recoverable(
-            Arc::clone(&engine),
-            args.port,
-            &device_lost,
-        );
+        let lost = doux::osc::run_recoverable(cmd_tx.clone(), args.port, &device_lost);
 
         drop(streams);
 
@@ -270,6 +276,18 @@ fn main() {
         eprintln!("Audio device lost, attempting to reconnect...");
         device_lost.store(false, Ordering::Release);
         std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Recreate engine and channel for reconnect
+        engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
+        engine.sample_index = sample_index.clone();
+        engine.sample_registry = Arc::clone(&sample_registry);
+        #[cfg(feature = "soundfont")]
+        {
+            engine.gm_bank = gm_bank.clone();
+        }
+        let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+        cmd_tx = new_tx;
+        cmd_rx = new_rx;
     }
 }
 
@@ -284,33 +302,27 @@ fn build_streams(
     config: &cpal::StreamConfig,
     output_channels: usize,
     sample_rate: f32,
-    engine: &Arc<Mutex<Engine>>,
+    mut engine: Engine,
+    cmd_rx: Receiver<AudioCmd>,
     device_lost: &Arc<AtomicBool>,
 ) -> Streams {
-    let input_buffer: Arc<Mutex<VecDeque<f32>>> =
-        Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
-
     let input_device = match &args.input {
         Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
         None => doux::audio::default_input_device(),
     };
 
+    let rb = HeapRb::<f32>::new(8192);
+    let (mut input_producer, mut input_consumer) = rb.split();
+
     let flag = Arc::clone(device_lost);
     let input_stream = input_device.and_then(|input_dev| {
         let input_config = input_dev.default_input_config().ok()?;
-        let buf = Arc::clone(&input_buffer);
         let flag = Arc::clone(&flag);
         let stream = input_dev
             .build_input_stream(
                 &input_config.into(),
                 move |data: &[f32], _| {
-                    let mut b = buf.lock().unwrap();
-                    for &sample in data {
-                        b.push_back(sample);
-                        if b.len() > 8192 {
-                            b.pop_front();
-                        }
-                    }
+                    input_producer.push_slice(data);
                 },
                 move |err| {
                     eprintln!("input stream error: {err}");
@@ -332,29 +344,30 @@ fn build_streams(
         None => host.default_output_device().expect("no output device"),
     };
 
-    let engine_clone = Arc::clone(engine);
-    let input_buf_clone = Arc::clone(&input_buffer);
-    let live_scratch: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(vec![0.0; 1024]));
-    let live_scratch_clone = Arc::clone(&live_scratch);
     let flag = Arc::clone(device_lost);
+    let mut live_scratch = vec![0.0f32; 1024];
 
     let output_stream = device
         .build_output_stream(
             config,
             move |data: &mut [f32], _| {
-                let mut buf = input_buf_clone.lock().unwrap();
-                let mut scratch = live_scratch_clone.lock().unwrap();
-                if scratch.len() < data.len() {
-                    scratch.resize(data.len(), 0.0);
+                while let Ok(cmd) = cmd_rx.try_recv() {
+                    match cmd {
+                        AudioCmd::Evaluate(s) => {
+                            engine.evaluate(&s);
+                        }
+                        AudioCmd::Hush => engine.hush(),
+                        AudioCmd::Panic => engine.panic(),
+                    }
                 }
-                for sample in scratch[..data.len()].iter_mut() {
-                    *sample = buf.pop_front().unwrap_or(0.0);
+
+                if live_scratch.len() < data.len() {
+                    live_scratch.resize(data.len(), 0.0);
                 }
-                drop(buf);
-                engine_clone
-                    .lock()
-                    .unwrap()
-                    .process_block(data, &[], &scratch[..data.len()]);
+                live_scratch[..data.len()].fill(0.0);
+                input_consumer.pop_slice(&mut live_scratch[..data.len()]);
+
+                engine.process_block(data, &[], &live_scratch[..data.len()]);
             },
             move |err| {
                 eprintln!("stream error: {err}");

@@ -36,8 +36,10 @@ use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host};
 use doux::audio::{get_host, list_hosts, print_diagnostics, HostSelection};
+use doux::osc::AudioCmd;
 use doux::Engine;
-use std::sync::atomic::{AtomicBool, Ordering};
+use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::HeapRb;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
@@ -45,9 +47,9 @@ use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::Helper;
 use std::borrow::Cow;
-use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 // ANSI color codes
 const RESET: &str = "\x1b[0m";
@@ -356,13 +358,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.load_soundfont_from_dir(dir);
     }
 
-    let engine = Arc::new(Mutex::new(engine));
+    let sample_index = engine.sample_index.clone();
+    let sample_registry = Arc::clone(&engine.sample_registry);
+    #[cfg(feature = "soundfont")]
+    let gm_bank = engine.gm_bank.clone();
+    let max_voices = args.max_voices;
+    let mut metrics = Arc::clone(&engine.metrics);
+
     let device_lost = Arc::new(AtomicBool::new(false));
 
-    let (mut input_stream, mut output_stream): (Option<cpal::Stream>, Option<cpal::Stream>) =
-        build_repl_streams(
-            &host, &args, &config, output_channels, sample_rate, &engine, &device_lost,
-        )?;
+    let (mut cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+    let (mut input_stream, mut output_stream) = build_repl_streams(
+        &host,
+        &args,
+        &config,
+        output_channels,
+        sample_rate,
+        engine,
+        cmd_rx,
+        &device_lost,
+    )?;
 
     let mut rl = rustyline::Editor::new()?;
     rl.set_helper(Some(DouxHighlighter));
@@ -380,8 +395,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(output_stream.take());
             drop(input_stream.take());
             std::thread::sleep(std::time::Duration::from_secs(1));
+
+            // Recreate engine and channel
+            let mut engine =
+                Engine::new_with_channels(sample_rate, output_channels, max_voices);
+            engine.sample_index = sample_index.clone();
+            engine.sample_registry = Arc::clone(&sample_registry);
+            #[cfg(feature = "soundfont")]
+            {
+                engine.gm_bank = gm_bank.clone();
+            }
+            metrics = Arc::clone(&engine.metrics);
+            let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+            cmd_tx = new_tx;
+
             match build_repl_streams(
-                &host, &args, &config, output_channels, sample_rate, &engine, &device_lost,
+                &host,
+                &args,
+                &config,
+                output_channels,
+                sample_rate,
+                engine,
+                new_rx,
+                &device_lost,
             ) {
                 Ok((inp, out)) => {
                     input_stream = inp;
@@ -401,39 +437,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match trimmed {
                     ".quit" | ".q" => break,
                     ".reset" | ".r" => {
-                        engine.lock().unwrap().evaluate("/doux/reset");
+                        let _ = cmd_tx.send(AudioCmd::Evaluate("/doux/reset".into()));
                     }
                     ".voices" | ".v" => {
-                        println!("{}", engine.lock().unwrap().active_voices);
+                        println!(
+                            "{}",
+                            metrics.active_voices.load(Ordering::Relaxed)
+                        );
                     }
                     ".time" | ".t" => {
-                        println!("{:.3}s", engine.lock().unwrap().time);
+                        let t = f64::from_bits(metrics.time_bits.load(Ordering::Relaxed));
+                        println!("{t:.3}s");
                     }
                     ".stats" | ".s" => {
-                        use std::sync::atomic::Ordering;
-                        let e = engine.lock().unwrap();
-                        let cpu = e.metrics.load.get_load() * 100.0;
-                        let voices = e.metrics.active_voices.load(Ordering::Relaxed);
-                        let peak = e.metrics.peak_voices.load(Ordering::Relaxed);
-                        let sched = e.metrics.schedule_depth.load(Ordering::Relaxed);
-                        let mem = e.metrics.sample_pool_mb();
+                        let cpu = metrics.load.get_load() * 100.0;
+                        let voices = metrics.active_voices.load(Ordering::Relaxed);
+                        let peak = metrics.peak_voices.load(Ordering::Relaxed);
+                        let sched = metrics.schedule_depth.load(Ordering::Relaxed);
+                        let mem = metrics.sample_pool_mb();
                         println!("CPU:      {cpu:5.1}%");
-                        println!("Voices:   {voices:3}/{}", e.max_voices);
+                        println!("Voices:   {voices:3}/{max_voices}");
                         println!("Peak:     {peak:3}");
                         println!("Schedule: {sched:3}");
                         println!("Samples:  {mem:.1} MB");
                     }
                     ".hush" => {
-                        engine.lock().unwrap().hush();
+                        let _ = cmd_tx.send(AudioCmd::Hush);
                     }
                     ".panic" => {
-                        engine.lock().unwrap().panic();
+                        let _ = cmd_tx.send(AudioCmd::Panic);
                     }
                     ".help" | ".h" => {
                         print_help();
                     }
                     s if !s.is_empty() => {
-                        engine.lock().unwrap().evaluate(s);
+                        let _ = cmd_tx.send(AudioCmd::Evaluate(s.into()));
                     }
                     _ => {}
                 }
@@ -456,16 +494,17 @@ fn build_repl_streams(
     config: &cpal::StreamConfig,
     output_channels: usize,
     sample_rate: f32,
-    engine: &Arc<Mutex<Engine>>,
+    mut engine: Engine,
+    cmd_rx: crossbeam_channel::Receiver<AudioCmd>,
     device_lost: &Arc<AtomicBool>,
 ) -> Result<(Option<cpal::Stream>, Option<cpal::Stream>), Box<dyn std::error::Error>> {
-    let input_buffer: Arc<Mutex<VecDeque<f32>>> =
-        Arc::new(Mutex::new(VecDeque::with_capacity(INPUT_BUFFER_SIZE)));
-
     let input_device = match &args.input {
         Some(spec) => host.input_devices().ok().and_then(|d| find_device(d, spec)),
         None => doux::audio::default_input_device(),
     };
+
+    let rb = HeapRb::<f32>::new(INPUT_BUFFER_SIZE);
+    let (mut input_producer, mut input_consumer) = rb.split();
 
     let flag = Arc::clone(device_lost);
     let input_stream = input_device.and_then(|input_dev| {
@@ -477,18 +516,12 @@ fn build_repl_streams(
                 .map(|d| d.name().to_string())
                 .unwrap_or_default()
         );
-        let buf = Arc::clone(&input_buffer);
         let flag = Arc::clone(&flag);
         let stream = input_dev
             .build_input_stream(
                 &input_config.into(),
                 move |data: &[f32], _| {
-                    let mut b = buf.lock().unwrap();
-                    b.extend(data.iter().copied());
-                    let excess = b.len().saturating_sub(INPUT_BUFFER_SIZE);
-                    if excess > 0 {
-                        drop(b.drain(..excess));
-                    }
+                    input_producer.push_slice(data);
                 },
                 move |err| {
                     eprintln!("input stream error: {err}");
@@ -510,26 +543,28 @@ fn build_repl_streams(
         None => host.default_output_device().expect("no output device"),
     };
 
-    let engine_clone = Arc::clone(engine);
-    let input_buf_clone = Arc::clone(&input_buffer);
     let sr = sample_rate;
     let ch = output_channels;
     let flag = Arc::clone(device_lost);
-
     let mut scratch = vec![0.0f32; 4096];
+
     let output_stream = device.build_output_stream(
         config,
         move |data: &mut [f32], _| {
-            scratch.resize(data.len(), 0.0);
-            scratch[..data.len()].fill(0.0);
-            {
-                let mut buf = input_buf_clone.lock().unwrap();
-                let available = buf.len().min(data.len());
-                for (i, sample) in buf.drain(..available).enumerate() {
-                    scratch[i] = sample;
+            while let Ok(cmd) = cmd_rx.try_recv() {
+                match cmd {
+                    AudioCmd::Evaluate(s) => {
+                        engine.evaluate(&s);
+                    }
+                    AudioCmd::Hush => engine.hush(),
+                    AudioCmd::Panic => engine.panic(),
                 }
             }
-            let mut engine = engine_clone.lock().unwrap();
+
+            scratch.resize(data.len(), 0.0);
+            scratch[..data.len()].fill(0.0);
+            input_consumer.pop_slice(&mut scratch[..data.len()]);
+
             let buffer_samples = data.len() / ch;
             let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
             engine.metrics.load.set_buffer_time(buffer_time_ns);

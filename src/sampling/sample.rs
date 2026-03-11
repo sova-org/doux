@@ -10,6 +10,7 @@ use super::cursor::Cursor;
 /// Index entry for a discoverable sample file.
 ///
 /// Created during directory scanning with [`super::scan_samples_dir`].
+#[derive(Clone)]
 pub struct SampleEntry {
     /// Filesystem path to the audio file.
     pub path: PathBuf,
