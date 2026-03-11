@@ -324,6 +324,12 @@ pub struct VoiceParams {
     pub eqmid: f32,
     /// 3-band EQ high shelf gain in dB. 0.0 = flat.
     pub eqhi: f32,
+    /// Low shelf frequency in Hz.
+    pub eqlofreq: f32,
+    /// Mid peak frequency in Hz.
+    pub eqmidfreq: f32,
+    /// High shelf frequency in Hz.
+    pub eqhifreq: f32,
     /// Tilt EQ (-1.0 = dark, 0.0 = flat, 1.0 = bright).
     pub tilt: f32,
 
@@ -511,6 +517,9 @@ impl Default for VoiceParams {
             eqlo: 0.0,
             eqmid: 0.0,
             eqhi: 0.0,
+            eqlofreq: 200.0,
+            eqmidfreq: 1000.0,
+            eqhifreq: 5000.0,
             tilt: 0.0,
             orbit: 0,
             delay: 0.0,

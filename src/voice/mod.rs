@@ -727,6 +727,9 @@ impl Voice {
                     self.params.eqlo,
                     self.params.eqmid,
                     self.params.eqhi,
+                    self.params.eqlofreq,
+                    self.params.eqmidfreq,
+                    self.params.eqhifreq,
                     self.sr,
                 );
             }

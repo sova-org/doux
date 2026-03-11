@@ -203,6 +203,9 @@ pub struct Event {
     pub eqlo: Option<f32>,
     pub eqmid: Option<f32>,
     pub eqhi: Option<f32>,
+    pub eqlofreq: Option<f32>,
+    pub eqmidfreq: Option<f32>,
+    pub eqhifreq: Option<f32>,
     pub tilt: Option<f32>,
 
     // Delay
@@ -434,6 +437,9 @@ impl Event {
                 "eqlo" => parse_param!(val, eqlo, ParamId::Eqlo),
                 "eqmid" => parse_param!(val, eqmid, ParamId::Eqmid),
                 "eqhi" => parse_param!(val, eqhi, ParamId::Eqhi),
+                "eqlofreq" => event.eqlofreq = val.parse().ok(),
+                "eqmidfreq" => event.eqmidfreq = val.parse().ok(),
+                "eqhifreq" => event.eqhifreq = val.parse().ok(),
                 "tilt" => parse_param!(val, tilt, ParamId::Tilt),
                 "delay" => parse_param!(val, delay, ParamId::Delay),
                 "delaytime" => event.delaytime = val.parse().ok(),

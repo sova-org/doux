@@ -48,6 +48,32 @@ High shelf gain at 5000Hz.
 
 </CommandEntry>
 
+## EQ Frequencies
+
+<CommandEntry name="eqlofreq" type="number" default={200} unit="Hz">
+
+Low shelf frequency.
+
+<CodeEditor code={`/sound/saw/freq/50/eqlo/6/eqlofreq/400`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="eqmidfreq" type="number" default={1000} unit="Hz">
+
+Mid peak frequency.
+
+<CodeEditor code={`/sound/saw/freq/50/eqmid/4/eqmidfreq/2000`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="eqhifreq" type="number" default={5000} unit="Hz">
+
+High shelf frequency.
+
+<CodeEditor code={`/sound/saw/freq/50/eqhi/3/eqhifreq/8000`} rows={2} />
+
+</CommandEntry>
+
 ## Tilt EQ
 
 <CommandEntry name="tilt" type="number" min={-1} max={1} default={0} mod>
