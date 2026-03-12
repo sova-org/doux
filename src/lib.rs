@@ -45,7 +45,7 @@ use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
 use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
-use voice::{Voice, VoiceParams};
+use voice::{Voice, VoiceParams, modulation};
 
 #[cfg(feature = "soundfont")]
 struct GmResolved {
@@ -97,6 +97,7 @@ pub struct Engine {
     pub input_channels: usize,
     voice_gain_lag: [Lag; MAX_ORBITS],
     voice_comp_targets: [f32; MAX_ORBITS],
+    voice_seed: u32,
 }
 
 impl Engine {
@@ -132,7 +133,7 @@ impl Engine {
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
-
+            voice_seed: 123456789,
         }
     }
 
@@ -176,7 +177,7 @@ impl Engine {
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
-
+            voice_seed: 123456789,
         }
     }
 
@@ -220,7 +221,7 @@ impl Engine {
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
-
+            voice_seed: 123456789,
         }
     }
 
@@ -450,6 +451,8 @@ impl Engine {
         }
         let i = self.active_voices;
         self.voices[i] = Voice::default();
+        self.voices[i].seed = self.voice_seed;
+        self.voice_seed = modulation::lcg(self.voice_seed);
         self.voices[i].params = params;
         self.voices[i].sr = self.sr;
         self.active_voices += 1;
@@ -517,6 +520,8 @@ impl Engine {
 
         if should_reset {
             self.voices[voice_idx] = Voice::default();
+            self.voices[voice_idx].seed = self.voice_seed;
+            self.voice_seed = modulation::lcg(self.voice_seed);
             self.voices[voice_idx].sr = self.sr;
             // Initialize glide_lag to target freq to prevent glide from 0
             if let Some(freq) = event.freq {

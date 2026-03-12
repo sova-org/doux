@@ -1,7 +1,7 @@
 //! Voice - the core synthesis unit.
 
 mod drums;
-mod modulation;
+pub mod modulation;
 mod params;
 mod source;
 
@@ -90,7 +90,7 @@ pub struct Voice {
     pub spread_side: f32,
     pub sr: f32,
     pub lag_unit: f32,
-    pub(super) seed: u32,
+    pub seed: u32,
 
     // Drum synthesis filter
     pub(super) drum_svf: SvfState,

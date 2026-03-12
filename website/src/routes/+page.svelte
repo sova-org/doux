@@ -176,6 +176,9 @@
             <li><code>200&gt;4000:2</code> — linear (default)</li>
             <li><code>200&gt;4000:2e</code> — exponential</li>
             <li><code>200&gt;4000:2s</code> — smooth (ease in-out)</li>
+            <li><code>200&gt;4000:2i</code> — swell (slow start, fast finish)</li>
+            <li><code>200&gt;4000:2o</code> — pluck (fast start, slow settle)</li>
+            <li><code>200&gt;4000:2p</code> — stair (8 discrete steps)</li>
         </ul>
 
         <p>Multi-segment chains:</p>

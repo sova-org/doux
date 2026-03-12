@@ -12,6 +12,9 @@ pub enum ModCurve {
     Linear,
     Exponential,
     Smooth,
+    Swell,
+    Pluck,
+    Stair,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -168,6 +171,12 @@ fn parse_duration_curve(s: &str) -> Option<(f32, ModCurve)> {
         Some((stripped.parse().ok()?, ModCurve::Exponential))
     } else if let Some(stripped) = s.strip_suffix('s') {
         Some((stripped.parse().ok()?, ModCurve::Smooth))
+    } else if let Some(stripped) = s.strip_suffix('i') {
+        Some((stripped.parse().ok()?, ModCurve::Swell))
+    } else if let Some(stripped) = s.strip_suffix('o') {
+        Some((stripped.parse().ok()?, ModCurve::Pluck))
+    } else if let Some(stripped) = s.strip_suffix('p') {
+        Some((stripped.parse().ok()?, ModCurve::Stair))
     } else {
         Some((s.parse().ok()?, ModCurve::Linear))
     }
@@ -416,6 +425,15 @@ fn interpolate(from: f32, to: f32, t: f32, curve: ModCurve) -> f32 {
             let t = (1.0 - cosf(t * PI)) * 0.5;
             from + (to - from) * t
         }
+        ModCurve::Swell => from + (to - from) * t * t,
+        ModCurve::Pluck => {
+            let inv = 1.0 - t;
+            from + (to - from) * (1.0 - inv * inv)
+        }
+        ModCurve::Stair => {
+            let stepped = (t * 8.0).floor() / 7.0;
+            from + (to - from) * stepped
+        }
     }
 }
 
@@ -649,4 +667,58 @@ mod tests {
             _ => panic!("expected Transition"),
         }
     }
+
+    #[test]
+    fn parse_transition_swell() {
+        let m = ModChain::parse("200>4000:2i").unwrap();
+        match m {
+            ModChain::Transition { segments, .. } => {
+                assert_eq!(segments[0].curve, ModCurve::Swell);
+            }
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_pluck() {
+        let m = ModChain::parse("200>4000:2o").unwrap();
+        match m {
+            ModChain::Transition { segments, .. } => {
+                assert_eq!(segments[0].curve, ModCurve::Pluck);
+            }
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_stair() {
+        let m = ModChain::parse("200>4000:2p").unwrap();
+        match m {
+            ModChain::Transition { segments, .. } => {
+                assert_eq!(segments[0].curve, ModCurve::Stair);
+            }
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn interpolate_swell() {
+        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Swell);
+        assert!((v - 25.0).abs() < 0.01); // 0.5^2 = 0.25
+    }
+
+    #[test]
+    fn interpolate_pluck() {
+        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Pluck);
+        assert!((v - 75.0).abs() < 0.01); // 1-(1-0.5)^2 = 0.75
+    }
+
+    #[test]
+    fn interpolate_stair() {
+        let v0 = interpolate(0.0, 100.0, 0.0, ModCurve::Stair);
+        assert!((v0 - 0.0).abs() < 0.01);
+        let v1 = interpolate(0.0, 100.0, 0.99, ModCurve::Stair);
+        assert!((v1 - 100.0).abs() < 0.01); // floor(7.92)/7 = 1.0
+    }
+
 }
