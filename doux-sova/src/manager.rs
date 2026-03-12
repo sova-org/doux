@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -50,6 +50,12 @@ pub struct AudioEngineState {
     pub max_voices: usize,
     pub schedule_depth: usize,
     pub sample_pool_mb: f32,
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+}
+
+fn default_volume() -> f32 {
+    1.0
 }
 
 impl Default for AudioEngineState {
@@ -68,6 +74,7 @@ impl Default for AudioEngineState {
             max_voices: doux::types::DEFAULT_MAX_VOICES,
             schedule_depth: 0,
             sample_pool_mb: 0.0,
+            volume: 1.0,
         }
     }
 }
@@ -84,6 +91,7 @@ pub struct DouxManager {
     receiver_handle: Option<JoinHandle<()>>,
     scope: Option<Arc<ScopeCapture>>,
     device_lost: Arc<AtomicBool>,
+    master_gain: Arc<AtomicU32>,
 }
 
 fn resolve_output_device(config: &DouxConfig) -> Result<Device, DouxError> {
@@ -135,7 +143,21 @@ impl DouxManager {
             receiver_handle: None,
             scope: None,
             device_lost: Arc::new(AtomicBool::new(false)),
+            master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
         })
+    }
+
+    pub fn set_master_gain_arc(&mut self, gain: Arc<AtomicU32>) {
+        self.master_gain = gain;
+    }
+
+    pub fn set_master_volume(&self, vol: f32) {
+        self.master_gain
+            .store(vol.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn master_volume(&self) -> f32 {
+        f32::from_bits(self.master_gain.load(Ordering::Relaxed))
     }
 
     pub fn start(
@@ -265,6 +287,8 @@ impl DouxManager {
         let sample_rate = self.sample_rate;
         let output_channels = self.actual_channels;
         let flag = Arc::clone(&self.device_lost);
+        let master_gain = Arc::clone(&self.master_gain);
+        let mut prev_gain = 1.0f32;
 
         let output_stream = output_device
             .build_output_stream(
@@ -319,6 +343,22 @@ impl DouxManager {
                     let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
                     engine.metrics.load.set_buffer_time(buffer_time_ns);
                     engine.process_block(data, &[], &live_scratch[..raw_len]);
+
+                    let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
+                    if prev_gain != target_gain {
+                        let num_samples = data.len();
+                        let step = (target_gain - prev_gain) / num_samples as f32;
+                        let mut g = prev_gain;
+                        for sample in data.iter_mut() {
+                            g += step;
+                            *sample *= g;
+                        }
+                        prev_gain = target_gain;
+                    } else if target_gain != 1.0 {
+                        for sample in data.iter_mut() {
+                            *sample *= target_gain;
+                        }
+                    }
 
                     for chunk in data.chunks(output_channels) {
                         if output_channels >= 2 {
@@ -471,6 +511,7 @@ impl DouxManager {
             max_voices: self.config.max_voices,
             schedule_depth: self.metrics.schedule_depth.load(Ordering::Relaxed) as usize,
             sample_pool_mb: self.metrics.sample_pool_mb(),
+            volume: self.master_volume(),
         }
     }
 
