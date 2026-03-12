@@ -3,6 +3,17 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.10] - 2026-03-12
+
+### Added
+
+- **Input channel selection** — `inchan` parameter selects which audio input channel to use for live input (e.g. `inchan/0` for mono from first channel). Defaults to stereo when unset
+- **Modulation curves: swell, pluck, stair** — three new transition curve types: swell (`i`, slow start/fast finish), pluck (`o`, fast attack/slow settle), stair (`p`, 8 discrete steps)
+
+### Fixed
+
+- **Deterministic modulation seeds** — each voice now receives a unique random seed from the engine, so consecutive voices with random modulation (`jit`, `drunk`, etc.) produce different patterns instead of identical ones
+
 ## [0.0.9] - 2026-03-11
 
 ### Added
