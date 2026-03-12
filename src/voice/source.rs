@@ -88,6 +88,7 @@ impl Voice {
         web_pcm: &[f32],
         sample_idx: usize,
         live_input: &[f32],
+        input_channels: usize,
     ) -> bool {
         match self.params.sound {
             Source::Gm => {
@@ -209,11 +210,16 @@ impl Voice {
                 self.ch[1] = 0.0;
             }
             Source::LiveInput => {
-                self.nch = CHANNELS;
-                let input_idx = sample_idx * CHANNELS;
-                for c in 0..CHANNELS {
-                    let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                let nch = input_channels.max(1);
+                if let Some(ch) = self.params.inchan {
+                    self.nch = 1;
+                    let idx = sample_idx * nch + ch.min(nch - 1);
+                    self.ch[0] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                } else {
+                    self.nch = CHANNELS;
+                    let base = sample_idx * nch;
+                    self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
+                    self.ch[1] = live_input.get(base + 1.min(nch - 1)).copied().unwrap_or(0.0) * 0.7;
                 }
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom
@@ -258,6 +264,7 @@ impl Voice {
         web_pcm: &[f32],
         sample_idx: usize,
         live_input: &[f32],
+        input_channels: usize,
     ) -> bool {
         match self.params.sound {
             Source::Sample => {
@@ -308,11 +315,16 @@ impl Voice {
                 self.ch[1] = 0.0;
             }
             Source::LiveInput => {
-                self.nch = CHANNELS;
-                let input_idx = sample_idx * CHANNELS;
-                for c in 0..CHANNELS {
-                    let idx = input_idx + c;
-                    self.ch[c] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                let nch = input_channels.max(1);
+                if let Some(ch) = self.params.inchan {
+                    self.nch = 1;
+                    let idx = sample_idx * nch + ch.min(nch - 1);
+                    self.ch[0] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                } else {
+                    self.nch = CHANNELS;
+                    let base = sample_idx * nch;
+                    self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
+                    self.ch[1] = live_input.get(base + 1.min(nch - 1)).copied().unwrap_or(0.0) * 0.7;
                 }
             }
             Source::Kick | Source::Snare | Source::Hat | Source::Tom

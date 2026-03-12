@@ -175,9 +175,6 @@ impl DouxManager {
                 .unwrap_or(cpal::BufferSize::Default),
         };
 
-        const INPUT_BUFFER_SIZE: usize = 8192;
-        let (input_producer, input_consumer) = HeapRb::<f32>::new(INPUT_BUFFER_SIZE).split();
-
         let input_device = match &self.config.input_device {
             Some(spec) => {
                 let dev = find_input_device(spec);
@@ -202,6 +199,9 @@ impl DouxManager {
             .map_or(0, |cfg| cfg.channels() as usize);
 
         eprintln!("[doux] input channels: {input_channels}");
+
+        let input_buffer_size = 8192 * (input_channels.max(2) / 2);
+        let (input_producer, input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
 
         let flag = Arc::clone(&self.device_lost);
         self.input_stream = input_device.and_then(|input_dev| {
@@ -255,9 +255,10 @@ impl DouxManager {
 
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
 
-        // Update sample rate on engine if it changed during reconnect
+        // Update sample rate and input channels on engine
         engine.sr = self.sample_rate;
         engine.isr = 1.0 / self.sample_rate;
+        engine.input_channels = input_channels;
 
         let mut input_consumer = input_consumer;
         let mut live_scratch = vec![0.0f32; 4096];
@@ -297,48 +298,27 @@ impl DouxManager {
                         }
                     }
 
-                    // Fill live input buffer
+                    // Fill live input buffer (raw multi-channel passthrough)
                     let buffer_samples = data.len() / output_channels;
-                    let stereo_len = buffer_samples * 2;
-                    if live_scratch.len() < stereo_len {
-                        live_scratch.resize(stereo_len, 0.0);
+                    let raw_len = buffer_samples * input_channels.max(1);
+                    if live_scratch.len() < raw_len {
+                        live_scratch.resize(raw_len, 0.0);
                     }
-                    match input_channels {
-                        0 => {
-                            live_scratch[..stereo_len].fill(0.0);
-                        }
-                        1 => {
-                            for i in 0..buffer_samples {
-                                let s = input_consumer.try_pop().unwrap_or(0.0);
-                                live_scratch[i * 2] = s;
-                                live_scratch[i * 2 + 1] = s;
-                            }
-                        }
-                        2 => {
-                            for sample in &mut live_scratch[..stereo_len] {
-                                *sample = input_consumer.try_pop().unwrap_or(0.0);
-                            }
-                        }
-                        _ => {
-                            for i in 0..buffer_samples {
-                                let l = input_consumer.try_pop().unwrap_or(0.0);
-                                let r = input_consumer.try_pop().unwrap_or(0.0);
-                                for _ in 2..input_channels {
-                                    input_consumer.try_pop();
-                                }
-                                live_scratch[i * 2] = l;
-                                live_scratch[i * 2 + 1] = r;
-                            }
+                    if input_channels == 0 {
+                        live_scratch[..raw_len].fill(0.0);
+                    } else {
+                        for sample in &mut live_scratch[..raw_len] {
+                            *sample = input_consumer.try_pop().unwrap_or(0.0);
                         }
                     }
-                    let excess = input_consumer.occupied_len().saturating_sub(INPUT_BUFFER_SIZE / 2);
+                    let excess = input_consumer.occupied_len().saturating_sub(input_buffer_size / 2);
                     for _ in 0..excess {
                         input_consumer.try_pop();
                     }
 
                     let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
                     engine.metrics.load.set_buffer_time(buffer_time_ns);
-                    engine.process_block(data, &[], &live_scratch[..stereo_len]);
+                    engine.process_block(data, &[], &live_scratch[..raw_len]);
 
                     for chunk in data.chunks(output_channels) {
                         if output_channels >= 2 {

@@ -467,6 +467,7 @@ impl Voice {
         web_pcm: &[f32],
         sample_idx: usize,
         live_input: &[f32],
+        input_channels: usize,
     ) -> bool {
         let env = self.adsr.update(
             self.time,
@@ -484,7 +485,7 @@ impl Voice {
             self.apply_mods(isr);
         }
         let freq = self.compute_freq(isr);
-        if !self.run_source(freq, isr, web_pcm, sample_idx, live_input) {
+        if !self.run_source(freq, isr, web_pcm, sample_idx, live_input, input_channels) {
             return false;
         }
 
@@ -501,6 +502,7 @@ impl Voice {
         web_pcm: &[f32],
         sample_idx: usize,
         live_input: &[f32],
+        input_channels: usize,
     ) -> bool {
         let env = self.adsr.update(
             self.time,
@@ -518,7 +520,7 @@ impl Voice {
             self.apply_mods(isr);
         }
         let freq = self.compute_freq(isr);
-        if !self.run_source(freq, isr, pool, samples, web_pcm, sample_idx, live_input) {
+        if !self.run_source(freq, isr, pool, samples, web_pcm, sample_idx, live_input, input_channels) {
             return false;
         }
 

@@ -503,8 +503,15 @@ fn build_repl_streams(
         None => doux::audio::default_input_device(),
     };
 
-    let rb = HeapRb::<f32>::new(INPUT_BUFFER_SIZE);
-    let (mut input_producer, mut input_consumer) = rb.split();
+    let input_channels: usize = input_device
+        .as_ref()
+        .and_then(|dev| dev.default_input_config().ok())
+        .map_or(0, |cfg| cfg.channels() as usize);
+
+    let input_buffer_size = INPUT_BUFFER_SIZE * (input_channels.max(2) / 2);
+    let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
+
+    engine.input_channels = input_channels;
 
     let flag = Arc::clone(device_lost);
     let input_stream = input_device.and_then(|input_dev| {
@@ -545,6 +552,7 @@ fn build_repl_streams(
 
     let sr = sample_rate;
     let ch = output_channels;
+    let nch_in = input_channels.max(1);
     let flag = Arc::clone(device_lost);
     let mut scratch = vec![0.0f32; 4096];
 
@@ -561,14 +569,17 @@ fn build_repl_streams(
                 }
             }
 
-            scratch.resize(data.len(), 0.0);
-            scratch[..data.len()].fill(0.0);
-            input_consumer.pop_slice(&mut scratch[..data.len()]);
-
             let buffer_samples = data.len() / ch;
+            let raw_len = buffer_samples * nch_in;
+            if scratch.len() < raw_len {
+                scratch.resize(raw_len, 0.0);
+            }
+            scratch[..raw_len].fill(0.0);
+            input_consumer.pop_slice(&mut scratch[..raw_len]);
+
             let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
             engine.metrics.load.set_buffer_time(buffer_time_ns);
-            engine.process_block(data, &[], &scratch);
+            engine.process_block(data, &[], &scratch[..raw_len]);
         },
         move |err| {
             eprintln!("stream error: {err}");

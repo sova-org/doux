@@ -231,6 +231,9 @@ pub struct Event {
 
     // Recorder
     pub overdub: Option<bool>,
+
+    // Live input channel selection
+    pub inchan: Option<usize>,
 }
 
 impl Event {
@@ -459,6 +462,7 @@ impl Event {
                 "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
                 "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
+                "inchan" => event.inchan = val.parse::<f32>().ok().map(|f| f as usize),
                 _ => {}
             }
         }

@@ -94,6 +94,7 @@ pub struct Engine {
     pub metrics: Arc<EngineMetrics>,
     #[cfg(feature = "soundfont")]
     pub gm_bank: Option<soundfont::GmBank>,
+    pub input_channels: usize,
     voice_gain_lag: [Lag; MAX_ORBITS],
     voice_comp_targets: [f32; MAX_ORBITS],
 }
@@ -129,6 +130,7 @@ impl Engine {
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
@@ -172,6 +174,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
@@ -215,6 +218,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
+            input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
 
         }
@@ -902,6 +906,9 @@ impl Engine {
             verbchorusfreq
         );
 
+        // Live input channel
+        v.params.inchan = event.inchan;
+
         // Install inline parameter modulations
         for (id, chain) in &event.mods {
             v.set_mod(*id, *chain);
@@ -976,12 +983,12 @@ impl Engine {
         let mut i = 0;
         while i < self.active_voices {
             #[cfg(feature = "native")]
-            let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input);
+            let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input, self.input_channels);
             #[cfg(not(feature = "native"))]
             let alive = {
                 let pool = self.sample_pool.data.as_slice();
                 let samples = self.samples.as_slice();
-                self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input)
+                self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input, self.input_channels)
             };
             if !alive {
                 self.free_voice(i);

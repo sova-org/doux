@@ -400,6 +400,9 @@ pub struct VoiceParams {
     pub comprelease: f32,
     /// Which orbit provides the sidechain signal.
     pub comporbit: usize,
+
+    /// Input channel index for LiveInput (0-indexed). None = stereo (ch 0+1).
+    pub inchan: Option<usize>,
 }
 
 impl Default for VoiceParams {
@@ -553,6 +556,7 @@ impl Default for VoiceParams {
             compattack: 0.01,
             comprelease: 0.15,
             comporbit: 0,
+            inchan: None,
         }
     }
 }

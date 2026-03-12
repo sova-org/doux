@@ -311,8 +311,15 @@ fn build_streams(
         None => doux::audio::default_input_device(),
     };
 
-    let rb = HeapRb::<f32>::new(8192);
-    let (mut input_producer, mut input_consumer) = rb.split();
+    let input_channels: usize = input_device
+        .as_ref()
+        .and_then(|dev| dev.default_input_config().ok())
+        .map_or(0, |cfg| cfg.channels() as usize);
+
+    let input_buffer_size = 8192 * (input_channels.max(2) / 2);
+    let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
+
+    engine.input_channels = input_channels;
 
     let flag = Arc::clone(device_lost);
     let input_stream = input_device.and_then(|input_dev| {
@@ -346,6 +353,7 @@ fn build_streams(
 
     let flag = Arc::clone(device_lost);
     let mut live_scratch = vec![0.0f32; 1024];
+    let nch_in = input_channels.max(1);
 
     let output_stream = device
         .build_output_stream(
@@ -361,13 +369,15 @@ fn build_streams(
                     }
                 }
 
-                if live_scratch.len() < data.len() {
-                    live_scratch.resize(data.len(), 0.0);
+                let buffer_samples = data.len() / output_channels;
+                let raw_len = buffer_samples * nch_in;
+                if live_scratch.len() < raw_len {
+                    live_scratch.resize(raw_len, 0.0);
                 }
-                live_scratch[..data.len()].fill(0.0);
-                input_consumer.pop_slice(&mut live_scratch[..data.len()]);
+                live_scratch[..raw_len].fill(0.0);
+                input_consumer.pop_slice(&mut live_scratch[..raw_len]);
 
-                engine.process_block(data, &[], &live_scratch[..data.len()]);
+                engine.process_block(data, &[], &live_scratch[..raw_len]);
             },
             move |err| {
                 eprintln!("stream error: {err}");
