@@ -90,7 +90,7 @@
         <h2>Envelopes</h2>
         <p>
             The amplitude envelope controls how the sound fades in and out. It
-            uses the classic ADSR model: attack, decay, sustain, release.
+            uses a DAHDSR model: delay, attack, hold, decay, sustain, release.
         </p>
         <CodeEditor
             code={`/sound/saw/attack/0.5/decay/0.2/sustain/0.0/release/1`}
