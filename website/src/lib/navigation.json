@@ -23,7 +23,6 @@
   { "name": "note", "category": "pitch", "group": "synthesis" },
   { "name": "speed", "category": "pitch", "group": "synthesis" },
   { "name": "detune", "category": "pitch", "group": "synthesis" },
-  { "name": "glide", "category": "pitch", "group": "synthesis" },
   { "name": "time", "category": "timing", "group": "synthesis" },
   { "name": "duration", "category": "timing", "group": "synthesis" },
   { "name": "repeat", "category": "timing", "group": "synthesis" },

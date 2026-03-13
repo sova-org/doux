@@ -7,7 +7,7 @@
 //! - **Oscillator** - sound source, pulse width, spread, waveshaping
 //! - **Amplitude Envelope** - ADSR for volume
 //! - **Filters** - lowpass, highpass, bandpass with optional envelopes
-//! - **Pitch Modulation** - glide, pitch envelope, vibrato, FM
+//! - **Pitch Modulation** - pitch envelope, vibrato, FM
 //! - **Amplitude Modulation** - AM, ring modulation
 //! - **Effects** - phaser, flanger, chorus, distortion
 //! - **Routing** - orbit assignment, effect sends
@@ -166,12 +166,6 @@ pub struct VoiceParams {
     pub lbpf: Option<f32>,
     /// Ladder bandpass resonance (0.0 to 1.0).
     pub lbpq: f32,
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Glide (Portamento)
-    // ─────────────────────────────────────────────────────────────────────
-    /// Glide time in seconds. `None` = no glide.
-    pub glide: Option<f32>,
 
     // ─────────────────────────────────────────────────────────────────────
     // Pitch Envelope
@@ -467,7 +461,6 @@ impl Default for VoiceParams {
             lhpq: 0.2,
             lbpf: None,
             lbpq: 0.2,
-            glide: None,
             penv: 1.0,
             patt: 0.001,
             pdec: 0.0,
