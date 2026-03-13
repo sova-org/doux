@@ -935,16 +935,12 @@ impl Engine {
             };
 
             let diff = self.tick - t;
-            let mut event = self.schedule.pop_front().unwrap();
+            let event = self.schedule.pop_front().unwrap();
 
             if diff < tolerance {
                 self.process_event(&event);
             }
 
-            if let Some(rep) = event.repeat {
-                event.tick = Some(t + rep);
-                self.schedule.push(event);
-            }
         }
     }
 
