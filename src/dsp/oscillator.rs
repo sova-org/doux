@@ -20,7 +20,6 @@
 //! [`PhaseShape`] transforms the oscillator phase before waveform generation,
 //! enabling complex timbres from simple waveforms:
 //!
-//! - **mult**: Phase multiplication creates harmonic partials
 //! - **warp**: Power curve distortion shifts harmonic balance
 //! - **mirror**: Reflection creates symmetrical waveforms
 //! - **size**: Step quantization for lo-fi/bitcrushed effects
