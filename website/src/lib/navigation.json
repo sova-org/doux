@@ -25,7 +25,6 @@
   { "name": "detune", "category": "pitch", "group": "synthesis" },
   { "name": "time", "category": "timing", "group": "synthesis" },
   { "name": "duration", "category": "timing", "group": "synthesis" },
-  { "name": "repeat", "category": "timing", "group": "synthesis" },
   { "name": "attack", "category": "envelope", "group": "synthesis" },
   { "name": "decay", "category": "envelope", "group": "synthesis" },
   { "name": "sustain", "category": "envelope", "group": "synthesis" },

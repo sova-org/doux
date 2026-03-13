@@ -9,8 +9,7 @@
 //! 2. Engine calls `process_schedule()` each sample
 //! 3. When `event.tick <= engine.tick`:
 //!    - Event fires (triggers voice/sound)
-//!    - If `repeat` is set, event is re-inserted with new tick
-//!    - Otherwise, event is removed
+//!    - Event is removed
 //!
 //! # Complexity
 //!

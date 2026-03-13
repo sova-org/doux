@@ -8,7 +8,6 @@ pub struct Event {
     // Timing (sample-accurate)
     pub tick: Option<u64>,
     pub delta: Option<i64>,
-    pub repeat: Option<u64>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
 
@@ -291,7 +290,6 @@ impl Event {
                         .map(|t| (t * sr as f64).round() as u64);
                 }
                 "delta" => event.delta = val.parse().ok(),
-                "repeat" | "rep" => event.repeat = val.parse().ok(),
                 "duration" | "dur" | "d" => event.duration = val.parse().ok(),
                 "gate" => event.gate = val.parse().ok(),
                 "voice" => event.voice = val.parse::<f32>().ok().map(|f| f as usize),
