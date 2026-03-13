@@ -82,9 +82,9 @@ pub fn fft(re: &mut [f32], im: &mut [f32], inverse: bool) {
 
     if inverse {
         let inv_n = 1.0 / n as f32;
-        for i in 0..n {
-            re[i] *= inv_n;
-            im[i] *= inv_n;
+        for (re, im) in re.iter_mut().zip(im.iter_mut()) {
+            *re *= inv_n;
+            *im *= inv_n;
         }
     }
 }

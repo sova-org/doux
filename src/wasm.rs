@@ -344,30 +344,7 @@ pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
     unsafe {
         if let Some(ref engine) = ENGINE {
             if voice_idx < engine.active_voices {
-                match engine.voices[voice_idx].params.sound {
-                    Source::Tri => 0,
-                    Source::Sine => 1,
-                    Source::Saw => 2,
-                    Source::Zaw => 3,
-                    Source::Pulse => 4,
-                    Source::Pulze => 5,
-                    Source::Add => 6,
-                    Source::White => 7,
-                    Source::Pink => 8,
-                    Source::Brown => 9,
-                    Source::Sample => 10,
-                    Source::Wavetable => 11,
-                    Source::WebSample => 12,
-                    Source::LiveInput => 13,
-                    Source::Kick => 24,
-                    Source::Snare => 25,
-                    Source::Hat => 26,
-                    Source::Tom => 27,
-                    Source::Rim => 29,
-                    Source::Cowbell => 30,
-                    Source::Cymbal => 31,
-                    Source::Gm => 32,
-                }
+                engine.voices[voice_idx].params.sound.info().debug_id
             } else {
                 -1
             }

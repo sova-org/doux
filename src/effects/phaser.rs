@@ -4,7 +4,19 @@
 //! with an LFO. The notches are offset by ~282 Hz for a richer effect.
 
 use crate::dsp::{exp2f, Biquad, Phasor};
-use crate::types::FilterType;
+use crate::types::{FilterType, ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "phaser",
+    description: "Two-stage notch filter with LFO modulation",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "phaser", aliases: &["phaserrate"], description: "LFO rate in Hz (0 = bypass)", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "phaserdepth", aliases: &[], description: "notch resonance", default: "0.75", min: 0.0, max: 0.95 },
+        ParamInfo { name: "phasersweep", aliases: &[], description: "modulation range in Hz", default: "2000.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "phasercenter", aliases: &[], description: "base center frequency in Hz", default: "1000.0", min: 0.0, max: 20000.0 },
+    ],
+};
 
 /// Frequency offset between the two notch filters (Hz).
 const NOTCH_OFFSET: f32 = 282.0;

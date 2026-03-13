@@ -1,5 +1,17 @@
 use crate::dsp::ftz;
-use crate::types::{DelayType, CHANNELS};
+use crate::types::{DelayType, ModuleInfo, ModuleGroup, ParamInfo, CHANNELS};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "delay",
+    description: "Delay with multiple algorithms (standard, pingpong, tape, multitap)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "delay", aliases: &[], description: "send level", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "delaytime", aliases: &[], description: "time in seconds", default: "0.333", min: 0.0, max: 10.0 },
+        ParamInfo { name: "delayfeedback", aliases: &[], description: "feedback amount", default: "0.6", min: 0.0, max: 1.0 },
+        ParamInfo { name: "delaytype", aliases: &["dtype"], description: "algorithm (standard, pingpong, tape, multitap)", default: "0.0", min: 0.0, max: 3.0 },
+    ],
+};
 
 const MAX_DELAY_SAMPLES: usize = 65536;
 

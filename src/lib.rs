@@ -26,7 +26,19 @@ mod wasm;
 use dsp::{fast_tanh_f32, init_envelope};
 use event::Event;
 use effects::Lag;
+
+use types::ModuleInfo;
 use orbit::Orbit;
+
+/// All modules in the engine: sources, effects, filters, modulation.
+pub fn all_modules() -> Vec<&'static ModuleInfo> {
+    let mut modules: Vec<&'static ModuleInfo> = Source::all()
+        .iter()
+        .map(|s| &s.info().module)
+        .collect();
+    modules.extend_from_slice(effects::ALL_MODULES);
+    modules
+}
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
 use sampling::SampleEntry;

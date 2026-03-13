@@ -1,4 +1,26 @@
 use crate::dsp::ftz;
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "reverb",
+    description: "Reverb (plate / space algorithms)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "verb", aliases: &["reverb"], description: "send level", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbtype", aliases: &["vtype"], description: "algorithm (plate, space)", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbdecay", aliases: &[], description: "decay time", default: "0.75", min: 0.0, max: 0.99 },
+        ParamInfo { name: "verbdamp", aliases: &[], description: "damping", default: "0.95", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbpredelay", aliases: &[], description: "pre-delay in seconds", default: "0.1", min: 0.0, max: 0.3 },
+        ParamInfo { name: "verbdiff", aliases: &[], description: "diffusion amount", default: "0.7", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbprelow", aliases: &[], description: "pre-filter low cutoff (space only)", default: "0.2", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbprehigh", aliases: &[], description: "pre-filter high cutoff (space only)", default: "0.8", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verblowcut", aliases: &[], description: "feedback low shelf cutoff (space only)", default: "0.5", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbhighcut", aliases: &[], description: "feedback high shelf cutoff (space only)", default: "0.7", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verblowgain", aliases: &[], description: "feedback low shelf gain (space only)", default: "0.4", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbchorus", aliases: &["vchorus"], description: "chorus/modulation amount (space only)", default: "0.3", min: 0.0, max: 1.0 },
+        ParamInfo { name: "verbchorusfreq", aliases: &["vchorusfreq"], description: "chorus LFO frequency (space only)", default: "0.2", min: 0.0, max: 1.0 },
+    ],
+};
 
 const REVERB_SR_REF: f32 = 29761.0;
 
