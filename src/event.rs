@@ -8,7 +8,6 @@ pub struct Event {
     // Timing (sample-accurate)
     pub tick: Option<u64>,
     pub delta: Option<i64>,
-    pub repeat: Option<u64>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
 
@@ -307,7 +306,7 @@ impl Event {
                     } else {
                         event.freq = val.parse().ok().map(midi2freq);
                     }
-                },
+                }
                 "detune" => parse_param!(val, detune, ParamId::Detune),
                 "speed" => parse_param!(val, speed, ParamId::Speed),
                 "stretch" => parse_param!(val, stretch, ParamId::Stretch),
@@ -428,7 +427,9 @@ impl Event {
                 "comp" => parse_param!(val, comp, ParamId::Comp),
                 "compattack" | "cattack" => event.compattack = val.parse().ok(),
                 "comprelease" | "crelease" => event.comprelease = val.parse().ok(),
-                "comporbit" | "corbit" => event.comporbit = val.parse::<f32>().ok().map(|f| f as usize),
+                "comporbit" | "corbit" => {
+                    event.comporbit = val.parse::<f32>().ok().map(|f| f as usize)
+                }
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
                 "fold" => parse_param!(val, fold, ParamId::Fold),

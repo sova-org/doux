@@ -1,13 +1,11 @@
-//! Source generation - oscillators, samples, Plaits engines, spread mode.
+//! Source generation - oscillators, samples, spread mode.
 
 use std::f32::consts::TAU;
 
 use crate::dsp::{exp2f, sinf, Phasor};
-use crate::plaits::PlaitsEngine;
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
-use crate::types::{freq2midi, Source, SubWave, BLOCK_SIZE, CHANNELS};
-use mi_plaits_dsp::engine::{EngineParameters, TriggerState};
+use crate::types::{Source, SubWave, CHANNELS};
 
 use super::Voice;
 
@@ -227,19 +225,6 @@ impl Voice {
                 self.nch = 1;
                 self.run_drum(freq, isr);
             }
-            Source::PlModal
-            | Source::PlVa
-            | Source::PlWs
-            | Source::PlFm
-            | Source::PlGrain
-            | Source::PlAdd
-            | Source::PlWt
-            | Source::PlChord
-            | Source::PlSwarm
-            | Source::PlNoise => {
-                self.nch = 1;
-                self.run_plaits(freq, isr);
-            }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
@@ -332,19 +317,6 @@ impl Voice {
                 self.nch = 1;
                 self.run_drum(freq, isr);
             }
-            Source::PlModal
-            | Source::PlVa
-            | Source::PlWs
-            | Source::PlFm
-            | Source::PlGrain
-            | Source::PlAdd
-            | Source::PlWt
-            | Source::PlChord
-            | Source::PlSwarm
-            | Source::PlNoise => {
-                self.nch = 1;
-                self.run_plaits(freq, isr);
-            }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
@@ -357,52 +329,6 @@ impl Voice {
             }
         }
         true
-    }
-
-    fn run_plaits(&mut self, freq: f32, isr: f32) {
-        if self.plaits_idx >= BLOCK_SIZE {
-            let need_new = self
-                .plaits_engine
-                .as_ref()
-                .is_none_or(|e| e.source() != self.params.sound);
-            if need_new {
-                let sample_rate = 1.0 / isr;
-                self.plaits_engine = Some(PlaitsEngine::new(self.params.sound, sample_rate));
-            }
-            let engine = self.plaits_engine.as_mut().unwrap();
-
-            let gate_high = self.params.gate > 0.5;
-            let trigger = if gate_high && !self.plaits_prev_gate {
-                TriggerState::RisingEdge
-            } else if gate_high {
-                TriggerState::High
-            } else {
-                TriggerState::Low
-            };
-            self.plaits_prev_gate = gate_high;
-
-            let params = EngineParameters {
-                trigger,
-                note: freq2midi(freq),
-                timbre: self.params.timbre,
-                morph: self.params.morph,
-                harmonics: self.params.harmonics,
-                accent: self.params.velocity,
-                a0_normalized: 55.0 * isr,
-            };
-
-            let mut already_enveloped = false;
-            engine.render(
-                &params,
-                self.plaits_out.as_mut_slice(),
-                self.plaits_aux.as_mut_slice(),
-                &mut already_enveloped,
-            );
-            self.plaits_idx = 0;
-        }
-
-        self.ch[0] = self.plaits_out[self.plaits_idx] * 0.5;
-        self.plaits_idx += 1;
     }
 
     fn run_spread(&mut self, freq: f32, isr: f32) {

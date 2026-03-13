@@ -628,7 +628,6 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "hound",
- "mi-plaits-dsp",
  "ringbuf",
  "rosc",
  "rustyline",
@@ -647,12 +646,6 @@ dependencies = [
  "ringbuf",
  "serde",
 ]
-
-[[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "either"
@@ -1044,12 +1037,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libm"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
-
-[[package]]
 name = "libredox"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1112,16 +1099,6 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
-
-[[package]]
-name = "mi-plaits-dsp"
-version = "0.1.0"
-source = "git+https://github.com/sourcebox/mi-plaits-dsp-rs?rev=dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4#dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4"
-dependencies = [
- "dyn-clone",
- "num-traits",
- "spin",
-]
 
 [[package]]
 name = "midir"
@@ -1270,7 +1247,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
- "libm",
 ]
 
 [[package]]
@@ -1948,15 +1924,6 @@ name = "soundfont"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a7f4cb358863e55f8f1a3882f68601360cf6c42fc53ff2fe9aea41c33e24489"
-
-[[package]]
-name = "spin"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
-dependencies = [
- "lock_api",
-]
 
 [[package]]
 name = "static_assertions"

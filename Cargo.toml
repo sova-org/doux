@@ -40,7 +40,6 @@ rustyline = { version = "14", optional = true }
 arc-swap = { version = "1.7", optional = true }
 crossbeam-channel = { version = "0.5", optional = true }
 ringbuf = { version = "0.4", optional = true }
-mi-plaits-dsp = { git = "https://github.com/sourcebox/mi-plaits-dsp-rs", rev = "dc55bd55e73bd6f86fbbb4f8adc3b598d659fdb4" }
 soundfont = { version = "0.1.0", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

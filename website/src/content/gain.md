@@ -32,7 +32,7 @@ Post-effects gain multiplier. Applied after phaser/flanger, combined with the en
 
 <CommandEntry name="velocity" type="number" min={0} max={1} default={1}>
 
-Multiplied with <code>gain</code> before filters. Also passed as <code>accent</code> to Plaits engines.
+Multiplied with <code>gain</code> before filters.
 
 <CodeEditor code={`/sound/saw/velocity/0.2\n\n/sound/saw/velocity/1/time/0.25`} rows={4} />
 

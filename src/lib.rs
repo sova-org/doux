@@ -12,7 +12,6 @@ pub mod orbit;
 pub mod osc;
 #[cfg(feature = "native")]
 mod recorder;
-pub mod plaits;
 pub mod sampling;
 pub mod schedule;
 #[cfg(feature = "soundfont")]

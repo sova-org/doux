@@ -37,28 +37,6 @@
                 <a href="https://github.com/felixroos">Felix Roos</a>. This
                 project is AGPL 3.0 licensed, just like Doux!
             </li>
-            <li>
-                <a href="https://github.com/sourcebox/mi-plaits-dsp-rs"
-                    >mi-plaits-dsp-rs</a
-                >
-                is a Rust port of the code used by the
-                <a
-                    href="https://pichenettes.github.io/mutable-instruments-documentation/modules/plaits/"
-                    >Mutable Instruments Plaits</a
-                >.
-                <ul>
-                    <li>
-                        <b>Author:</b> Oliver Rockstedt
-                        <a href="mailto:info@sourcebox.de">info@sourcebox.de</a>
-                    </li>
-                    <li>
-                        <b>Original author:</b> Emilie Gillet
-                        <a href="mailto:emilie.o.gillet@gmail.com"
-                            >emilie.o.gillet@gmail.com</a
-                        >
-                    </li>
-                </ul>
-            </li>
         </ul>
     </section>
 </main>
