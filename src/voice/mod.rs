@@ -15,7 +15,7 @@ use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, Phasor, PinkNoise, SvfMode
 use crate::sampling::StretchState;
 use crate::effects::{
     crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter,
-    LadderMode, Lag, Phaser, Smear, Tilt,
+    LadderMode, Phaser, Smear, Tilt,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -48,7 +48,6 @@ pub struct Voice {
     pub fm_fb_prev2: f32,
     pub am_lfo: Phasor,
     pub rm_lfo: Phasor,
-    pub glide_lag: Lag,
     pub current_freq: f32,
     // Noise
     pub pink_noise: PinkNoise,
@@ -88,7 +87,6 @@ pub struct Voice {
     pub nch: usize,
     pub spread_side: f32,
     pub sr: f32,
-    pub lag_unit: f32,
     pub seed: u32,
 
     // Drum synthesis filter
@@ -123,7 +121,6 @@ impl Default for Voice {
             fm_fb_prev2: 0.0,
             am_lfo: Phasor::default(),
             rm_lfo: Phasor::default(),
-            glide_lag: Lag::default(),
             current_freq: 330.0,
             pink_noise: PinkNoise::default(),
             brown_noise: BrownNoise::default(),
@@ -155,7 +152,6 @@ impl Default for Voice {
             nch: 1,
             spread_side: 0.0,
             sr,
-            lag_unit: sr / 10.0,
             seed: 123456789,
             drum_svf: SvfState::default(),
         }
@@ -185,7 +181,6 @@ impl Clone for Voice {
             fm_fb_prev2: self.fm_fb_prev2,
             am_lfo: self.am_lfo,
             rm_lfo: self.rm_lfo,
-            glide_lag: self.glide_lag,
             current_freq: self.current_freq,
             pink_noise: self.pink_noise,
             brown_noise: self.brown_noise,
@@ -217,7 +212,6 @@ impl Clone for Voice {
             nch: self.nch,
             spread_side: self.spread_side,
             sr: self.sr,
-            lag_unit: self.lag_unit,
             seed: self.seed,
             drum_svf: self.drum_svf,
         }
@@ -342,11 +336,6 @@ impl Voice {
 
         // Speed multiplier
         freq *= self.params.speed;
-
-        // Glide
-        if let Some(glide_time) = self.params.glide {
-            freq = self.glide_lag.update(freq, glide_time, self.lag_unit);
-        }
 
         // FM synthesis (3-operator)
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {

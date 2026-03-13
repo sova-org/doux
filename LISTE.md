@@ -28,21 +28,13 @@ Durée de tout sauf le release
 6) on ne garde que gate : gate n'est plus un booléen, c'est une durée qui correspond à envdelay + attack + hold + decay + temps de sustain. release est un temps en plus après le relâchement de la gate.
 7) pour le paramètre "voice", gate 0 est une voix infinie.
 
-# [X] Plaits
-
-Virer tout les modèles Plaits.
-
 # [ ] Bytebeat
 
 AJouter /doux/sound/bytebeat/formula/"LSMJDQLKDSJQSMJ"
 
-# [ ] Glide
+# [x] Mult
 
-Virer glide du moteur.
-
-# [ ] Mult
-
-Virer mult
+Viré
 
 # [ ] Envelopes ADSR comme modulations audio
 

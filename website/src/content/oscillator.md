@@ -40,14 +40,6 @@ Phase quantization steps. Creates stair-step waveforms similar to 8-bit sound ch
 
 </CommandEntry>
 
-<CommandEntry name="mult" type="number" min={0.25} max={16} default={1}>
-
-Phase multiplier that wraps the waveform multiple times per cycle. Creates hard-sync-like harmonic effects. A value of 2 doubles the frequency content, 4 quadruples it, etc.
-
-<CodeEditor code={`/sound/saw/mult/4`} rows={2} />
-
-</CommandEntry>
-
 <CommandEntry name="warp" type="number" min={-1} max={1} default={0}>
 
 Phase asymmetry using a power curve. Positive values compress the early phase and expand the late phase. Negative values do the opposite. Creates timbral variations without changing pitch.

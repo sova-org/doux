@@ -60,12 +60,3 @@ Shifts the pitch by the given amount in cents. 100 cents = 1 semitone.
 <CodeEditor code={`/sound/saw/freq/440/detune/0>100:1/decay/1/dur/1.5`} rows={2} />
 
 </CommandEntry>
-
-<CommandEntry name="glide" type="number" min={0} default={0} unit="s">
-
-Creates a pitch slide when changing the frequency of an active voice.
-Only has an effect when used with <code>voice</code>.
-
-<CodeEditor code={`/voice/0/freq/220\n\n/voice/0/freq/330/glide/0.5/time/0.25`} rows={4} />
-
-</CommandEntry>

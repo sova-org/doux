@@ -8,6 +8,7 @@ pub struct Event {
     // Timing (sample-accurate)
     pub tick: Option<u64>,
     pub delta: Option<i64>,
+    pub repeat: Option<u64>,
     pub duration: Option<f32>,
     pub gate: Option<f32>,
 
@@ -23,8 +24,6 @@ pub struct Event {
     pub freq: Option<f32>,
     pub detune: Option<f32>,
     pub speed: Option<f32>,
-    pub glide: Option<f32>,
-
     // Time stretch
     pub stretch: Option<f32>,
 
@@ -36,7 +35,6 @@ pub struct Event {
     pub pw: Option<f32>,
     pub spread: Option<f32>,
     pub size: Option<u16>,
-    pub mult: Option<f32>,
     pub warp: Option<f32>,
     pub mirror: Option<f32>,
     pub harmonics: Option<f32>,
@@ -311,12 +309,10 @@ impl Event {
                 "speed" => parse_param!(val, speed, ParamId::Speed),
                 "stretch" => parse_param!(val, stretch, ParamId::Stretch),
                 "fit" => event.fit = val.parse().ok(),
-                "glide" => event.glide = val.parse().ok(),
                 "sound" | "s" => event.sound = Some(val.to_string()),
                 "pw" => parse_param!(val, pw, ParamId::Pw),
                 "spread" => event.spread = val.parse().ok(),
                 "size" => event.size = val.parse().ok(),
-                "mult" => event.mult = val.parse().ok(),
                 "warp" => event.warp = val.parse().ok(),
                 "mirror" => event.mirror = val.parse().ok(),
                 "harmonics" | "harm" => parse_param!(val, harmonics, ParamId::Harmonics),

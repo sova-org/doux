@@ -10,7 +10,7 @@ order: 103
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-Doux is a polyphonic synthesizer with up to 32 simultaneous voices. By default, each event allocates a new voice automatically. When a voice finishes (envelope reaches zero), it is freed and recycled. The <code>voice</code> parameter lets you take manual control over voice allocation, enabling parameter updates on active voices (e.g., pitch slides with <code>glide</code>) or retriggering with <code>reset</code>.
+Doux is a polyphonic synthesizer with up to 32 simultaneous voices. By default, each event allocates a new voice automatically. When a voice finishes (envelope reaches zero), it is freed and recycled. The <code>voice</code> parameter lets you take manual control over voice allocation, enabling parameter updates on active voices or retriggering with <code>reset</code>.
 
 <CommandEntry name="voice" type="number" min={0}>
 

@@ -522,10 +522,6 @@ impl Engine {
             self.voices[voice_idx].seed = self.voice_seed;
             self.voice_seed = modulation::lcg(self.voice_seed);
             self.voices[voice_idx].sr = self.sr;
-            // Initialize glide_lag to target freq to prevent glide from 0
-            if let Some(freq) = event.freq {
-                self.voices[voice_idx].glide_lag.s = freq;
-            }
         }
 
         // Update voice params (only the ones explicitly set in event)
@@ -610,8 +606,6 @@ impl Engine {
         if let Some(stretch) = event.stretch {
             v.params.stretch = stretch.max(0.0);
         }
-        copy_opt_some!(event, v.params, glide);
-
         // --- Source ---
         if let Some(source) = parsed_source {
             v.params.sound = source;
@@ -631,9 +625,6 @@ impl Engine {
         }
         if let Some(size) = event.size {
             v.params.shape.size = size.min(256);
-        }
-        if let Some(mult) = event.mult {
-            v.params.shape.mult = mult.clamp(0.25, 16.0);
         }
         if let Some(warp) = event.warp {
             v.params.shape.warp = warp.clamp(-1.0, 1.0);

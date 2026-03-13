@@ -51,15 +51,13 @@ fn poly_blep(t: f32, dt: f32) -> f32 {
 /// Phase transformation parameters for waveform shaping.
 ///
 /// Applies a chain of transformations to the oscillator phase:
-/// mult → warp → mirror → size (in that order).
+/// warp → mirror → size (in that order).
 ///
 /// All parameters have neutral defaults that result in no transformation.
 #[derive(Clone, Copy)]
 pub struct PhaseShape {
-    /// Phase multiplier. Values > 1 create harmonic overtones.
+    /// Phase quantization steps. Values >= 2 create stair-step waveforms.
     pub size: u16,
-    /// Phase multiplication factor. Default: 1.0 (no multiplication).
-    pub mult: f32,
     /// Power curve exponent. Positive values compress early phase,
     /// negative values compress late phase. Default: 0.0 (linear).
     pub warp: f32,
@@ -72,7 +70,6 @@ impl Default for PhaseShape {
     fn default() -> Self {
         Self {
             size: 0,
-            mult: 1.0,
             warp: 0.0,
             mirror: 0.0,
         }
@@ -83,20 +80,7 @@ impl PhaseShape {
     /// Returns `true` if any shaping parameter is non-neutral.
     #[inline]
     pub fn is_active(&self) -> bool {
-        self.size >= 2 || self.mult != 1.0 || self.warp != 0.0 || self.mirror > 0.0
-    }
-
-    /// Returns the effective phase rate multiplier for PolyBLEP scaling.
-    ///
-    /// The shaped phase traverses faster when mult > 1, so the PolyBLEP
-    /// correction window must widen accordingly.
-    #[inline]
-    pub fn effective_mult(&self) -> f32 {
-        if self.mult > 1.0 {
-            self.mult
-        } else {
-            1.0
-        }
+        self.size >= 2 || self.warp != 0.0 || self.mirror > 0.0
     }
 
     /// Applies the full transformation chain to a phase value.
@@ -107,14 +91,6 @@ impl PhaseShape {
     #[inline]
     pub fn apply(&self, phase: f32) -> f32 {
         let mut p = phase;
-
-        // MULT: multiply and wrap
-        if self.mult != 1.0 {
-            p = (p * self.mult).fract();
-            if p < 0.0 {
-                p += 1.0;
-            }
-        }
 
         // WARP: power curve asymmetry
         if self.warp != 0.0 {
@@ -311,7 +287,7 @@ impl Phasor {
         }
         let dt = freq * isr;
         let p = shape.apply(self.phase);
-        let blep = poly_blep(p, dt * shape.effective_mult());
+        let blep = poly_blep(p, dt);
         let s = p * 2.0 - 1.0 - blep;
         self.update(freq, isr);
         s
@@ -334,7 +310,7 @@ impl Phasor {
         if !shape.is_active() {
             return self.pulse(freq, pw, isr);
         }
-        let dt = freq * isr * shape.effective_mult();
+        let dt = freq * isr;
         let p = shape.apply(self.phase);
         let mut phi = p + pw;
         if phi >= 1.0 {
@@ -397,7 +373,7 @@ impl Phasor {
         } else {
             phase
         };
-        let blep = poly_blep(p, dt * shape.effective_mult());
+        let blep = poly_blep(p, dt);
         p * 2.0 - 1.0 - blep
     }
 
@@ -420,13 +396,12 @@ impl Phasor {
         } else {
             phase
         };
-        let dt_eff = dt * shape.effective_mult();
         let mut phi = p + pw;
         if phi >= 1.0 {
             phi -= 1.0;
         }
-        let p1 = poly_blep(phi, dt_eff);
-        let p2 = poly_blep(p, dt_eff);
+        let p1 = poly_blep(phi, dt);
+        let p2 = poly_blep(p, dt);
         2.0 * (p - phi) - p2 + p1 + pw * 2.0 - 1.0
     }
 
