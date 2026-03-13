@@ -4,7 +4,6 @@
 
 use clap::Parser;
 use doux::sampling::{decode_sample_file, scan_samples_dir};
-use doux::types::BLOCK_SIZE;
 use doux::Engine;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use std::path::PathBuf;
@@ -49,7 +48,8 @@ fn main() {
     let sr = args.sample_rate as f32;
     let channels = args.channels as usize;
 
-    let mut engine = Engine::new_with_channels(sr, channels, args.max_voices);
+    let render_block_size = 512;
+    let mut engine = Engine::new_with_channels(sr, channels, args.max_voices, render_block_size);
 
     if let Some(ref dir) = args.samples {
         let index = scan_samples_dir(dir);
@@ -78,7 +78,7 @@ fn main() {
     let total_samples = (sr * args.duration) as usize;
     let mut output = vec![0.0f32; total_samples * channels];
 
-    for chunk in output.chunks_mut(BLOCK_SIZE * channels) {
+    for chunk in output.chunks_mut(engine.block_size * channels) {
         engine.process_block(chunk, &[], &[]);
     }
 

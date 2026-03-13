@@ -347,7 +347,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
     }
 
-    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
+    let block_size = args.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
+    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices, block_size);
 
     if let Some(ref dir) = args.samples {
         let index = doux::sampling::scan_samples_dir(dir);
@@ -398,7 +399,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Recreate engine and channel
             let mut engine =
-                Engine::new_with_channels(sample_rate, output_channels, max_voices);
+                Engine::new_with_channels(sample_rate, output_channels, max_voices, block_size);
             engine.sample_index = sample_index.clone();
             engine.sample_registry = Arc::clone(&sample_registry);
             #[cfg(feature = "soundfont")]
