@@ -4,6 +4,22 @@
 //! time and damping. Enables slapback echoes, metallic resonances, and
 //! short rhythmic feedback loops.
 
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "feedback",
+    description: "Per-voice re-injection delay",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "feedback", aliases: &["fb"], description: "send / re-injection amount", default: "0.0", min: 0.0, max: 0.99 },
+        ParamInfo { name: "fbtime", aliases: &["fbt"], description: "delay time in ms", default: "10.0", min: 0.0, max: 500.0 },
+        ParamInfo { name: "fbdamp", aliases: &["fbd"], description: "damping in feedback path", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "fblfo", aliases: &[], description: "LFO rate in Hz", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "fblfodepth", aliases: &[], description: "LFO depth", default: "0.5", min: 0.0, max: 1.0 },
+        ParamInfo { name: "fblfoshape", aliases: &[], description: "LFO waveform (sine, tri, saw, square, sh)", default: "sine", min: 0.0, max: 0.0 },
+    ],
+};
+
 const BUFFER_SIZE: usize = 32768;
 
 /// Feedback delay with one-pole damping in the feedback path.

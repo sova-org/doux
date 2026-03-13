@@ -5,6 +5,16 @@
 //! full bitcrusher (sample rate + bit depth reduction).
 
 use crate::dsp::exp2f;
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "crush",
+    description: "Bit depth reduction",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "crush", aliases: &[], description: "bit depth (16 = CD, 8 = crunchy, 1 = square wave)", default: "0.0", min: 0.0, max: 16.0 },
+    ],
+};
 
 /// Reduces bit depth by quantizing to `2^(bits-1)` levels.
 ///

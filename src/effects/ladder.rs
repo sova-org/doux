@@ -2,7 +2,38 @@
 // by Stefano D'Angelo and Vesa Välimäki. Multimode output (LP/HP/BP) via stage-tap coefficient mixing.
 
 use crate::dsp::fast_tanh_f32;
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
 use std::f32::consts::PI;
+
+pub const INFO_LLPF: ModuleInfo = ModuleInfo {
+    name: "llpf",
+    description: "Moog-style ladder lowpass filter",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "llpf", aliases: &[], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "llpq", aliases: &[], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+    ],
+};
+
+pub const INFO_LHPF: ModuleInfo = ModuleInfo {
+    name: "lhpf",
+    description: "Moog-style ladder highpass filter",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "lhpf", aliases: &[], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "lhpq", aliases: &[], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+    ],
+};
+
+pub const INFO_LBPF: ModuleInfo = ModuleInfo {
+    name: "lbpf",
+    description: "Moog-style ladder bandpass filter",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "lbpf", aliases: &[], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "lbpq", aliases: &[], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+    ],
+};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum LadderMode {

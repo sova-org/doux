@@ -1,3 +1,17 @@
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "compressor",
+    description: "Sidechain compressor (ducking)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "comp", aliases: &[], description: "duck amount (0 = off, 1 = full)", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "compattack", aliases: &["cattack"], description: "attack time in seconds", default: "0.01", min: 0.0, max: 1.0 },
+        ParamInfo { name: "comprelease", aliases: &["crelease"], description: "release time in seconds", default: "0.15", min: 0.0, max: 2.0 },
+        ParamInfo { name: "comporbit", aliases: &["corbit"], description: "sidechain source orbit index", default: "0.0", min: 0.0, max: 7.0 },
+    ],
+};
+
 pub struct Compressor {
     env: f32,
 }

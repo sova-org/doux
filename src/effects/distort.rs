@@ -6,6 +6,19 @@
 //! - [`wrap`]: Phase wrapping (harsh, digital)
 
 use crate::dsp::{exp2f, expm1f, sinf};
+use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "distort",
+    description: "Waveshaping distortion (saturation, wavefolding, phase wrapping)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "distort", aliases: &[], description: "soft saturation amount", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "fold", aliases: &[], description: "sine wavefolding amount", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "wrap", aliases: &[], description: "phase wrapping amount", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "distortvol", aliases: &[], description: "output volume compensation", default: "1.0", min: 0.0, max: 2.0 },
+    ],
+};
 
 /// Soft-knee saturation with adjustable drive.
 ///

@@ -1,7 +1,21 @@
 //! 3-band DJ-style EQ using shelving and peaking filters.
 
 use crate::dsp::Biquad;
-use crate::types::FilterType;
+use crate::types::{FilterType, ModuleInfo, ModuleGroup, ParamInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "eq",
+    description: "3-band parametric EQ (low shelf, mid peak, high shelf)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "eqlo", aliases: &[], description: "low shelf gain in dB", default: "0.0", min: -24.0, max: 24.0 },
+        ParamInfo { name: "eqmid", aliases: &[], description: "mid peak gain in dB", default: "0.0", min: -24.0, max: 24.0 },
+        ParamInfo { name: "eqhi", aliases: &[], description: "high shelf gain in dB", default: "0.0", min: -24.0, max: 24.0 },
+        ParamInfo { name: "eqlofreq", aliases: &[], description: "low shelf frequency in Hz", default: "200.0", min: 20.0, max: 2000.0 },
+        ParamInfo { name: "eqmidfreq", aliases: &[], description: "mid peak frequency in Hz", default: "1000.0", min: 100.0, max: 10000.0 },
+        ParamInfo { name: "eqhifreq", aliases: &[], description: "high shelf frequency in Hz", default: "5000.0", min: 1000.0, max: 20000.0 },
+    ],
+};
 
 const MID_Q: f32 = 0.7;
 const SHELF_Q: f32 = 0.707;

@@ -35,3 +35,249 @@ pub use phaser::Phaser;
 pub use reverb::DattorroVerb;
 pub use tilt::Tilt;
 pub use vital_reverb::VitalVerb;
+
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+
+// ── Synthesis ────────────────────────────────────────────────────────────
+
+const INFO_PITCH: ModuleInfo = ModuleInfo {
+    name: "pitch",
+    description: "Pitch and frequency control",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "freq", aliases: &[], description: "base frequency in Hz", default: "330.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "note", aliases: &[], description: "MIDI note number (converted to freq)", default: "0.0", min: 0.0, max: 127.0 },
+        ParamInfo { name: "detune", aliases: &[], description: "pitch offset in cents", default: "0.0", min: -1200.0, max: 1200.0 },
+        ParamInfo { name: "speed", aliases: &[], description: "playback speed multiplier", default: "1.0", min: -100.0, max: 100.0 },
+    ],
+};
+
+const INFO_TIMING: ModuleInfo = ModuleInfo {
+    name: "timing",
+    description: "Timing and gate control",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "tick", aliases: &[], description: "trigger time in samples", default: "0.0", min: 0.0, max: f32::MAX },
+        ParamInfo { name: "gate", aliases: &[], description: "gate duration in seconds", default: "1.0", min: 0.0, max: f32::MAX },
+    ],
+};
+
+const INFO_VOICE: ModuleInfo = ModuleInfo {
+    name: "voice",
+    description: "Voice allocation and routing",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "voice", aliases: &[], description: "voice index (fixed allocation)", default: "0.0", min: 0.0, max: 31.0 },
+        ParamInfo { name: "orbit", aliases: &[], description: "effect bus index", default: "0.0", min: 0.0, max: 7.0 },
+        ParamInfo { name: "reset", aliases: &[], description: "reset voice state", default: "0", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_GAIN: ModuleInfo = ModuleInfo {
+    name: "gain",
+    description: "Gain, panning, and stereo control",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "gain", aliases: &[], description: "pre-filter gain", default: "1.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "postgain", aliases: &[], description: "post-envelope gain", default: "1.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "velocity", aliases: &[], description: "MIDI velocity multiplier", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "pan", aliases: &[], description: "stereo pan (0 left, 0.5 center, 1 right)", default: "0.5", min: 0.0, max: 1.0 },
+        ParamInfo { name: "width", aliases: &[], description: "stereo width (0 mono, 1 unchanged, 2 exaggerated)", default: "1.0", min: 0.0, max: 2.0 },
+        ParamInfo { name: "haas", aliases: &[], description: "stereo placement delay in ms", default: "0.0", min: 0.0, max: 30.0 },
+    ],
+};
+
+const INFO_OSCILLATOR: ModuleInfo = ModuleInfo {
+    name: "oscillator",
+    description: "Oscillator shape and modifiers",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "pw", aliases: &[], description: "pulse width", default: "0.5", min: 0.0, max: 1.0 },
+        ParamInfo { name: "spread", aliases: &[], description: "unison spread in cents", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "size", aliases: &[], description: "phase quantization steps", default: "0.0", min: 0.0, max: 256.0 },
+        ParamInfo { name: "warp", aliases: &[], description: "phase warp distortion", default: "0.0", min: -1.0, max: 1.0 },
+        ParamInfo { name: "mirror", aliases: &[], description: "phase mirror position", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "sub", aliases: &[], description: "sub oscillator mix level", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "suboct", aliases: &[], description: "sub oscillator octave (1-3)", default: "1.0", min: 1.0, max: 3.0 },
+        ParamInfo { name: "subwave", aliases: &[], description: "sub oscillator waveform (tri, sine, square)", default: "tri", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_ENVELOPE: ModuleInfo = ModuleInfo {
+    name: "envelope",
+    description: "DAHDSR amplitude envelope",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "envdelay", aliases: &["envdly"], description: "delay time in seconds", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "attack", aliases: &[], description: "attack time in seconds", default: "0.003", min: 0.0, max: 10.0 },
+        ParamInfo { name: "hold", aliases: &["hld"], description: "hold time at peak in seconds", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "decay", aliases: &[], description: "decay time in seconds", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "sustain", aliases: &[], description: "sustain level", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "release", aliases: &[], description: "release time in seconds", default: "0.005", min: 0.0, max: 10.0 },
+    ],
+};
+
+const INFO_PENV: ModuleInfo = ModuleInfo {
+    name: "penv",
+    description: "Pitch envelope",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "penv", aliases: &[], description: "depth in semitones", default: "1.0", min: -48.0, max: 48.0 },
+        ParamInfo { name: "patt", aliases: &[], description: "attack time", default: "0.001", min: 0.0, max: 10.0 },
+        ParamInfo { name: "pdec", aliases: &[], description: "decay time", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "psus", aliases: &[], description: "sustain level", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "prel", aliases: &[], description: "release time", default: "0.005", min: 0.0, max: 10.0 },
+    ],
+};
+
+const INFO_VIBRATO: ModuleInfo = ModuleInfo {
+    name: "vibrato",
+    description: "Pitch LFO modulation",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "vib", aliases: &[], description: "LFO rate in Hz", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "vibmod", aliases: &[], description: "depth in semitones", default: "0.5", min: 0.0, max: 12.0 },
+        ParamInfo { name: "vibshape", aliases: &[], description: "LFO waveform (sine, tri, saw, square, sh)", default: "sine", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_FM: ModuleInfo = ModuleInfo {
+    name: "fm",
+    description: "Frequency modulation synthesis",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "fm", aliases: &["fmi"], description: "modulation index (depth)", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "fmh", aliases: &[], description: "harmonic ratio", default: "1.0", min: 0.0, max: 32.0 },
+        ParamInfo { name: "fme", aliases: &[], description: "FM envelope depth", default: "1.0", min: -10.0, max: 10.0 },
+        ParamInfo { name: "fma", aliases: &[], description: "FM envelope attack", default: "0.001", min: 0.0, max: 10.0 },
+        ParamInfo { name: "fmd", aliases: &[], description: "FM envelope decay", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "fms", aliases: &[], description: "FM envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "fmr", aliases: &[], description: "FM envelope release", default: "0.005", min: 0.0, max: 10.0 },
+        ParamInfo { name: "fm2", aliases: &[], description: "operator 2 modulation index", default: "0.0", min: 0.0, max: 100.0 },
+        ParamInfo { name: "fm2h", aliases: &[], description: "operator 2 harmonic ratio", default: "1.0", min: 0.0, max: 32.0 },
+        ParamInfo { name: "fmalgo", aliases: &[], description: "algorithm (0=cascade, 1=parallel, 2=branch)", default: "0.0", min: 0.0, max: 2.0 },
+        ParamInfo { name: "fmfb", aliases: &[], description: "feedback on topmost operator", default: "0.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "fmshape", aliases: &[], description: "modulator waveform (sine, tri, saw, square, sh)", default: "sine", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_AM: ModuleInfo = ModuleInfo {
+    name: "am",
+    description: "Amplitude modulation",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "am", aliases: &[], description: "LFO rate in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "amdepth", aliases: &[], description: "modulation depth", default: "0.5", min: 0.0, max: 1.0 },
+        ParamInfo { name: "amshape", aliases: &[], description: "LFO waveform (sine, tri, saw, square, sh)", default: "sine", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_RM: ModuleInfo = ModuleInfo {
+    name: "rm",
+    description: "Ring modulation",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "rm", aliases: &[], description: "modulator frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "rmdepth", aliases: &[], description: "modulation depth", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "rmshape", aliases: &[], description: "modulator waveform (sine, tri, saw, square, sh)", default: "sine", min: 0.0, max: 0.0 },
+    ],
+};
+
+const INFO_RECORDER: ModuleInfo = ModuleInfo {
+    name: "recorder",
+    description: "Audio recording and overdubbing",
+    group: ModuleGroup::Synthesis,
+    params: &[
+        ParamInfo { name: "overdub", aliases: &["dub"], description: "layer on existing recording", default: "false", min: 0.0, max: 0.0 },
+    ],
+};
+
+// ── Filters (Effect group) ──────────────────────────────────────────────
+
+const INFO_LPF: ModuleInfo = ModuleInfo {
+    name: "lpf",
+    description: "State variable lowpass filter with envelope",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "lpf", aliases: &["cutoff"], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "lpq", aliases: &["resonance"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+        ParamInfo { name: "lpe", aliases: &["lpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
+        ParamInfo { name: "lpa", aliases: &["lpattack"], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
+        ParamInfo { name: "lpd", aliases: &["lpdecay"], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "lps", aliases: &["lpsustain"], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "lpr", aliases: &["lprelease"], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
+    ],
+};
+
+const INFO_HPF: ModuleInfo = ModuleInfo {
+    name: "hpf",
+    description: "State variable highpass filter with envelope",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "hpf", aliases: &["hcutoff"], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "hpq", aliases: &["hresonance"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+        ParamInfo { name: "hpe", aliases: &["hpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
+        ParamInfo { name: "hpa", aliases: &[], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
+        ParamInfo { name: "hpd", aliases: &[], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "hps", aliases: &[], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "hpr", aliases: &[], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
+    ],
+};
+
+const INFO_BPF: ModuleInfo = ModuleInfo {
+    name: "bpf",
+    description: "State variable bandpass filter with envelope",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo { name: "bpf", aliases: &["bandf"], description: "center frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
+        ParamInfo { name: "bpq", aliases: &["bandq"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
+        ParamInfo { name: "bpe", aliases: &["bpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
+        ParamInfo { name: "bpa", aliases: &["bpattack"], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
+        ParamInfo { name: "bpd", aliases: &["bpdecay"], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
+        ParamInfo { name: "bps", aliases: &["bpsustain"], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
+        ParamInfo { name: "bpr", aliases: &["bprelease"], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
+    ],
+};
+
+// ── Registry ────────────────────────────────────────────────────────────
+
+pub const ALL_MODULES: &[&ModuleInfo] = &[
+    // Synthesis
+    &INFO_PITCH,
+    &INFO_TIMING,
+    &INFO_VOICE,
+    &INFO_GAIN,
+    &INFO_OSCILLATOR,
+    &INFO_ENVELOPE,
+    &INFO_PENV,
+    &INFO_VIBRATO,
+    &INFO_FM,
+    &INFO_AM,
+    &INFO_RM,
+    &INFO_RECORDER,
+    // Effects — filters
+    &INFO_LPF,
+    &INFO_HPF,
+    &INFO_BPF,
+    &ladder::INFO_LLPF,
+    &ladder::INFO_LHPF,
+    &ladder::INFO_LBPF,
+    // Effects — modulation
+    &phaser::INFO,
+    &flanger::INFO,
+    &chorus::INFO,
+    &smear::INFO,
+    // Effects — distortion
+    &coarse::INFO,
+    &crush::INFO,
+    &distort::INFO,
+    // Effects — EQ
+    &eq::INFO,
+    &tilt::INFO,
+    // Effects — spatial/send
+    &delay::INFO,
+    &reverb::INFO,
+    &comb::INFO,
+    &feedback::INFO,
+    &compressor::INFO,
+];
