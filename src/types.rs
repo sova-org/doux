@@ -23,7 +23,6 @@ pub enum Source {
     Snare,
     Hat,
     Tom,
-
     Rim,
     Cowbell,
     Cymbal,
@@ -32,16 +31,6 @@ pub enum Source {
     Wavetable, // Sample played as wavetable oscillator with pitch tracking
     WebSample, // Web: inline PCM from JavaScript
     LiveInput, // Live audio input (microphone, line-in)
-    PlModal,
-    PlVa,
-    PlWs,
-    PlFm,
-    PlGrain,
-    PlAdd,
-    PlWt,
-    PlChord,
-    PlSwarm,
-    PlNoise,
 }
 
 impl Source {
@@ -81,24 +70,13 @@ impl FromStr for Source {
             "snare" | "sd" => Ok(Self::Snare),
             "hat" | "hh" | "hihat" => Ok(Self::Hat),
             "tom" => Ok(Self::Tom),
-
             "rim" | "rimshot" | "rs" => Ok(Self::Rim),
             "cowbell" | "cb" => Ok(Self::Cowbell),
-            "cymbal" | "crash" | "cy" => Ok(Self::Cymbal),
+            "cymbal" | "cy" => Ok(Self::Cymbal),
             "sample" => Ok(Self::Sample),
             "wt" => Ok(Self::Wavetable),
             "websample" => Ok(Self::WebSample),
-            "live" | "livein" | "mic" => Ok(Self::LiveInput),
-            "plmodal" | "modal" => Ok(Self::PlModal),
-            "plva" | "va" | "analog" => Ok(Self::PlVa),
-            "plws" | "ws" | "waveshape" => Ok(Self::PlWs),
-            "plfm" | "fm2" => Ok(Self::PlFm),
-            "plgrain" | "grain" => Ok(Self::PlGrain),
-            "pladd" | "additive" => Ok(Self::PlAdd),
-            "plwt" | "wavetable" => Ok(Self::PlWt),
-            "plchord" | "chord" => Ok(Self::PlChord),
-            "plswarm" | "swarm" => Ok(Self::PlSwarm),
-            "plnoise" | "pnoise" => Ok(Self::PlNoise),
+            "live" | "mic" => Ok(Self::LiveInput),
             _ => Err(()),
         }
     }
@@ -117,9 +95,9 @@ impl FromStr for SubWave {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "tri" | "triangle" => Ok(Self::Tri),
-            "sine" | "sin" => Ok(Self::Sine),
-            "square" | "sq" => Ok(Self::Square),
+            "tri" => Ok(Self::Tri),
+            "sine" => Ok(Self::Sine),
+            "square" | "pulse" => Ok(Self::Square),
             _ => Err(()),
         }
     }
@@ -143,7 +121,7 @@ impl FromStr for LfoShape {
             "sine" | "sin" => Ok(Self::Sine),
             "tri" | "triangle" => Ok(Self::Tri),
             "saw" | "sawtooth" => Ok(Self::Saw),
-            "square" | "sq" => Ok(Self::Square),
+            "square" | "pulse" => Ok(Self::Square),
             "sh" | "sah" | "random" => Ok(Self::Sh),
             _ => Err(()),
         }

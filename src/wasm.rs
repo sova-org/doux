@@ -337,7 +337,7 @@ pub extern "C" fn debug_event_input_byte(idx: usize) -> u8 {
 
 /// Debug: returns the source type of a voice as an integer.
 ///
-/// Mapping: Tri=0, Sine=1, Saw=2, ... LiveInput=11, PlModal=12, etc.
+/// Mapping: Tri=0, Sine=1, Saw=2, ... LiveInput=11, Kick=24, etc.
 /// Returns `-1` if voice index is invalid.
 #[no_mangle]
 pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
@@ -359,16 +359,6 @@ pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
                     Source::Wavetable => 11,
                     Source::WebSample => 12,
                     Source::LiveInput => 13,
-                    Source::PlModal => 14,
-                    Source::PlVa => 15,
-                    Source::PlWs => 16,
-                    Source::PlFm => 17,
-                    Source::PlGrain => 18,
-                    Source::PlAdd => 19,
-                    Source::PlWt => 20,
-                    Source::PlChord => 21,
-                    Source::PlSwarm => 22,
-                    Source::PlNoise => 23,
                     Source::Kick => 24,
                     Source::Snare => 25,
                     Source::Hat => 26,

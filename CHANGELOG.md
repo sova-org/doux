@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.0] - Unreleased
+
+### Removed
+
+- **Mutable Instruments Plaits oscillators** — removed all 10 Plaits synthesis engines (`modal`, `va`, `ws`, `fm2`, `grain`, `additive`, `wavetable`, `chord`, `swarm`, `pnoise`) and the `mi-plaits-dsp` dependency. The native additive oscillator (`add`) retains `harmonics`, `timbre`, `morph`, and `partials` parameters
+
 ## [0.0.10] - 2026-03-12
 
 ### Added

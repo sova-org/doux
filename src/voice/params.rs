@@ -48,7 +48,7 @@ pub struct VoiceParams {
     // ─────────────────────────────────────────────────────────────────────
     // Oscillator
     // ─────────────────────────────────────────────────────────────────────
-    /// Sound source type (oscillator waveform, sample, or Plaits engine).
+    /// Sound source type (oscillator waveform or sample).
     pub sound: Source,
     /// Pulse width for pulse/square waves (0.0 to 1.0).
     pub pw: f32,
@@ -56,11 +56,11 @@ pub struct VoiceParams {
     pub spread: f32,
     /// Phase shaping parameters for waveform modification.
     pub shape: PhaseShape,
-    /// Harmonics control for Plaits engines (0.0 to 1.0).
+    /// Harmonics control for additive oscillator (0.0 to 1.0).
     pub harmonics: f32,
-    /// Timbre control for Plaits engines (0.0 to 1.0).
+    /// Timbre control for additive oscillator (0.0 to 1.0).
     pub timbre: f32,
-    /// Morph control for Plaits engines (0.0 to 1.0).
+    /// Morph control for additive oscillator (0.0 to 1.0).
     pub morph: f32,
     /// Number of active harmonics for additive oscillator (1-32).
     pub partials: f32,
