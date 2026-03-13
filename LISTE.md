@@ -32,10 +32,6 @@ Durée de tout sauf le release
 
 AJouter /doux/sound/bytebeat/formula/"LSMJDQLKDSJQSMJ"
 
-# [x] Mult
-
-Viré
-
 # [ ] Envelopes ADSR comme modulations audio
 
 - ad (côté langage)
