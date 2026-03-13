@@ -10,6 +10,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Mutable Instruments Plaits oscillators** — removed all 10 Plaits synthesis engines (`modal`, `va`, `ws`, `fm2`, `grain`, `additive`, `wavetable`, `chord`, `swarm`, `pnoise`) and the `mi-plaits-dsp` dependency. The native additive oscillator (`add`) retains `harmonics`, `timbre`, `morph`, and `partials` parameters
 - **Glide (portamento)** — removed `glide` parameter from engine, event parsing, and documentation. Audio-rate frequency modulation (`freq` with `>`, `~`) replaces this functionality
 
+### Fixed
+
+- **BLOCK_SIZE**: clarify how BLOCK_SIZE is used throughout the engine (WASM / native confusion).
+
 ## [0.0.10] - 2026-03-12
 
 ### Added
@@ -20,6 +24,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **Deterministic modulation seeds** — each voice now receives a unique random seed from the engine, so consecutive voices with random modulation (`jit`, `drunk`, etc.) produce different patterns instead of identical ones
+
 
 ## [0.0.9] - 2026-03-11
 
