@@ -110,12 +110,12 @@ Additive oscillator. Builds timbres by stacking sine partials. Shape the spectru
 
 <CodeEditor code={`/sound/add/note/36/timbre/0.8/morph/0.2`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/48/timbre/0~1:2/decay/4/dur/5`} rows={2} />
+<CodeEditor code={`/sound/add/note/48/timbre/0~1:2/decay/4/gate/5`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/36/morph/0~1:1/dur/3`} rows={2} />
+<CodeEditor code={`/sound/add/note/36/morph/0~1:1/gate/3`} rows={2} />
 
 <CodeEditor code={`/sound/add/note/60/harmonics/0.7/timbre/0.8/partials/12`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/48/partials/1~32:3/dur/4`} rows={2} />
+<CodeEditor code={`/sound/add/note/48/partials/1~32:3/gate/4`} rows={2} />
 
 </CommandEntry>

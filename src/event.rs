@@ -8,7 +8,6 @@ pub struct Event {
     // Timing (sample-accurate)
     pub tick: Option<u64>,
     pub delta: Option<i64>,
-    pub duration: Option<f32>,
     pub gate: Option<f32>,
 
     // Voice control
@@ -66,7 +65,9 @@ pub struct Event {
     pub pan: Option<f32>,
 
     // Gain envelope
+    pub envdelay: Option<f32>,
     pub attack: Option<f32>,
+    pub hold: Option<f32>,
     pub decay: Option<f32>,
     pub sustain: Option<f32>,
     pub release: Option<f32>,
@@ -290,7 +291,6 @@ impl Event {
                         .map(|t| (t * sr as f64).round() as u64);
                 }
                 "delta" => event.delta = val.parse().ok(),
-                "duration" | "dur" | "d" => event.duration = val.parse().ok(),
                 "gate" => event.gate = val.parse().ok(),
                 "voice" => event.voice = val.parse::<f32>().ok().map(|f| f as usize),
                 "reset" => event.reset = Some(val == "1" || val == "true"),
@@ -338,7 +338,9 @@ impl Event {
                 "postgain" => parse_param!(val, postgain, ParamId::Postgain),
                 "velocity" => event.velocity = val.parse().ok(),
                 "pan" => parse_param!(val, pan, ParamId::Pan),
+                "envdelay" | "envdly" => event.envdelay = val.parse().ok(),
                 "attack" => event.attack = val.parse().ok(),
+                "hold" | "hld" => event.hold = val.parse().ok(),
                 "decay" => event.decay = val.parse().ok(),
                 "sustain" => event.sustain = val.parse().ok(),
                 "release" => event.release = val.parse().ok(),

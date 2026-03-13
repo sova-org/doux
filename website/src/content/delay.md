@@ -16,7 +16,7 @@ Stereo delay line with feedback (max 1 second at 48kHz, clamped to 0.95 feedback
 
 Send level to the delay bus.
 
-<CodeEditor code={`/delay/.5/duration/.1`} rows={2} />
+<CodeEditor code={`/delay/.5/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -24,7 +24,7 @@ Send level to the delay bus.
 
 Feedback amount (clamped to 0.95 max). Output is fed back into input.
 
-<CodeEditor code={`/delay/.5/delayfeedback/.8/duration/.1`} rows={2} />
+<CodeEditor code={`/delay/.5/delayfeedback/.8/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -32,7 +32,7 @@ Feedback amount (clamped to 0.95 max). Output is fed back into input.
 
 Delay time in seconds (max ~1s at 48kHz).
 
-<CodeEditor code={`/delay/.5/delaytime/.08/duration/.1`} rows={2} />
+<CodeEditor code={`/delay/.5/delaytime/.08/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -45,14 +45,14 @@ Delay time in seconds (max ~1s at 48kHz).
 <li><strong>multitap</strong> — 4 taps. Feedback 0=straight, 1=triplet, between=swing.</li>
 </ul>
 
-<CodeEditor code={`/sound/saw/delay/.6/dtype/std/delaytime/.15/delayfeedback/.7/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/delay/.6/dtype/std/delaytime/.15/delayfeedback/.7/gate/.05`} rows={2} />
 
-<CodeEditor code={`/sound/saw/delay/.7/dtype/pp/delaytime/.12/delayfeedback/.8/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/delay/.7/dtype/pp/delaytime/.12/delayfeedback/.8/gate/.05`} rows={2} />
 
-<CodeEditor code={`/sound/saw/delay/.6/dtype/tape/delaytime/.2/delayfeedback/.9/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/delay/.6/dtype/tape/delaytime/.2/delayfeedback/.9/gate/.05`} rows={2} />
 
-<CodeEditor code={`/sound/saw/delay/.7/dtype/multi/delaytime/.3/delayfeedback/0/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/delay/.7/dtype/multi/delaytime/.3/delayfeedback/0/gate/.05`} rows={2} />
 
-<CodeEditor code={`/sound/saw/delay/.7/dtype/multi/delaytime/.3/delayfeedback/1/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/delay/.7/dtype/multi/delaytime/.3/delayfeedback/1/gate/.05`} rows={2} />
 
 </CommandEntry>

@@ -1,7 +1,7 @@
 //! Synthesized drum sources.
 //!
 //! Each drum generates a shaped waveform with internal timbral dynamics.
-//! The engine's existing ADSR controls overall amplitude.
+//! The engine's existing DAHDSR controls overall amplitude.
 
 use std::f32::consts::TAU;
 

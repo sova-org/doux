@@ -393,15 +393,15 @@ impl Engine {
             "release" => {
                 if let Some(v) = event.voice {
                     if v < self.active_voices {
-                        self.voices[v].params.gate = 0.0;
+                        self.voices[v].force_release();
                     }
                 }
                 None
             }
             "hush_endless" => {
                 for i in 0..self.active_voices {
-                    if self.voices[i].params.duration.is_none() {
-                        self.voices[i].params.gate = 0.0;
+                    if self.voices[i].params.gate == 0.0 {
+                        self.voices[i].force_release();
                     }
                 }
                 None
@@ -473,7 +473,7 @@ impl Engine {
         if let Some(cut) = event.cut {
             for i in 0..self.active_voices {
                 if self.voices[i].params.cut == Some(cut) {
-                    self.voices[i].params.gate = 0.0;
+                    self.voices[i].force_release();
                 }
             }
         }
@@ -785,7 +785,6 @@ impl Engine {
 
         // --- Gain ---
         copy_opt!(event, v.params, gain, postgain, velocity, pan, gate);
-        copy_opt_some!(event, v.params, duration);
 
         // --- Gain Envelope ---
         let (att, dec, sus, rel) =
@@ -802,19 +801,21 @@ impl Engine {
             } else {
                 (event.attack, event.decay, event.sustain, event.release)
             };
-        let gain_env = init_envelope(None, att, dec, sus, rel);
+        let gain_env = init_envelope(None, event.envdelay, att, event.hold, dec, sus, rel);
         if gain_env.active {
+            v.params.envdelay = gain_env.dly;
             v.params.attack = gain_env.att;
+            v.params.hold = gain_env.hld;
             v.params.decay = gain_env.dec;
             v.params.sustain = gain_env.sus;
             v.params.release = gain_env.rel;
         }
 
         // --- Filters ---
-        // Macro to apply envelope params (env amount + ADSR) to a target
+        // Macro to apply envelope params (env amount + DAHDSR) to a target
         macro_rules! apply_env {
             ($src:expr, $dst:expr, $e:ident, $a:ident, $d:ident, $s:ident, $r:ident, $active:ident) => {
-                let env = init_envelope($src.$e, $src.$a, $src.$d, $src.$s, $src.$r);
+                let env = init_envelope($src.$e, None, $src.$a, None, $src.$d, $src.$s, $src.$r);
                 if env.active {
                     $dst.$e = env.env;
                     $dst.$a = env.att;
@@ -1244,7 +1245,7 @@ impl Engine {
 
     pub fn hush(&mut self) {
         for i in 0..self.active_voices {
-            self.voices[i].params.gate = 0.0;
+            self.voices[i].force_release();
         }
     }
 

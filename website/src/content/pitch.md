@@ -22,9 +22,9 @@ The frequency of the sound. Has no effect on noise.
 
 <CodeEditor code={`/freq/1200`} rows={2} />
 
-<CodeEditor code={`/sound/saw/freq/220>880:1/decay/1.5/dur/2`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/220>880:1/decay/1.5/gate/2`} rows={2} />
 
-<CodeEditor code={`/sound/sine/freq/330~340:0.2/decay/2/dur/2`} rows={2} />
+<CodeEditor code={`/sound/sine/freq/330~340:0.2/decay/2/gate/2`} rows={2} />
 
 </CommandEntry>
 
@@ -57,6 +57,6 @@ Shifts the pitch by the given amount in cents. 100 cents = 1 semitone.
 
 <CodeEditor code={`/freq/440/detune/-50`} rows={2} />
 
-<CodeEditor code={`/sound/saw/freq/440/detune/0>100:1/decay/1/dur/1.5`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/440/detune/0>100:1/decay/1/gate/1.5`} rows={2} />
 
 </CommandEntry>

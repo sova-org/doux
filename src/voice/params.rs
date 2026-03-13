@@ -5,7 +5,7 @@
 //!
 //! - **Core** - frequency, gain, panning, gate
 //! - **Oscillator** - sound source, pulse width, spread, waveshaping
-//! - **Amplitude Envelope** - ADSR for volume
+//! - **Amplitude Envelope** - DAHDSR for volume
 //! - **Filters** - lowpass, highpass, bandpass with optional envelopes
 //! - **Pitch Modulation** - pitch envelope, vibrato, FM
 //! - **Amplitude Modulation** - AM, ring modulation
@@ -40,10 +40,8 @@ pub struct VoiceParams {
     pub postgain: f32,
     /// Stereo pan position (0.0 = left, 0.5 = center, 1.0 = right).
     pub pan: f32,
-    /// Gate signal (> 0.0 = note on, 0.0 = note off).
+    /// Gate duration in seconds (0.0 = infinite sustain).
     pub gate: f32,
-    /// Optional note duration in seconds. Voice releases when exceeded.
-    pub duration: Option<f32>,
 
     // ─────────────────────────────────────────────────────────────────────
     // Oscillator
@@ -80,10 +78,14 @@ pub struct VoiceParams {
     pub sub_wave: SubWave,
 
     // ─────────────────────────────────────────────────────────────────────
-    // Amplitude Envelope (ADSR)
+    // Amplitude Envelope (DAHDSR)
     // ─────────────────────────────────────────────────────────────────────
+    /// Envelope delay time in seconds.
+    pub envdelay: f32,
     /// Attack time in seconds.
     pub attack: f32,
+    /// Hold time at peak amplitude in seconds.
+    pub hold: f32,
     /// Decay time in seconds.
     pub decay: f32,
     /// Sustain level (0.0 to 1.0).
@@ -411,7 +413,6 @@ impl Default for VoiceParams {
             postgain: 1.0,
             pan: 0.5,
             gate: 1.0,
-            duration: None,
             sound: Source::Tri,
             pw: 0.5,
             spread: 0.0,
@@ -427,7 +428,9 @@ impl Default for VoiceParams {
             sub: 0.0,
             sub_oct: 1,
             sub_wave: SubWave::Tri,
+            envdelay: 0.0,
             attack: 0.003,
+            hold: 0.0,
             decay: 0.0,
             sustain: 1.0,
             release: 0.005,

@@ -16,7 +16,7 @@ Send-effect reverb with two algorithms: space (default) and plate.
 
 Send level to the reverb bus.
 
-<CodeEditor code={`/verb/1/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -27,9 +27,9 @@ Send level to the reverb bus.
 <li><strong>plate</strong> — Bright and metallic.</li>
 </ul>
 
-<CodeEditor code={`/sound/saw/verb/1.2/verbdecay/.7/verbdamp/.3/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/verb/1.2/verbdecay/.7/verbdamp/.3/gate/.05`} rows={2} />
 
-<CodeEditor code={`/sound/saw/verb/1.2/verbtype/plate/verbdecay/.7/verbdamp/.3/d/.05`} rows={2} />
+<CodeEditor code={`/sound/saw/verb/1.2/verbtype/plate/verbdecay/.7/verbdamp/.3/gate/.05`} rows={2} />
 
 </CommandEntry>
 
@@ -37,9 +37,9 @@ Send level to the reverb bus.
 
 Controls how long the reverb tail rings out.
 
-<CodeEditor code={`/verb/1/verbdecay/.3/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdecay/.3/gate/.1`} rows={2} />
 
-<CodeEditor code={`/verb/1/verbdecay/.95/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdecay/.95/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -47,9 +47,9 @@ Controls how long the reverb tail rings out.
 
 Higher values darken the reverb tail.
 
-<CodeEditor code={`/verb/1/verbdamp/.2/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdamp/.2/gate/.1`} rows={2} />
 
-<CodeEditor code={`/verb/1/verbdamp/.9/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdamp/.9/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -57,7 +57,7 @@ Higher values darken the reverb tail.
 
 Gap before the reverb starts.
 
-<CodeEditor code={`/verb/1/verbpredelay/.5/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbpredelay/.5/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -65,9 +65,9 @@ Gap before the reverb starts.
 
 Room size. Low values give small tight spaces, high values give large halls.
 
-<CodeEditor code={`/verb/1/verbdiff/.1/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdiff/.1/gate/.1`} rows={2} />
 
-<CodeEditor code={`/verb/1/verbdiff/.9/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbdiff/.9/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -75,9 +75,9 @@ Room size. Low values give small tight spaces, high values give large halls.
 
 Adds movement to the reverb tail (space only).
 
-<CodeEditor code={`/verb/1/verbchorus/0/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbchorus/0/gate/.1`} rows={2} />
 
-<CodeEditor code={`/verb/1/verbchorus/.8/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbchorus/.8/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -85,7 +85,7 @@ Adds movement to the reverb tail (space only).
 
 Speed of the chorus modulation (space only).
 
-<CodeEditor code={`/verb/1/verbchorus/.5/verbchorusfreq/.6/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbchorus/.5/verbchorusfreq/.6/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -93,7 +93,7 @@ Speed of the chorus modulation (space only).
 
 Cuts low frequencies before they enter the reverb (space only).
 
-<CodeEditor code={`/verb/1/verbprelow/.5/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbprelow/.5/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -101,7 +101,7 @@ Cuts low frequencies before they enter the reverb (space only).
 
 Cuts high frequencies before they enter the reverb (space only).
 
-<CodeEditor code={`/verb/1/verbprehigh/.4/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbprehigh/.4/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -109,7 +109,7 @@ Cuts high frequencies before they enter the reverb (space only).
 
 Where the low-frequency shaping kicks in inside the reverb (space only).
 
-<CodeEditor code={`/verb/1/verblowcut/.3/verblowgain/.2/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verblowcut/.3/verblowgain/.2/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -117,7 +117,7 @@ Where the low-frequency shaping kicks in inside the reverb (space only).
 
 Where the high-frequency shaping kicks in inside the reverb (space only).
 
-<CodeEditor code={`/verb/1/verbhighcut/.4/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verbhighcut/.4/gate/.1`} rows={2} />
 
 </CommandEntry>
 
@@ -125,6 +125,6 @@ Where the high-frequency shaping kicks in inside the reverb (space only).
 
 How much bass survives in the reverb tail (space only). Lower values thin it out.
 
-<CodeEditor code={`/verb/1/verblowgain/.1/duration/.1`} rows={2} />
+<CodeEditor code={`/verb/1/verblowgain/.1/gate/.1`} rows={2} />
 
 </CommandEntry>

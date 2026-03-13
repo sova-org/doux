@@ -127,7 +127,7 @@ impl Cursor {
     }
 
     /// Returns true if playback has finished (position out of bounds).
-    /// Looping cursors never finish from position — voice dies from ADSR release.
+    /// Looping cursors never finish from position — voice dies from DAHDSR release.
     #[inline]
     pub fn is_done(&self) -> bool {
         if self.loop_end > 0.0 {

@@ -1,8 +1,22 @@
-//! ADSR envelope generation for audio synthesis.
+//! DAHDSR envelope generation for audio synthesis.
 //!
-//! This module provides a state-machine based ADSR (Attack, Decay, Sustain, Release)
-//! envelope generator with configurable curve shapes. The envelope responds to gate
-//! signals and produces amplitude values in the range `[0.0, 1.0]`.
+//! This module provides a state-machine based DAHDSR (Delay, Attack, Hold, Decay, Sustain, Release)
+//! envelope generator with configurable curve shapes. The envelope is self-timed via a gate
+//! duration and produces amplitude values in the range `[0.0, 1.0]`.
+//!
+//! # Phase Order
+//!
+//! 1. Delay — output 0.0 for `delay` seconds
+//! 2. Attack — rise from 0.0 to 1.0
+//! 3. Hold — stay at 1.0 for `hold` seconds
+//! 4. Decay — fall from 1.0 to sustain level
+//! 5. Sustain — hold at sustain level until gate time elapses
+//! 6. Release — fall to 0.0
+//!
+//! # Gate Duration
+//!
+//! `gate` = delay + attack + hold + decay + sustain_time.
+//! If gate = 0, sustain is infinite (requires explicit release).
 //!
 //! # Curve Shaping
 //!
@@ -37,25 +51,29 @@ fn lerp(x: f32, y0: f32, y1: f32, exp: f32) -> f32 {
     y0 + (y1 - y0) * curved
 }
 
-/// Current phase of the ADSR envelope state machine.
+/// Current phase of the DAHDSR envelope state machine.
 #[derive(Clone, Copy)]
 pub enum AdsrState {
     /// Envelope is inactive, outputting zero.
     Off,
+    /// Waiting before attack begins.
+    Delay,
     /// Rising from current value toward peak (1.0).
     Attack,
+    /// Holding at peak (1.0) for a fixed duration.
+    Hold,
     /// Falling from peak toward sustain level.
     Decay,
-    /// Holding at sustain level while gate remains high.
+    /// Holding at sustain level while gate time remains.
     Sustain,
     /// Falling from current value toward zero after gate release.
     Release,
 }
 
-/// State-machine ADSR envelope generator.
+/// State-machine DAHDSR envelope generator.
 ///
-/// Tracks envelope phase and timing internally. Call [`Adsr::update`] each sample
-/// with the current time and gate signal to produce envelope values.
+/// Self-timed: call [`Adsr::trigger`] to start, then [`Adsr::update`] each sample.
+/// The gate duration controls when release starts automatically.
 ///
 /// # Curve Parameters
 ///
@@ -64,8 +82,11 @@ pub enum AdsrState {
 #[derive(Clone, Copy)]
 pub struct Adsr {
     state: AdsrState,
-    start_time: f32,
+    phase_time: f32,
+    elapsed: f32,
     start_val: f32,
+    current_val: f32,
+    gate_time: f32,
     attack_curve: f32,
     decay_curve: f32,
 }
@@ -74,8 +95,11 @@ impl Default for Adsr {
     fn default() -> Self {
         Self {
             state: AdsrState::Off,
-            start_time: 0.0,
+            phase_time: 0.0,
+            elapsed: 0.0,
             start_val: 0.0,
+            current_val: 0.0,
+            gate_time: 0.0,
             attack_curve: 2.0,
             decay_curve: 2.0,
         }
@@ -88,91 +112,147 @@ impl Adsr {
         matches!(self.state, AdsrState::Off)
     }
 
+    /// Start the envelope. `gate` is the total time before release (0.0 = infinite).
+    pub fn trigger(&mut self, gate: f32) {
+        self.gate_time = gate;
+        self.elapsed = 0.0;
+        self.phase_time = 0.0;
+        self.start_val = self.current_val;
+        self.state = AdsrState::Delay;
+    }
+
+    /// Transition to Release from any active phase.
+    pub fn force_release(&mut self) {
+        if matches!(self.state, AdsrState::Off | AdsrState::Release) {
+            return;
+        }
+        self.state = AdsrState::Release;
+        self.start_val = self.current_val;
+        self.phase_time = 0.0;
+    }
+
+    /// Check if gate time has elapsed and auto-release if so.
+    #[inline]
+    fn check_gate(&mut self) -> bool {
+        if self.gate_time > 0.0 && self.elapsed >= self.gate_time {
+            self.state = AdsrState::Release;
+            self.start_val = self.current_val;
+            self.phase_time = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Advances the envelope state machine and returns the current amplitude.
-    ///
-    /// The envelope responds to gate transitions:
-    /// - Gate going high (`> 0.0`) triggers attack from current value
-    /// - Gate going low (`<= 0.0`) triggers release from current value
-    ///
-    /// This allows retriggering during any phase without clicks, as the envelope
-    /// always starts from its current position rather than jumping to zero.
     ///
     /// # Parameters
     ///
-    /// - `time`: Current time in seconds (must be monotonically increasing)
-    /// - `gate`: Gate signal (`> 0.0` = note on, `<= 0.0` = note off)
+    /// - `isr`: Inverse sample rate (1.0 / sample_rate)
+    /// - `delay`: Delay duration in seconds
     /// - `attack`: Attack duration in seconds
+    /// - `hold`: Hold duration in seconds
     /// - `decay`: Decay duration in seconds
     /// - `sustain`: Sustain level in range `[0.0, 1.0]`
     /// - `release`: Release duration in seconds
-    ///
-    /// # Returns
-    ///
-    /// Envelope amplitude in range `[0.0, 1.0]`.
     pub fn update(
         &mut self,
-        time: f32,
-        gate: f32,
+        isr: f32,
+        delay: f32,
         attack: f32,
+        hold: f32,
         decay: f32,
         sustain: f32,
         release: f32,
     ) -> f32 {
         match self.state {
             AdsrState::Off => {
-                if gate > 0.0 {
-                    self.state = AdsrState::Attack;
-                    self.start_time = time;
-                    self.start_val = 0.0;
-                }
+                self.current_val = 0.0;
                 0.0
             }
+            AdsrState::Delay => {
+                self.phase_time += isr;
+                self.elapsed += isr;
+                if self.check_gate() {
+                    return self.current_val;
+                }
+                if delay <= 0.0 || self.phase_time >= delay {
+                    self.state = AdsrState::Attack;
+                    self.phase_time = 0.0;
+                }
+                self.current_val = lerp(0.0, self.start_val, 0.0, 0.0);
+                // During delay, fade from retrigger value toward 0
+                if self.start_val > 0.0 {
+                    let t = if delay > 0.0 { self.phase_time / delay } else { 1.0 };
+                    self.current_val = lerp(t, self.start_val, 0.0, 0.0);
+                } else {
+                    self.current_val = 0.0;
+                }
+                self.current_val
+            }
             AdsrState::Attack => {
-                let t = time - self.start_time;
-                let val = lerp(t / attack, self.start_val, 1.0, self.attack_curve);
+                self.phase_time += isr;
+                self.elapsed += isr;
+                if self.check_gate() {
+                    return self.current_val;
+                }
+                let val = lerp(self.phase_time / attack, self.start_val, 1.0, self.attack_curve);
                 if val > 0.9999 {
-                    self.state = AdsrState::Decay;
-                    self.start_time = time;
+                    self.state = AdsrState::Hold;
+                    self.phase_time = 0.0;
+                    self.current_val = 1.0;
                     return 1.0;
                 }
+                self.current_val = val;
                 val
             }
-            AdsrState::Decay => {
-                let t = time - self.start_time;
-                let val = lerp(t / decay, 1.0, sustain, -self.decay_curve);
-                if gate <= 0.0 {
-                    self.state = AdsrState::Release;
-                    self.start_time = time;
-                    self.start_val = val;
-                    return val;
+            AdsrState::Hold => {
+                self.phase_time += isr;
+                self.elapsed += isr;
+                if self.check_gate() {
+                    return self.current_val;
                 }
+                if hold <= 0.0 || self.phase_time >= hold {
+                    self.state = AdsrState::Decay;
+                    self.phase_time = 0.0;
+                }
+                self.current_val = 1.0;
+                1.0
+            }
+            AdsrState::Decay => {
+                self.phase_time += isr;
+                self.elapsed += isr;
+                if self.check_gate() {
+                    return self.current_val;
+                }
+                let val = lerp(self.phase_time / decay, 1.0, sustain, -self.decay_curve);
                 if (val - sustain).abs() < 0.0001 {
                     self.state = AdsrState::Sustain;
-                    self.start_time = time;
+                    self.phase_time = 0.0;
+                    self.current_val = sustain;
                     return sustain;
                 }
+                self.current_val = val;
                 val
             }
             AdsrState::Sustain => {
-                if gate <= 0.0 {
-                    self.state = AdsrState::Release;
-                    self.start_time = time;
-                    self.start_val = sustain;
+                self.phase_time += isr;
+                self.elapsed += isr;
+                if self.check_gate() {
+                    return self.current_val;
                 }
+                self.current_val = sustain;
                 sustain
             }
             AdsrState::Release => {
-                let t = time - self.start_time;
-                let val = lerp(t / release, self.start_val, 0.0, -self.decay_curve);
+                self.phase_time += isr;
+                let val = lerp(self.phase_time / release, self.start_val, 0.0, -self.decay_curve);
                 if val < 0.0001 {
                     self.state = AdsrState::Off;
+                    self.current_val = 0.0;
                     return 0.0;
                 }
-                if gate > 0.0 {
-                    self.state = AdsrState::Attack;
-                    self.start_time = time;
-                    self.start_val = val;
-                }
+                self.current_val = val;
                 val
             }
         }
@@ -180,16 +260,16 @@ impl Adsr {
 }
 
 /// Parsed envelope parameters with activation flag.
-///
-/// Used to pass envelope configuration from pattern parsing to voice rendering.
-/// The `active` field indicates whether the user explicitly specified any
-/// envelope parameters, allowing voices to skip envelope processing when unused.
 #[derive(Clone, Copy, Default)]
 pub struct EnvelopeParams {
     /// Overall envelope amplitude multiplier.
     pub env: f32,
+    /// Delay time in seconds.
+    pub dly: f32,
     /// Attack time in seconds.
     pub att: f32,
+    /// Hold time in seconds.
+    pub hld: f32,
     /// Decay time in seconds.
     pub dec: f32,
     /// Sustain level in range `[0.0, 1.0]`.
@@ -207,30 +287,23 @@ pub struct EnvelopeParams {
 /// - If only attack is set, sustain defaults to `1.0` (full level after attack)
 /// - If decay is set (with or without attack), sustain defaults to `0.0`
 /// - Otherwise, sustain defaults to `1.0`
-///
-/// When no parameters are provided, returns inactive defaults suitable for
-/// bypassing envelope processing entirely.
-///
-/// # Default Values
-///
-/// | Parameter | Default |
-/// |-----------|---------|
-/// | `env`     | `1.0`   |
-/// | `att`     | `0.001` |
-/// | `dec`     | `0.0`   |
-/// | `sus`     | `1.0`   |
-/// | `rel`     | `0.005` |
 pub fn init_envelope(
     env: Option<f32>,
+    dly: Option<f32>,
     att: Option<f32>,
+    hld: Option<f32>,
     dec: Option<f32>,
     sus: Option<f32>,
     rel: Option<f32>,
 ) -> EnvelopeParams {
-    if env.is_none() && att.is_none() && dec.is_none() && sus.is_none() && rel.is_none() {
+    if env.is_none() && dly.is_none() && att.is_none() && hld.is_none()
+        && dec.is_none() && sus.is_none() && rel.is_none()
+    {
         return EnvelopeParams {
             env: 1.0,
+            dly: 0.0,
             att: 0.003,
+            hld: 0.0,
             dec: 0.0,
             sus: 1.0,
             rel: 0.005,
@@ -248,7 +321,9 @@ pub fn init_envelope(
 
     EnvelopeParams {
         env: env.unwrap_or(1.0),
+        dly: dly.unwrap_or(0.0),
         att: att.unwrap_or(0.003),
+        hld: hld.unwrap_or(0.0),
         dec: dec.unwrap_or(0.0),
         sus: sus_val,
         rel: rel.unwrap_or(0.005),
@@ -270,22 +345,23 @@ mod tests {
     #[test]
     fn all_transitions_smooth() {
         let mut adsr = Adsr::default();
-        let mut time = 0.0f32;
-        let dt = 1.0 / 44100.0;
+        let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
 
-        // Full ADSR cycle with decay to sustain=0.5
+        // Trigger with gate=0 (infinite sustain)
+        adsr.trigger(0.0);
+
+        // Full DAHDSR cycle
         for _ in 0..10000 {
-            let val = adsr.update(time, 1.0, 0.01, 0.05, 0.5, 0.01);
+            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
             samples.push(val);
-            time += dt;
         }
 
-        // Release
+        // Force release
+        adsr.force_release();
         while !adsr.is_off() {
-            let val = adsr.update(time, 0.0, 0.01, 0.05, 0.5, 0.01);
+            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
             samples.push(val);
-            time += dt;
         }
 
         let max_delta = max_discontinuity(&samples);
@@ -295,15 +371,14 @@ mod tests {
     #[test]
     fn short_attack_no_click() {
         let mut adsr = Adsr::default();
-        let mut time = 0.0f32;
-        let dt = 1.0 / 44100.0;
+        let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
 
-        // Very short attack (1ms)
+        adsr.trigger(0.0);
+
         for _ in 0..500 {
-            let val = adsr.update(time, 1.0, 0.001, 0.0, 1.0, 0.01);
+            let val = adsr.update(isr, 0.0, 0.001, 0.0, 0.0, 1.0, 0.01);
             samples.push(val);
-            time += dt;
         }
 
         let max_delta = max_discontinuity(&samples);
@@ -317,21 +392,21 @@ mod tests {
     #[test]
     fn short_release_no_click() {
         let mut adsr = Adsr::default();
-        let mut time = 0.0f32;
-        let dt = 1.0 / 44100.0;
+        let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
+
+        adsr.trigger(0.0);
 
         // Attack to sustain
         for _ in 0..500 {
-            adsr.update(time, 1.0, 0.01, 0.0, 1.0, 0.001);
-            time += dt;
+            adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
         }
 
-        // Very short release (1ms)
+        // Force release
+        adsr.force_release();
         while !adsr.is_off() {
-            let val = adsr.update(time, 0.0, 0.01, 0.0, 1.0, 0.001);
+            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
             samples.push(val);
-            time += dt;
         }
 
         let max_delta = max_discontinuity(&samples);
@@ -339,6 +414,82 @@ mod tests {
             max_delta < 0.05,
             "Release discontinuity: max delta = {}",
             max_delta
+        );
+    }
+
+    #[test]
+    fn gate_auto_release() {
+        let mut adsr = Adsr::default();
+        let isr = 1.0 / 44100.0;
+
+        // gate = 0.1s, attack=0.01, no hold, no decay
+        adsr.trigger(0.1);
+
+        let mut last_val = 0.0;
+        let mut reached_release = false;
+        for _ in 0..10000 {
+            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.01);
+            if matches!(adsr.state, AdsrState::Release) {
+                reached_release = true;
+            }
+            if adsr.is_off() {
+                break;
+            }
+            last_val = val;
+        }
+        assert!(reached_release, "Should have auto-released");
+        assert!(last_val < 0.01 || adsr.is_off(), "Should have faded out");
+    }
+
+    #[test]
+    fn delay_phase() {
+        let mut adsr = Adsr::default();
+        let isr = 1.0 / 44100.0;
+
+        adsr.trigger(0.0);
+
+        // With 0.1s delay, first samples should be 0
+        let val = adsr.update(isr, 0.1, 0.01, 0.0, 0.0, 1.0, 0.01);
+        assert!(val.abs() < 0.001, "Should be near zero during delay");
+        assert!(matches!(adsr.state, AdsrState::Delay));
+    }
+
+    #[test]
+    fn hold_phase() {
+        let mut adsr = Adsr::default();
+        let isr = 1.0 / 44100.0;
+
+        adsr.trigger(0.0);
+
+        // Skip through attack (very short)
+        for _ in 0..500 {
+            adsr.update(isr, 0.0, 0.001, 0.05, 0.05, 0.5, 0.01);
+        }
+
+        // Should be in hold, outputting 1.0
+        assert!(matches!(adsr.state, AdsrState::Hold) || matches!(adsr.state, AdsrState::Decay));
+    }
+
+    #[test]
+    fn infinite_gate_stays_sustaining() {
+        let mut adsr = Adsr::default();
+        let isr = 1.0 / 44100.0;
+
+        adsr.trigger(0.0); // infinite
+
+        // Run through attack+decay
+        for _ in 0..44100 {
+            adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+        }
+
+        // Should still be sustaining, not released
+        assert!(
+            !adsr.is_off(),
+            "gate=0 should mean infinite sustain"
+        );
+        assert!(
+            matches!(adsr.state, AdsrState::Sustain),
+            "Should be in Sustain state"
         );
     }
 }
