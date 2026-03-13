@@ -10,7 +10,7 @@ pub use params::VoiceParams;
 
 use std::f32::consts::PI;
 
-use crate::dsp::{cosf, exp2f, sinf, Adsr, BrownNoise, Phasor, PinkNoise, SvfMode, SvfState};
+use crate::dsp::{cosf, exp2f, sinf, Dahdsr, BrownNoise, Phasor, PinkNoise, SvfMode, SvfState};
 #[cfg(feature = "native")]
 use crate::sampling::StretchState;
 use crate::effects::{
@@ -31,16 +31,16 @@ pub struct Voice {
     pub phasor: Phasor,
     pub sub_phasor: Phasor,
     pub spread_phasors: [Phasor; 7],
-    pub adsr: Adsr,
-    pub lp_adsr: Adsr,
-    pub hp_adsr: Adsr,
-    pub bp_adsr: Adsr,
+    pub dahdsr: Dahdsr,
+    pub lp_dahdsr: Dahdsr,
+    pub hp_dahdsr: Dahdsr,
+    pub bp_dahdsr: Dahdsr,
     pub lp: [SvfState; CHANNELS],
     pub hp: [SvfState; CHANNELS],
     pub bp: [SvfState; CHANNELS],
     // Modulation
-    pub pitch_adsr: Adsr,
-    pub fm_adsr: Adsr,
+    pub pitch_dahdsr: Dahdsr,
+    pub fm_dahdsr: Dahdsr,
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
     pub fm2_phasor: Phasor,
@@ -106,15 +106,15 @@ impl Default for Voice {
                 p.phase = i as f32 / 7.0;
                 p
             }),
-            adsr: Adsr::default(),
-            lp_adsr: Adsr::default(),
-            hp_adsr: Adsr::default(),
-            bp_adsr: Adsr::default(),
+            dahdsr: Dahdsr::default(),
+            lp_dahdsr: Dahdsr::default(),
+            hp_dahdsr: Dahdsr::default(),
+            bp_dahdsr: Dahdsr::default(),
             lp: [SvfState::default(); CHANNELS],
             hp: [SvfState::default(); CHANNELS],
             bp: [SvfState::default(); CHANNELS],
-            pitch_adsr: Adsr::default(),
-            fm_adsr: Adsr::default(),
+            pitch_dahdsr: Dahdsr::default(),
+            fm_dahdsr: Dahdsr::default(),
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
             fm2_phasor: Phasor::default(),
@@ -167,15 +167,15 @@ impl Clone for Voice {
             phasor: self.phasor,
             sub_phasor: self.sub_phasor,
             spread_phasors: self.spread_phasors,
-            adsr: self.adsr,
-            lp_adsr: self.lp_adsr,
-            hp_adsr: self.hp_adsr,
-            bp_adsr: self.bp_adsr,
+            dahdsr: self.dahdsr,
+            lp_dahdsr: self.lp_dahdsr,
+            hp_dahdsr: self.hp_dahdsr,
+            bp_dahdsr: self.bp_dahdsr,
             lp: self.lp,
             hp: self.hp,
             bp: self.bp,
-            pitch_adsr: self.pitch_adsr,
-            fm_adsr: self.fm_adsr,
+            pitch_dahdsr: self.pitch_dahdsr,
+            fm_dahdsr: self.fm_dahdsr,
             vib_lfo: self.vib_lfo,
             fm_phasor: self.fm_phasor,
             fm2_phasor: self.fm2_phasor,
@@ -343,7 +343,7 @@ impl Voice {
         // FM synthesis (3-operator)
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
             let env_scale = if self.params.fm_env_active {
-                let env = self.fm_adsr.update(
+                let env = self.fm_dahdsr.update(
                     isr, 0.0, self.params.fma, 0.0,
                     self.params.fmd, self.params.fms, self.params.fmr,
                 );
@@ -404,7 +404,7 @@ impl Voice {
 
         // Pitch envelope
         if self.params.pitch_env_active && self.params.penv != 0.0 {
-            let env = self.pitch_adsr.update(
+            let env = self.pitch_dahdsr.update(
                 isr, 0.0, self.params.patt, 0.0,
                 self.params.pdec, self.params.psus, self.params.prel,
             );
@@ -427,21 +427,21 @@ impl Voice {
     }
 
     pub fn force_release(&mut self) {
-        self.adsr.force_release();
-        if self.params.lp_env_active { self.lp_adsr.force_release(); }
-        if self.params.hp_env_active { self.hp_adsr.force_release(); }
-        if self.params.bp_env_active { self.bp_adsr.force_release(); }
-        if self.params.fm_env_active { self.fm_adsr.force_release(); }
-        if self.params.pitch_env_active { self.pitch_adsr.force_release(); }
+        self.dahdsr.force_release();
+        if self.params.lp_env_active { self.lp_dahdsr.force_release(); }
+        if self.params.hp_env_active { self.hp_dahdsr.force_release(); }
+        if self.params.bp_env_active { self.bp_dahdsr.force_release(); }
+        if self.params.fm_env_active { self.fm_dahdsr.force_release(); }
+        if self.params.pitch_env_active { self.pitch_dahdsr.force_release(); }
     }
 
     fn trigger_envelopes(&mut self) {
-        self.adsr.trigger(self.params.gate);
-        if self.params.lp_env_active { self.lp_adsr.trigger(self.params.gate); }
-        if self.params.hp_env_active { self.hp_adsr.trigger(self.params.gate); }
-        if self.params.bp_env_active { self.bp_adsr.trigger(self.params.gate); }
-        if self.params.fm_env_active { self.fm_adsr.trigger(self.params.gate); }
-        if self.params.pitch_env_active { self.pitch_adsr.trigger(0.0); }
+        self.dahdsr.trigger(self.params.gate);
+        if self.params.lp_env_active { self.lp_dahdsr.trigger(self.params.gate); }
+        if self.params.hp_env_active { self.hp_dahdsr.trigger(self.params.gate); }
+        if self.params.bp_env_active { self.bp_dahdsr.trigger(self.params.gate); }
+        if self.params.fm_env_active { self.fm_dahdsr.trigger(self.params.gate); }
+        if self.params.pitch_env_active { self.pitch_dahdsr.trigger(0.0); }
     }
 
     #[cfg(feature = "native")]
@@ -458,7 +458,7 @@ impl Voice {
             self.triggered = true;
         }
 
-        let env = self.adsr.update(
+        let env = self.dahdsr.update(
             isr,
             self.params.envdelay,
             self.params.attack,
@@ -467,7 +467,7 @@ impl Voice {
             self.params.sustain,
             self.params.release,
         );
-        if self.adsr.is_off() {
+        if self.dahdsr.is_off() {
             return false;
         }
 
@@ -499,7 +499,7 @@ impl Voice {
             self.triggered = true;
         }
 
-        let env = self.adsr.update(
+        let env = self.dahdsr.update(
             isr,
             self.params.envdelay,
             self.params.attack,
@@ -508,7 +508,7 @@ impl Voice {
             self.params.sustain,
             self.params.release,
         );
-        if self.adsr.is_off() {
+        if self.dahdsr.is_off() {
             return false;
         }
 
@@ -531,17 +531,17 @@ impl Voice {
 
         // Compute filter envelopes once per sample (reused for SVF + ladder)
         let lp_env_val = if self.params.lp_env_active {
-            self.lp_adsr.update(isr, 0.0, self.params.lpa, 0.0, self.params.lpd, self.params.lps, self.params.lpr)
+            self.lp_dahdsr.update(isr, 0.0, self.params.lpa, 0.0, self.params.lpd, self.params.lps, self.params.lpr)
         } else {
             0.0
         };
         let hp_env_val = if self.params.hp_env_active {
-            self.hp_adsr.update(isr, 0.0, self.params.hpa, 0.0, self.params.hpd, self.params.hps, self.params.hpr)
+            self.hp_dahdsr.update(isr, 0.0, self.params.hpa, 0.0, self.params.hpd, self.params.hps, self.params.hpr)
         } else {
             0.0
         };
         let bp_env_val = if self.params.bp_env_active {
-            self.bp_adsr.update(isr, 0.0, self.params.bpa, 0.0, self.params.bpd, self.params.bps, self.params.bpr)
+            self.bp_dahdsr.update(isr, 0.0, self.params.bpa, 0.0, self.params.bpd, self.params.bps, self.params.bpr)
         } else {
             0.0
         };

@@ -10,7 +10,7 @@ order: 106
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-An ADSR envelope applied to pitch. The envelope runs with gate always on (no release phase during note). The frequency is multiplied by <code>2^(env &#42; penv / 12)</code>. When <code>psus = 1</code>, the envelope value is offset by -1 so sustained notes return to base pitch.
+An envelope applied to pitch. The envelope runs with gate always on (no release phase during note). The frequency is multiplied by <code>2^(env &#42; penv / 12)</code>. When <code>psus = 1</code>, the envelope value is offset by -1 so sustained notes return to base pitch.
 
 <CommandEntry name="penv" type="number" default={0} unit="semitones">
 

@@ -53,7 +53,7 @@ fn lerp(x: f32, y0: f32, y1: f32, exp: f32) -> f32 {
 
 /// Current phase of the DAHDSR envelope state machine.
 #[derive(Clone, Copy)]
-pub enum AdsrState {
+pub enum DahdsrState {
     /// Envelope is inactive, outputting zero.
     Off,
     /// Waiting before attack begins.
@@ -72,7 +72,7 @@ pub enum AdsrState {
 
 /// State-machine DAHDSR envelope generator.
 ///
-/// Self-timed: call [`Adsr::trigger`] to start, then [`Adsr::update`] each sample.
+/// Self-timed: call [`Dahdsr::trigger`] to start, then [`Dahdsr::update`] each sample.
 /// The gate duration controls when release starts automatically.
 ///
 /// # Curve Parameters
@@ -80,8 +80,8 @@ pub enum AdsrState {
 /// Default curves use an exponent of `2.0` for attack (convex) and decay/release
 /// (concave when negated internally), producing natural-sounding amplitude shapes.
 #[derive(Clone, Copy)]
-pub struct Adsr {
-    state: AdsrState,
+pub struct Dahdsr {
+    state: DahdsrState,
     phase_time: f32,
     elapsed: f32,
     start_val: f32,
@@ -91,10 +91,10 @@ pub struct Adsr {
     decay_curve: f32,
 }
 
-impl Default for Adsr {
+impl Default for Dahdsr {
     fn default() -> Self {
         Self {
-            state: AdsrState::Off,
+            state: DahdsrState::Off,
             phase_time: 0.0,
             elapsed: 0.0,
             start_val: 0.0,
@@ -106,10 +106,10 @@ impl Default for Adsr {
     }
 }
 
-impl Adsr {
-    /// Returns `true` if the envelope is in the [`AdsrState::Off`] state.
+impl Dahdsr {
+    /// Returns `true` if the envelope is in the [`DahdsrState::Off`] state.
     pub fn is_off(&self) -> bool {
-        matches!(self.state, AdsrState::Off)
+        matches!(self.state, DahdsrState::Off)
     }
 
     /// Start the envelope. `gate` is the total time before release (0.0 = infinite).
@@ -118,15 +118,15 @@ impl Adsr {
         self.elapsed = 0.0;
         self.phase_time = 0.0;
         self.start_val = self.current_val;
-        self.state = AdsrState::Delay;
+        self.state = DahdsrState::Delay;
     }
 
     /// Transition to Release from any active phase.
     pub fn force_release(&mut self) {
-        if matches!(self.state, AdsrState::Off | AdsrState::Release) {
+        if matches!(self.state, DahdsrState::Off | DahdsrState::Release) {
             return;
         }
-        self.state = AdsrState::Release;
+        self.state = DahdsrState::Release;
         self.start_val = self.current_val;
         self.phase_time = 0.0;
     }
@@ -135,7 +135,7 @@ impl Adsr {
     #[inline]
     fn check_gate(&mut self) -> bool {
         if self.gate_time > 0.0 && self.elapsed >= self.gate_time {
-            self.state = AdsrState::Release;
+            self.state = DahdsrState::Release;
             self.start_val = self.current_val;
             self.phase_time = 0.0;
             true
@@ -166,18 +166,18 @@ impl Adsr {
         release: f32,
     ) -> f32 {
         match self.state {
-            AdsrState::Off => {
+            DahdsrState::Off => {
                 self.current_val = 0.0;
                 0.0
             }
-            AdsrState::Delay => {
+            DahdsrState::Delay => {
                 self.phase_time += isr;
                 self.elapsed += isr;
                 if self.check_gate() {
                     return self.current_val;
                 }
                 if delay <= 0.0 || self.phase_time >= delay {
-                    self.state = AdsrState::Attack;
+                    self.state = DahdsrState::Attack;
                     self.phase_time = 0.0;
                 }
                 self.current_val = lerp(0.0, self.start_val, 0.0, 0.0);
@@ -190,7 +190,7 @@ impl Adsr {
                 }
                 self.current_val
             }
-            AdsrState::Attack => {
+            DahdsrState::Attack => {
                 self.phase_time += isr;
                 self.elapsed += isr;
                 if self.check_gate() {
@@ -198,7 +198,7 @@ impl Adsr {
                 }
                 let val = lerp(self.phase_time / attack, self.start_val, 1.0, self.attack_curve);
                 if val > 0.9999 {
-                    self.state = AdsrState::Hold;
+                    self.state = DahdsrState::Hold;
                     self.phase_time = 0.0;
                     self.current_val = 1.0;
                     return 1.0;
@@ -206,20 +206,20 @@ impl Adsr {
                 self.current_val = val;
                 val
             }
-            AdsrState::Hold => {
+            DahdsrState::Hold => {
                 self.phase_time += isr;
                 self.elapsed += isr;
                 if self.check_gate() {
                     return self.current_val;
                 }
                 if hold <= 0.0 || self.phase_time >= hold {
-                    self.state = AdsrState::Decay;
+                    self.state = DahdsrState::Decay;
                     self.phase_time = 0.0;
                 }
                 self.current_val = 1.0;
                 1.0
             }
-            AdsrState::Decay => {
+            DahdsrState::Decay => {
                 self.phase_time += isr;
                 self.elapsed += isr;
                 if self.check_gate() {
@@ -227,7 +227,7 @@ impl Adsr {
                 }
                 let val = lerp(self.phase_time / decay, 1.0, sustain, -self.decay_curve);
                 if (val - sustain).abs() < 0.0001 {
-                    self.state = AdsrState::Sustain;
+                    self.state = DahdsrState::Sustain;
                     self.phase_time = 0.0;
                     self.current_val = sustain;
                     return sustain;
@@ -235,7 +235,7 @@ impl Adsr {
                 self.current_val = val;
                 val
             }
-            AdsrState::Sustain => {
+            DahdsrState::Sustain => {
                 self.phase_time += isr;
                 self.elapsed += isr;
                 if self.check_gate() {
@@ -244,11 +244,11 @@ impl Adsr {
                 self.current_val = sustain;
                 sustain
             }
-            AdsrState::Release => {
+            DahdsrState::Release => {
                 self.phase_time += isr;
                 let val = lerp(self.phase_time / release, self.start_val, 0.0, -self.decay_curve);
                 if val < 0.0001 {
-                    self.state = AdsrState::Off;
+                    self.state = DahdsrState::Off;
                     self.current_val = 0.0;
                     return 0.0;
                 }
@@ -344,23 +344,23 @@ mod tests {
 
     #[test]
     fn all_transitions_smooth() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
 
         // Trigger with gate=0 (infinite sustain)
-        adsr.trigger(0.0);
+        env.trigger(0.0);
 
         // Full DAHDSR cycle
         for _ in 0..10000 {
-            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+            let val = env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
             samples.push(val);
         }
 
         // Force release
-        adsr.force_release();
-        while !adsr.is_off() {
-            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+        env.force_release();
+        while !env.is_off() {
+            let val = env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
             samples.push(val);
         }
 
@@ -370,14 +370,14 @@ mod tests {
 
     #[test]
     fn short_attack_no_click() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
 
-        adsr.trigger(0.0);
+        env.trigger(0.0);
 
         for _ in 0..500 {
-            let val = adsr.update(isr, 0.0, 0.001, 0.0, 0.0, 1.0, 0.01);
+            let val = env.update(isr, 0.0, 0.001, 0.0, 0.0, 1.0, 0.01);
             samples.push(val);
         }
 
@@ -391,21 +391,21 @@ mod tests {
 
     #[test]
     fn short_release_no_click() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
         let mut samples = Vec::new();
 
-        adsr.trigger(0.0);
+        env.trigger(0.0);
 
         // Attack to sustain
         for _ in 0..500 {
-            adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
+            env.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
         }
 
         // Force release
-        adsr.force_release();
-        while !adsr.is_off() {
-            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
+        env.force_release();
+        while !env.is_off() {
+            let val = env.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.001);
             samples.push(val);
         }
 
@@ -419,76 +419,76 @@ mod tests {
 
     #[test]
     fn gate_auto_release() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
 
         // gate = 0.1s, attack=0.01, no hold, no decay
-        adsr.trigger(0.1);
+        env.trigger(0.1);
 
         let mut last_val = 0.0;
         let mut reached_release = false;
         for _ in 0..10000 {
-            let val = adsr.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.01);
-            if matches!(adsr.state, AdsrState::Release) {
+            let val = env.update(isr, 0.0, 0.01, 0.0, 0.0, 1.0, 0.01);
+            if matches!(env.state, DahdsrState::Release) {
                 reached_release = true;
             }
-            if adsr.is_off() {
+            if env.is_off() {
                 break;
             }
             last_val = val;
         }
         assert!(reached_release, "Should have auto-released");
-        assert!(last_val < 0.01 || adsr.is_off(), "Should have faded out");
+        assert!(last_val < 0.01 || env.is_off(), "Should have faded out");
     }
 
     #[test]
     fn delay_phase() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
 
-        adsr.trigger(0.0);
+        env.trigger(0.0);
 
         // With 0.1s delay, first samples should be 0
-        let val = adsr.update(isr, 0.1, 0.01, 0.0, 0.0, 1.0, 0.01);
+        let val = env.update(isr, 0.1, 0.01, 0.0, 0.0, 1.0, 0.01);
         assert!(val.abs() < 0.001, "Should be near zero during delay");
-        assert!(matches!(adsr.state, AdsrState::Delay));
+        assert!(matches!(env.state, DahdsrState::Delay));
     }
 
     #[test]
     fn hold_phase() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
 
-        adsr.trigger(0.0);
+        env.trigger(0.0);
 
         // Skip through attack (very short)
         for _ in 0..500 {
-            adsr.update(isr, 0.0, 0.001, 0.05, 0.05, 0.5, 0.01);
+            env.update(isr, 0.0, 0.001, 0.05, 0.05, 0.5, 0.01);
         }
 
         // Should be in hold, outputting 1.0
-        assert!(matches!(adsr.state, AdsrState::Hold) || matches!(adsr.state, AdsrState::Decay));
+        assert!(matches!(env.state, DahdsrState::Hold) || matches!(env.state, DahdsrState::Decay));
     }
 
     #[test]
     fn infinite_gate_stays_sustaining() {
-        let mut adsr = Adsr::default();
+        let mut env = Dahdsr::default();
         let isr = 1.0 / 44100.0;
 
-        adsr.trigger(0.0); // infinite
+        env.trigger(0.0); // infinite
 
         // Run through attack+decay
         for _ in 0..44100 {
-            adsr.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+            env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
         }
 
         // Should still be sustaining, not released
         assert!(
-            !adsr.is_off(),
+            !env.is_off(),
             "gate=0 should mean infinite sustain"
         );
         assert!(
-            matches!(adsr.state, AdsrState::Sustain),
+            matches!(env.state, DahdsrState::Sustain),
             "Should be in Sustain state"
         );
     }

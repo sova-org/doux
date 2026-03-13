@@ -93,7 +93,7 @@ impl Voice {
                 if let Some(ref mut rs) = self.registry_sample {
                     let done = rs.is_done();
                     if done {
-                        self.adsr.force_release();
+                        self.dahdsr.force_release();
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = rs.read(c) * 0.7;
@@ -116,7 +116,7 @@ impl Voice {
                             if self.stretch.needs_init() {
                                 self.stretch.reset(a.cursor_start(), a.cursor_end(), a.is_looping());
                             }
-                            if self.stretch.is_done() { self.adsr.force_release(); }
+                            if self.stretch.is_done() { self.dahdsr.force_release(); }
                             self.stretch.ensure_available(&a.data, stretch);
                             let blend = self.sample_blend;
                             for c in 0..CHANNELS {
@@ -133,7 +133,7 @@ impl Voice {
                             if self.stretch.needs_init() {
                                 self.stretch.reset(rs.cursor_start(), rs.cursor_end(), rs.is_looping());
                             }
-                            if self.stretch.is_done() { self.adsr.force_release(); }
+                            if self.stretch.is_done() { self.dahdsr.force_release(); }
                             self.stretch.ensure_available(&rs.data, stretch);
                             for c in 0..CHANNELS {
                                 self.ch[c] = self.stretch.read(c) * 0.7;
@@ -155,7 +155,7 @@ impl Voice {
                         let done_a = a.is_done();
                         let done_b = b.is_done();
                         if done_a && done_b {
-                            self.adsr.force_release();
+                            self.dahdsr.force_release();
                         }
                         for c in 0..CHANNELS {
                             self.ch[c] = (a.read(c) + blend * (b.read(c) - a.read(c))) * 0.7;
@@ -168,7 +168,7 @@ impl Voice {
                     (Some(rs), _) => {
                         let done = rs.is_done();
                         if done {
-                            self.adsr.force_release();
+                            self.dahdsr.force_release();
                         }
                         for c in 0..CHANNELS {
                             self.ch[c] = rs.read(c) * 0.7;
@@ -193,7 +193,7 @@ impl Voice {
                 if let Some(ref mut ws) = self.web_sample {
                     let done = ws.is_done();
                     if done {
-                        self.adsr.force_release();
+                        self.dahdsr.force_release();
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = ws.read(web_pcm, c) * 0.7;
@@ -257,7 +257,7 @@ impl Voice {
                     if let Some(info) = samples.get(fs.sample_idx) {
                         let done = fs.is_done();
                         if done {
-                            self.adsr.force_release();
+                            self.dahdsr.force_release();
                         }
                         let channels = info.channels as usize;
                         for c in 0..CHANNELS {
@@ -285,7 +285,7 @@ impl Voice {
                 if let Some(ref mut ws) = self.web_sample {
                     let done = ws.is_done();
                     if done {
-                        self.adsr.force_release();
+                        self.dahdsr.force_release();
                     }
                     for c in 0..CHANNELS {
                         self.ch[c] = ws.read(web_pcm, c) * 0.7;
