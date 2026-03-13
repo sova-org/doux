@@ -43,7 +43,11 @@ use schedule::Schedule;
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
-use types::{Source, BLOCK_SIZE, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
+use types::{Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
+#[cfg(not(feature = "native"))]
+use types::WASM_BLOCK_SIZE;
+#[cfg(feature = "native")]
+use types::DEFAULT_NATIVE_BLOCK_SIZE;
 use voice::{Voice, VoiceParams, modulation};
 
 #[cfg(feature = "soundfont")]
@@ -71,6 +75,7 @@ pub struct Engine {
     pub time: f64,
     pub tick: u64,
     pub output_channels: usize,
+    pub block_size: usize,
     pub output: Vec<f32>,
     // Sample storage (WASM only)
     #[cfg(not(feature = "native"))]
@@ -125,7 +130,8 @@ impl Engine {
             time: 0.0,
             tick: 0,
             output_channels,
-            output: vec![0.0; BLOCK_SIZE * output_channels],
+            block_size: WASM_BLOCK_SIZE,
+            output: vec![0.0; WASM_BLOCK_SIZE * output_channels],
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
@@ -138,11 +144,11 @@ impl Engine {
 
     #[cfg(feature = "native")]
     pub fn new(sample_rate: f32) -> Self {
-        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
+        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES, DEFAULT_NATIVE_BLOCK_SIZE)
     }
 
     #[cfg(feature = "native")]
-    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
+    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize, block_size: usize) -> Self {
         dsp::fft::init_twiddles();
 
         let registry = Arc::new(SampleRegistry::new());
@@ -164,12 +170,13 @@ impl Engine {
             time: 0.0,
             tick: 0,
             output_channels,
-            output: vec![0.0; BLOCK_SIZE * output_channels],
+            block_size,
+            output: vec![0.0; block_size * output_channels],
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
             recorder: Recorder::new(sample_rate),
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * block_size * CHANNELS],
             metrics: Arc::new(EngineMetrics::default()),
             #[cfg(feature = "soundfont")]
             gm_bank: None,
@@ -186,6 +193,7 @@ impl Engine {
         output_channels: usize,
         max_voices: usize,
         metrics: Arc<EngineMetrics>,
+        block_size: usize,
     ) -> Self {
         dsp::fft::init_twiddles();
 
@@ -208,12 +216,13 @@ impl Engine {
             time: 0.0,
             tick: 0,
             output_channels,
-            output: vec![0.0; BLOCK_SIZE * output_channels],
+            block_size,
+            output: vec![0.0; block_size * output_channels],
             sample_index: Vec::new(),
             sample_registry: registry,
             sample_loader: loader,
             recorder: Recorder::new(sample_rate),
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * BLOCK_SIZE * CHANNELS],
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * block_size * CHANNELS],
             metrics,
             #[cfg(feature = "soundfont")]
             gm_bank: None,
@@ -1211,8 +1220,10 @@ impl Engine {
                 .store(self.time.to_bits(), Ordering::Relaxed);
         }
 
-        let copy_len = output.len().min(self.output.len());
-        self.output[..copy_len].copy_from_slice(&output[..copy_len]);
+        if self.output.len() < output.len() {
+            self.output.resize(output.len(), 0.0);
+        }
+        self.output[..output.len()].copy_from_slice(output);
     }
 
     pub fn dsp(&mut self) {

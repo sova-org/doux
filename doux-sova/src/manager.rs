@@ -123,8 +123,9 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
+        let block_size = config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
         let mut engine =
-            Engine::new_with_metrics(sample_rate, actual_channels, config.max_voices, Arc::clone(&metrics));
+            Engine::new_with_metrics(sample_rate, actual_channels, config.max_voices, Arc::clone(&metrics), block_size);
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
@@ -412,11 +413,13 @@ impl DouxManager {
 
         // Create fresh engine for the new audio callback
         self.metrics = Arc::new(EngineMetrics::default());
+        let block_size = self.config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
         let mut engine = Engine::new_with_metrics(
             sample_rate,
             actual_channels,
             self.config.max_voices,
             Arc::clone(&self.metrics),
+            block_size,
         );
         for path in &self.config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
@@ -451,11 +454,13 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
+        let block_size = config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
         let mut engine = Engine::new_with_metrics(
             sample_rate,
             actual_channels,
             config.max_voices,
             Arc::clone(&metrics),
+            block_size,
         );
 
         for path in &config.sample_paths {

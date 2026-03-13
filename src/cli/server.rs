@@ -209,7 +209,8 @@ fn main() {
     }
 
     // Initialize engine with sample index if provided
-    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
+    let block_size = args.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
+    let mut engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices, block_size);
 
     if let Some(ref dir) = args.samples {
         println!("\nScanning samples from: {}", dir.display());
@@ -278,7 +279,7 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Recreate engine and channel for reconnect
-        engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices);
+        engine = Engine::new_with_channels(sample_rate, output_channels, args.max_voices, block_size);
         engine.sample_index = sample_index.clone();
         engine.sample_registry = Arc::clone(&sample_registry);
         #[cfg(feature = "soundfont")]

@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
-pub const BLOCK_SIZE: usize = 128;
+pub const WASM_BLOCK_SIZE: usize = 128;
+pub const DEFAULT_NATIVE_BLOCK_SIZE: usize = 512;
 pub const CHANNELS: usize = 2;
 pub const DEFAULT_MAX_VOICES: usize = 32;
 pub const MAX_EVENTS: usize = 256;
