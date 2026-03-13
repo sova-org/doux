@@ -43,7 +43,7 @@
 
 #![allow(static_mut_refs)]
 
-use crate::types::{Source, WASM_WASM_BLOCK_SIZE, CHANNELS};
+use crate::types::{Source, WASM_BLOCK_SIZE, CHANNELS};
 use crate::Engine;
 
 /// Maximum length of command strings from JavaScript.

@@ -21,7 +21,6 @@ Durée de tout sauf le release
 # [ ] DADHSR Envelope
 
 1) virer time
-2) virer repeat
 3) virer duration
 4) ajouter envdelay (delay)
 5) ajouter 'hold' (maintien à l'amplitude maximale)

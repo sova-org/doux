@@ -16,9 +16,9 @@ Allpass chain — 12 cascaded first-order allpass filters that smear transients 
 
 Wet/dry mix (0 = bypass, 1 = full wet). Controls the blend between dry input and the allpass-smeared signal.
 
-<CodeEditor code={`/sound/saw/freq/100/smear/0.5/smearfreq/200~4000:2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/100/smear/0.5/smearfreq/200~4000:2/gate/3`} rows={2} />
 
-<CodeEditor code={`/sound/tri/freq/200/smear/0~1:2/smearfreq/300~3000:2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/tri/freq/200/smear/0~1:2/smearfreq/300~3000:2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -26,9 +26,9 @@ Wet/dry mix (0 = bypass, 1 = full wet). Controls the blend between dry input and
 
 Break frequency of the allpass chain. Lower values produce longer, more dramatic chirps. Higher values affect only the highest partials. Sweep it to hear the smearing.
 
-<CodeEditor code={`/sound/saw/freq/100/smear/0.5/smearfreq/200~4000:2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/100/smear/0.5/smearfreq/200~4000:2/gate/3`} rows={2} />
 
-<CodeEditor code={`/sound/saw/freq/100/smear/0.8/smearfreq/sin:80/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/100/smear/0.8/smearfreq/sin:80/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -36,8 +36,8 @@ Break frequency of the allpass chain. Lower values produce longer, more dramatic
 
 Feedback amount for resonance. Wraps the allpass output back to the input, creating metallic resonances and self-oscillation at high values.
 
-<CodeEditor code={`/sound/saw/freq/100/smear/0.8/smearfreq/200~4000:2/smearfb/0.8/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/100/smear/0.8/smearfreq/200~4000:2/smearfb/0.8/gate/3`} rows={2} />
 
-<CodeEditor code={`/sound/pulse/freq/80/smear/0.5/smearfreq/300~2000:3/smearfb/0~0.9:3/dur/4`} rows={2} />
+<CodeEditor code={`/sound/pulse/freq/80/smear/0.5/smearfreq/300~2000:3/smearfb/0~0.9:3/gate/4`} rows={2} />
 
 </CommandEntry>

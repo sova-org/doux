@@ -18,7 +18,7 @@ Sample rate reduction. Holds each sample for <code>n</code> samples, creating st
 
 <CodeEditor code={`/penv/36/pdec/.5/coarse/8`} rows={2} />
 
-<CodeEditor code={`/sound/saw/freq/100/coarse/1>16:2/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/freq/100/coarse/1>16:2/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -28,7 +28,7 @@ Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, crea
 
 <CodeEditor code={`/penv/36/pdec/.5/crush/4`} rows={2} />
 
-<CodeEditor code={`/sound/saw/crush/16>2:1.5/freq/100/decay/1.5/dur/2`} rows={2} />
+<CodeEditor code={`/sound/saw/crush/16>2:1.5/freq/100/decay/1.5/gate/2`} rows={2} />
 
 </CommandEntry>
 
@@ -38,7 +38,7 @@ Sine-based wavefold (Serge-style). At 0, near-passthrough. At 0.25, subtle harmo
 
 <CodeEditor code={`/sound/sine/fold/.8`} rows={2} />
 
-<CodeEditor code={`/sound/sine/fold/0~1:1/freq/80/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/sine/fold/0~1:1/freq/80/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -56,7 +56,7 @@ Soft-clipping waveshaper using <code>(1+k)&#42;x / (1+k&#42;|x|)</code> where <c
 
 <CodeEditor code={`/sound/sine/distort/4`} rows={2} />
 
-<CodeEditor code={`/sound/sine/distort/0>8:2/freq/80/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/sine/distort/0>8:2/freq/80/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 

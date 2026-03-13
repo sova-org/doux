@@ -18,7 +18,7 @@ Cutoff frequency in Hz. Frequencies above this are attenuated.
 
 <CodeEditor code={`/sound/saw/lpf/200`} rows={2} />
 
-<CodeEditor code={`/sound/saw/lpf/200~4000:2/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/lpf/200~4000:2/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -66,6 +66,6 @@ Envelope sustain level (0-1).
 
 Envelope release time in seconds.
 
-<CodeEditor code={`/sound/saw/lpf/100/lpr/.25/duration/.1/release/.25`} rows={2} />
+<CodeEditor code={`/sound/saw/lpf/100/lpr/.25/gate/.1/release/.25`} rows={2} />
 
 </CommandEntry>

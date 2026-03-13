@@ -5,14 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.1.0] - Unreleased
 
+### Changed
+
+- **DAHDSR envelope** — replaced ADSR with a six-phase envelope: Delay, Attack, Hold, Decay, Sustain, Release. New `envdelay` (alias `envdly`) and `hold` (alias `hld`) parameters. The envelope is now self-timed via `gate` duration instead of responding to an external gate signal
+- **`gate` semantics** — `gate` is now the total note duration in seconds (delay + attack + hold + decay + sustain time). `gate/0` means infinite sustain. Replaces the old `duration` parameter
+- **Envelope retrigger** — retriggering during delay phase fades from the current value toward 0, eliminating clicks
+
 ### Removed
 
 - **Mutable Instruments Plaits oscillators** — removed all 10 Plaits synthesis engines (`modal`, `va`, `ws`, `fm2`, `grain`, `additive`, `wavetable`, `chord`, `swarm`, `pnoise`) and the `mi-plaits-dsp` dependency. The native additive oscillator (`add`) retains `harmonics`, `timbre`, `morph`, and `partials` parameters
 - **Glide (portamento)** — removed `glide` parameter from engine, event parsing, and documentation. Audio-rate frequency modulation (`freq` with `>`, `~`) replaces this functionality
+- **Repeat** — removed `repeat` parameter from engine, event parsing, and documentation
+- **`duration` parameter** — removed in favor of `gate`
 
 ### Fixed
 
-- **BLOCK_SIZE**: clarify how BLOCK_SIZE is used throughout the engine (WASM / native confusion).
+- **BLOCK_SIZE** — clarified how BLOCK_SIZE is used throughout the engine (WASM / native confusion)
+- **WASM build** — fixed `WASM_WASM_BLOCK_SIZE` double-prefix typo in `src/wasm.rs`
 
 ## [0.0.10] - 2026-03-12
 

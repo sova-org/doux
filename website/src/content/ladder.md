@@ -16,9 +16,9 @@ A Moog-style ladder filter with self-oscillation and analog-modeled nonlinear sa
 
 Ladder lowpass cutoff frequency in Hz.
 
-<CodeEditor code={`/sound/saw/llpf/800/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/llpf/800/decay/0.5/gate/1`} rows={2} />
 
-<CodeEditor code={`/sound/saw/llpf/200~6000:1.5s/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/llpf/200~6000:1.5s/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -26,7 +26,7 @@ Ladder lowpass cutoff frequency in Hz.
 
 Ladder highpass cutoff frequency in Hz.
 
-<CodeEditor code={`/sound/saw/lhpf/200/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/lhpf/200/decay/0.5/gate/1`} rows={2} />
 
 </CommandEntry>
 
@@ -34,7 +34,7 @@ Ladder highpass cutoff frequency in Hz.
 
 Ladder bandpass cutoff frequency in Hz.
 
-<CodeEditor code={`/sound/saw/lbpf/500/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/lbpf/500/decay/0.5/gate/1`} rows={2} />
 
 </CommandEntry>
 
@@ -42,7 +42,7 @@ Ladder bandpass cutoff frequency in Hz.
 
 Ladder lowpass resonance (0-1). At high values, the filter self-oscillates.
 
-<CodeEditor code={`/sound/saw/llpf/800/llpq/.8/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/llpf/800/llpq/.8/decay/0.5/gate/1`} rows={2} />
 
 </CommandEntry>
 
@@ -50,7 +50,7 @@ Ladder lowpass resonance (0-1). At high values, the filter self-oscillates.
 
 Ladder highpass resonance (0-1).
 
-<CodeEditor code={`/sound/saw/lhpf/200/lhpq/.5/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/lhpf/200/lhpq/.5/decay/0.5/gate/1`} rows={2} />
 
 </CommandEntry>
 
@@ -58,6 +58,6 @@ Ladder highpass resonance (0-1).
 
 Ladder bandpass resonance (0-1).
 
-<CodeEditor code={`/sound/saw/lbpf/500/lbpq/.7/decay/0.5/dur/1`} rows={2} />
+<CodeEditor code={`/sound/saw/lbpf/500/lbpq/.7/decay/0.5/gate/1`} rows={2} />
 
 </CommandEntry>

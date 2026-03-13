@@ -18,7 +18,7 @@ The pulse width (between 0 and 1) of the pulse oscillator. The default is 0.5 (s
 
 <CodeEditor code={`/sound/pulse/pw/.1`} rows={2} />
 
-<CodeEditor code={`/sound/pulse/pw/0.1~0.9:1/freq/100/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/pulse/pw/0.1~0.9:1/freq/100/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -66,7 +66,7 @@ Mix level of the sub oscillator. At 0 the sub is silent, at 1 it matches the mai
 
 <CodeEditor code={`/sound/saw/sub/.5`} rows={2} />
 
-<CodeEditor code={`/sound/saw/sub/0>1:2/freq/55/decay/2/dur/3`} rows={2} />
+<CodeEditor code={`/sound/saw/sub/0>1:2/freq/55/decay/2/gate/3`} rows={2} />
 
 </CommandEntry>
 
@@ -94,6 +94,6 @@ Number of active harmonics for the `add` source. Fractional values smoothly cros
 
 <CodeEditor code={`/sound/add/note/48/partials/4`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/48/partials/1~32:3/dur/4`} rows={2} />
+<CodeEditor code={`/sound/add/note/48/partials/1~32:3/gate/4`} rows={2} />
 
 </CommandEntry>

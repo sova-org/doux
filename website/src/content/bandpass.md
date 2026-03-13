@@ -64,6 +64,6 @@ Envelope sustain level (0-1).
 
 Envelope release time in seconds.
 
-<CodeEditor code={`/sound/saw/bpf/800/bpr/.25/duration/.1/release/.25`} rows={2} />
+<CodeEditor code={`/sound/saw/bpf/800/bpr/.25/gate/.1/release/.25`} rows={2} />
 
 </CommandEntry>

@@ -19,7 +19,7 @@ Wavetable position. For multi-cycle wavetables, morphs between adjacent waveform
 <CodeEditor code={`/sound/wt_korg/scan/0/note/48/decay/2/wtlen/1024`} rows={2} />
 <CodeEditor code={`/sound/wt_korg/scan/0.5/note/48/decay/2/wtlen/1024`} rows={2} />
 
-<CodeEditor code={`/sound/wt_korg/scan/0~1:2t/note/48/decay/2/dur/3/wtlen/1024`} rows={2} />
+<CodeEditor code={`/sound/wt_korg/scan/0~1:2t/note/48/decay/2/gate/3/wtlen/1024`} rows={2} />
 
 </CommandEntry>
 

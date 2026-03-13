@@ -82,6 +82,7 @@ pub struct Voice {
     pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
     pub param_mod_count: u8,
 
+    pub triggered: bool,
     pub time: f32,
     pub ch: [f32; CHANNELS],
     pub nch: usize,
@@ -147,6 +148,7 @@ impl Default for Voice {
             ladder_bp: [LadderFilter::default(); CHANNELS],
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
+            triggered: false,
             time: 0.0,
             ch: [0.0; CHANNELS],
             nch: 1,
@@ -207,6 +209,7 @@ impl Clone for Voice {
             ladder_bp: self.ladder_bp,
             param_mods: self.param_mods,
             param_mod_count: self.param_mod_count,
+            triggered: self.triggered,
             time: self.time,
             ch: self.ch,
             nch: self.nch,
@@ -341,12 +344,8 @@ impl Voice {
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
             let env_scale = if self.params.fm_env_active {
                 let env = self.fm_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.fma,
-                    self.params.fmd,
-                    self.params.fms,
-                    self.params.fmr,
+                    isr, 0.0, self.params.fma, 0.0,
+                    self.params.fmd, self.params.fms, self.params.fmr,
                 );
                 self.params.fme * env + 1.0
             } else {
@@ -406,12 +405,8 @@ impl Voice {
         // Pitch envelope
         if self.params.pitch_env_active && self.params.penv != 0.0 {
             let env = self.pitch_adsr.update(
-                self.time,
-                1.0,
-                self.params.patt,
-                self.params.pdec,
-                self.params.psus,
-                self.params.prel,
+                isr, 0.0, self.params.patt, 0.0,
+                self.params.pdec, self.params.psus, self.params.prel,
             );
             let env_adj = if self.params.psus == 1.0 {
                 env - 1.0
@@ -431,6 +426,24 @@ impl Voice {
         freq
     }
 
+    pub fn force_release(&mut self) {
+        self.adsr.force_release();
+        if self.params.lp_env_active { self.lp_adsr.force_release(); }
+        if self.params.hp_env_active { self.hp_adsr.force_release(); }
+        if self.params.bp_env_active { self.bp_adsr.force_release(); }
+        if self.params.fm_env_active { self.fm_adsr.force_release(); }
+        if self.params.pitch_env_active { self.pitch_adsr.force_release(); }
+    }
+
+    fn trigger_envelopes(&mut self) {
+        self.adsr.trigger(self.params.gate);
+        if self.params.lp_env_active { self.lp_adsr.trigger(self.params.gate); }
+        if self.params.hp_env_active { self.hp_adsr.trigger(self.params.gate); }
+        if self.params.bp_env_active { self.bp_adsr.trigger(self.params.gate); }
+        if self.params.fm_env_active { self.fm_adsr.trigger(self.params.gate); }
+        if self.params.pitch_env_active { self.pitch_adsr.trigger(0.0); }
+    }
+
     #[cfg(feature = "native")]
     pub fn process(
         &mut self,
@@ -440,10 +453,16 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> bool {
+        if !self.triggered {
+            self.trigger_envelopes();
+            self.triggered = true;
+        }
+
         let env = self.adsr.update(
-            self.time,
-            self.params.gate,
+            isr,
+            self.params.envdelay,
             self.params.attack,
+            self.params.hold,
             self.params.decay,
             self.params.sustain,
             self.params.release,
@@ -475,10 +494,16 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> bool {
+        if !self.triggered {
+            self.trigger_envelopes();
+            self.triggered = true;
+        }
+
         let env = self.adsr.update(
-            self.time,
-            self.params.gate,
+            isr,
+            self.params.envdelay,
             self.params.attack,
+            self.params.hold,
             self.params.decay,
             self.params.sustain,
             self.params.release,
@@ -504,18 +529,27 @@ impl Voice {
         let isr = 1.0 / self.sr;
         let nch = self.nch;
 
-        // Update filter cutoffs (envelope ticks once, applied to all channels)
+        // Compute filter envelopes once per sample (reused for SVF + ladder)
+        let lp_env_val = if self.params.lp_env_active {
+            self.lp_adsr.update(isr, 0.0, self.params.lpa, 0.0, self.params.lpd, self.params.lps, self.params.lpr)
+        } else {
+            0.0
+        };
+        let hp_env_val = if self.params.hp_env_active {
+            self.hp_adsr.update(isr, 0.0, self.params.hpa, 0.0, self.params.hpd, self.params.hps, self.params.hpr)
+        } else {
+            0.0
+        };
+        let bp_env_val = if self.params.bp_env_active {
+            self.bp_adsr.update(isr, 0.0, self.params.bpa, 0.0, self.params.bpd, self.params.bps, self.params.bpr)
+        } else {
+            0.0
+        };
+
+        // Update filter cutoffs
         if let Some(lpf) = self.params.lpf {
             let cutoff = if self.params.lp_env_active {
-                let lp_env = self.lp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.lpa,
-                    self.params.lpd,
-                    self.params.lps,
-                    self.params.lpr,
-                );
-                self.params.lpe * lp_env * lpf + lpf
+                self.params.lpe * lp_env_val * lpf + lpf
             } else {
                 lpf
             };
@@ -523,15 +557,7 @@ impl Voice {
         }
         if let Some(hpf) = self.params.hpf {
             let cutoff = if self.params.hp_env_active {
-                let hp_env = self.hp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.hpa,
-                    self.params.hpd,
-                    self.params.hps,
-                    self.params.hpr,
-                );
-                self.params.hpe * hp_env * hpf + hpf
+                self.params.hpe * hp_env_val * hpf + hpf
             } else {
                 hpf
             };
@@ -539,15 +565,7 @@ impl Voice {
         }
         if let Some(bpf) = self.params.bpf {
             let cutoff = if self.params.bp_env_active {
-                let bp_env = self.bp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.bpa,
-                    self.params.bpd,
-                    self.params.bps,
-                    self.params.bpr,
-                );
-                self.params.bpe * bp_env * bpf + bpf
+                self.params.bpe * bp_env_val * bpf + bpf
             } else {
                 bpf
             };
@@ -574,18 +592,10 @@ impl Voice {
             }
         }
 
-        // Ladder filters (envelope computed once, applied per-channel)
+        // Ladder filters (reuse envelope values from above)
         if let Some(llpf) = self.params.llpf {
             let cutoff = if self.params.lp_env_active {
-                let env = self.lp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.lpa,
-                    self.params.lpd,
-                    self.params.lps,
-                    self.params.lpr,
-                );
-                self.params.lpe * env * llpf + llpf
+                self.params.lpe * lp_env_val * llpf + llpf
             } else {
                 llpf
             };
@@ -595,15 +605,7 @@ impl Voice {
         }
         if let Some(lhpf) = self.params.lhpf {
             let cutoff = if self.params.hp_env_active {
-                let env = self.hp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.hpa,
-                    self.params.hpd,
-                    self.params.hps,
-                    self.params.hpr,
-                );
-                self.params.hpe * env * lhpf + lhpf
+                self.params.hpe * hp_env_val * lhpf + lhpf
             } else {
                 lhpf
             };
@@ -613,15 +615,7 @@ impl Voice {
         }
         if let Some(lbpf) = self.params.lbpf {
             let cutoff = if self.params.bp_env_active {
-                let env = self.bp_adsr.update(
-                    self.time,
-                    self.params.gate,
-                    self.params.bpa,
-                    self.params.bpd,
-                    self.params.bps,
-                    self.params.bpr,
-                );
-                self.params.bpe * env * lbpf + lbpf
+                self.params.bpe * bp_env_val * lbpf + lbpf
             } else {
                 lbpf
             };
@@ -779,10 +773,5 @@ impl Voice {
         }
 
         self.time += isr;
-        if let Some(dur) = self.params.duration {
-            if dur > 0.0 && self.time > dur {
-                self.params.gate = 0.0;
-            }
-        }
     }
 }

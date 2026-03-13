@@ -10,7 +10,7 @@ order: 101
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-The engine clock starts at 0 and advances with each sample. Events with <code>time</code> are scheduled and fired when the clock reaches that value. The <code>duration</code> sets how long the gate stays open before triggering release.
+The engine clock starts at 0 and advances with each sample. Events with <code>time</code> are scheduled and fired when the clock reaches that value. The <code>gate</code> sets how long the gate stays open before triggering release.
 
 <CommandEntry name="time" type="number" min={0} default={0} unit="s">
 
@@ -20,10 +20,10 @@ The time at which the voice should start. Defaults to 0.
 
 </CommandEntry>
 
-<CommandEntry name="duration" type="number" min={0} unit="s">
+<CommandEntry name="gate" type="number" min={0} default={1} unit="s">
 
-The duration (seconds) of the gate phase. If not set, the voice will play indefinitely, until released explicitly.
+The gate duration in seconds. Controls how long the note is held before triggering the release phase. A value of 0 means infinite sustain (the voice will play until released explicitly).
 
-<CodeEditor code={`/duration/.5`} rows={2} />
+<CodeEditor code={`/gate/.5`} rows={2} />
 
 </CommandEntry>
