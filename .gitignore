@@ -28,3 +28,6 @@ website/build/
 
 # Logs
 *.log
+
+# Personal notes
+LISTE.md
