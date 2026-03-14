@@ -3,7 +3,13 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.1.0] - Unreleased
+## [0.0.13] - Unreleased
+
+### Changed
+
+- **Linux host selection** — `HostSelection` now includes `PipeWire` and `PulseAudio` variants. `preferred_host()` priority changed from JACK → ALSA to PipeWire → JACK → ALSA. Requires CPAL 0.18 (blocked on `midir` updating its `alsa` dependency to allow 0.11); on CPAL 0.17 the new variants are accepted but have no effect
+
+## [0.0.12]
 
 ### Added
 
