@@ -170,7 +170,7 @@
         <CodeEditor code={`/sound/saw/pan/0~1:1t`} rows={2} />
 
         <h3>Transition <code>&gt;</code></h3>
-        <p>Go from A to B, hold at B. Chain segments for multi-point envelopes.
+        <p>Go from A to B over a duration, then hold at B.
            Syntax: <code>start&gt;target:duration[curve]</code></p>
         <ul>
             <li><code>200&gt;4000:2</code> — linear (default)</li>
@@ -181,20 +181,29 @@
             <li><code>200&gt;4000:2p</code> — stair (8 discrete steps)</li>
         </ul>
 
-        <p>Multi-segment chains:</p>
+        <p>Append <code>~</code> to loop the transition:</p>
         <ul>
-            <li><code>200&gt;4000:1&gt;800:2</code> — up in 1s, down in 2s</li>
-            <li><code>0&gt;1:0.01&gt;0:2</code> — percussive blip</li>
-            <li><code>200&gt;4000:1e&gt;200:1.5s</code> — exponential up, smooth down</li>
-        </ul>
-
-        <p>Append <code>~</code> to the last duration to loop:</p>
-        <ul>
-            <li><code>200&gt;4000:1&gt;200:1~</code> — looping triangle-like sweep</li>
+            <li><code>200&gt;4000:2~</code> — looping ramp</li>
         </ul>
 
         <p>FM index ramping up exponentially over 3 seconds:</p>
         <CodeEditor code={`/fm/0>8:3e/fmh/3/decay/3`} rows={2} />
+
+        <h3>Envelope <code>^</code></h3>
+        <p>A gate-aware DAHDSR envelope between two values. Starts on note trigger,
+           sustains until gate-off, then releases.
+           Syntax: <code>min^max:attack[:decay[:sustain[:release]]]</code></p>
+        <ul>
+            <li><code>200^8000:0.01:0.1:0.5:0.3</code> — full ADSR</li>
+            <li><code>200^8000:0.01</code> — attack only (sustain at max)</li>
+            <li><code>0^5:0.01:0.1:0.3:0.5</code> — FM index envelope</li>
+        </ul>
+
+        <p>Filter cutoff with envelope modulation:</p>
+        <CodeEditor code={`/sound/saw/lpf/200^8000:0.01:0.1:0.5:0.3/decay/1/gate/2`} rows={2} />
+
+        <p>FM index with percussive envelope:</p>
+        <CodeEditor code={`/fm/0^5:0.003:0.2:0:0.1/fmh/3/decay/1/gate/1.5`} rows={2} />
 
         <h3>Random <code>?</code></h3>
         <p>Wander stochastically within a range. Syntax: <code>min?max:period[shape]</code></p>

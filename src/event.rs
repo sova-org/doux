@@ -72,32 +72,13 @@ pub struct Event {
     pub sustain: Option<f32>,
     pub release: Option<f32>,
 
-    // Lowpass filter
+    // Filters
     pub lpf: Option<f32>,
     pub lpq: Option<f32>,
-    pub lpe: Option<f32>,
-    pub lpa: Option<f32>,
-    pub lpd: Option<f32>,
-    pub lps: Option<f32>,
-    pub lpr: Option<f32>,
-
-    // Highpass filter
     pub hpf: Option<f32>,
     pub hpq: Option<f32>,
-    pub hpe: Option<f32>,
-    pub hpa: Option<f32>,
-    pub hpd: Option<f32>,
-    pub hps: Option<f32>,
-    pub hpr: Option<f32>,
-
-    // Bandpass filter
     pub bpf: Option<f32>,
     pub bpq: Option<f32>,
-    pub bpe: Option<f32>,
-    pub bpa: Option<f32>,
-    pub bpd: Option<f32>,
-    pub bps: Option<f32>,
-    pub bpr: Option<f32>,
 
     // Ladder filter
     pub llpf: Option<f32>,
@@ -106,13 +87,6 @@ pub struct Event {
     pub lhpq: Option<f32>,
     pub lbpf: Option<f32>,
     pub lbpq: Option<f32>,
-
-    // Pitch envelope
-    pub penv: Option<f32>,
-    pub patt: Option<f32>,
-    pub pdec: Option<f32>,
-    pub psus: Option<f32>,
-    pub prel: Option<f32>,
 
     // Vibrato
     pub vib: Option<f32>,
@@ -123,11 +97,6 @@ pub struct Event {
     pub fm: Option<f32>,
     pub fmh: Option<f32>,
     pub fmshape: Option<LfoShape>,
-    pub fme: Option<f32>,
-    pub fma: Option<f32>,
-    pub fmd: Option<f32>,
-    pub fms: Option<f32>,
-    pub fmr: Option<f32>,
     pub fm2: Option<f32>,
     pub fm2h: Option<f32>,
     pub fmalgo: Option<u8>,
@@ -258,6 +227,14 @@ impl Event {
         }
     }
 
+    fn parse_usize(val: &str) -> Option<usize> {
+        val.parse::<f32>().ok().map(|f| f as usize)
+    }
+
+    fn parse_u8(val: &str) -> Option<u8> {
+        val.parse::<f32>().ok().map(|f| f as u8)
+    }
+
     pub fn parse(input: &str, sr: f32) -> Self {
         let mut event = Self::default();
         let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
@@ -292,9 +269,9 @@ impl Event {
                 }
                 "delta" => event.delta = val.parse().ok(),
                 "gate" => event.gate = val.parse().ok(),
-                "voice" => event.voice = val.parse::<f32>().ok().map(|f| f as usize),
+                "voice" => event.voice = Self::parse_usize(val),
                 "reset" => event.reset = Some(val == "1" || val == "true"),
-                "orbit" => event.orbit = val.parse::<f32>().ok().map(|f| f as usize),
+                "orbit" => event.orbit = Self::parse_usize(val),
                 "freq" => parse_param!(val, freq, ParamId::Freq),
                 "note" => {
                     if let Some(chain) = ModChain::parse(val).map(|c| c.map_values(midi2freq)) {
@@ -318,7 +295,7 @@ impl Event {
                 "morph" => parse_param!(val, morph, ParamId::Morph),
                 "partials" => parse_param!(val, partials, ParamId::Partials),
                 "n" => event.n = Some(val.to_string()),
-                "cut" => event.cut = val.parse::<f32>().ok().map(|f| f as usize),
+                "cut" => event.cut = Self::parse_usize(val),
                 "begin" => event.begin = val.parse().ok(),
                 "end" => event.end = val.parse().ok(),
                 "slice" => event.slice = val.parse().ok(),
@@ -326,13 +303,13 @@ impl Event {
                 "bank" => event.bank = Some(val.to_string()),
                 "wave" | "waveform" => parse_param!(val, wave, ParamId::Wave),
                 "sub" => parse_param!(val, sub, ParamId::Sub),
-                "suboct" => event.sub_oct = val.parse::<f32>().ok().map(|f| f as u8),
+                "suboct" => event.sub_oct = Self::parse_u8(val),
                 "subwave" => event.sub_wave = val.parse().ok(),
                 "scan" => parse_param!(val, scan, ParamId::Scan),
                 "wtlen" => event.wtlen = val.parse().ok(),
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
-                "file_channels" => event.file_channels = val.parse::<f32>().ok().map(|f| f as u8),
+                "file_channels" => event.file_channels = Self::parse_u8(val),
                 "file_freq" => event.file_freq = val.parse().ok(),
                 "gain" => parse_param!(val, gain, ParamId::Gain),
                 "postgain" => parse_param!(val, postgain, ParamId::Postgain),
@@ -346,50 +323,25 @@ impl Event {
                 "release" => event.release = val.parse().ok(),
                 "lpf" | "cutoff" => parse_param!(val, lpf, ParamId::Lpf),
                 "lpq" | "resonance" => parse_param!(val, lpq, ParamId::Lpq),
-                "lpe" | "lpenv" => event.lpe = val.parse().ok(),
-                "lpa" | "lpattack" => event.lpa = val.parse().ok(),
-                "lpd" | "lpdecay" => event.lpd = val.parse().ok(),
-                "lps" | "lpsustain" => event.lps = val.parse().ok(),
-                "lpr" | "lprelease" => event.lpr = val.parse().ok(),
                 "hpf" | "hcutoff" => parse_param!(val, hpf, ParamId::Hpf),
                 "hpq" | "hresonance" => parse_param!(val, hpq, ParamId::Hpq),
-                "hpe" | "hpenv" => event.hpe = val.parse().ok(),
-                "hpa" => event.hpa = val.parse().ok(),
-                "hpd" => event.hpd = val.parse().ok(),
-                "hps" => event.hps = val.parse().ok(),
-                "hpr" => event.hpr = val.parse().ok(),
                 "bpf" | "bandf" => parse_param!(val, bpf, ParamId::Bpf),
                 "bpq" | "bandq" => parse_param!(val, bpq, ParamId::Bpq),
-                "bpe" | "bpenv" => event.bpe = val.parse().ok(),
-                "bpa" | "bpattack" => event.bpa = val.parse().ok(),
-                "bpd" | "bpdecay" => event.bpd = val.parse().ok(),
-                "bps" | "bpsustain" => event.bps = val.parse().ok(),
-                "bpr" | "bprelease" => event.bpr = val.parse().ok(),
                 "llpf" => parse_param!(val, llpf, ParamId::Llpf),
                 "llpq" => parse_param!(val, llpq, ParamId::Llpq),
                 "lhpf" => parse_param!(val, lhpf, ParamId::Lhpf),
                 "lhpq" => parse_param!(val, lhpq, ParamId::Lhpq),
                 "lbpf" => parse_param!(val, lbpf, ParamId::Lbpf),
                 "lbpq" => parse_param!(val, lbpq, ParamId::Lbpq),
-                "penv" => event.penv = val.parse().ok(),
-                "patt" => event.patt = val.parse().ok(),
-                "pdec" => event.pdec = val.parse().ok(),
-                "psus" => event.psus = val.parse().ok(),
-                "prel" => event.prel = val.parse().ok(),
                 "vib" => parse_param!(val, vib, ParamId::Vib),
                 "vibmod" => parse_param!(val, vibmod, ParamId::Vibmod),
                 "vibshape" => event.vibshape = val.parse().ok(),
                 "fm" | "fmi" => parse_param!(val, fm, ParamId::Fm),
                 "fmh" => parse_param!(val, fmh, ParamId::Fmh),
                 "fmshape" => event.fmshape = val.parse().ok(),
-                "fme" => event.fme = val.parse().ok(),
-                "fma" => event.fma = val.parse().ok(),
-                "fmd" => event.fmd = val.parse().ok(),
-                "fms" => event.fms = val.parse().ok(),
-                "fmr" => event.fmr = val.parse().ok(),
                 "fm2" => parse_param!(val, fm2, ParamId::Fm2),
                 "fm2h" => parse_param!(val, fm2h, ParamId::Fm2h),
-                "fmalgo" => event.fmalgo = val.parse::<f32>().ok().map(|f| f as u8),
+                "fmalgo" => event.fmalgo = Self::parse_u8(val),
                 "fmfb" => parse_param!(val, fmfb, ParamId::Fmfb),
                 "am" => parse_param!(val, am, ParamId::Am),
                 "amdepth" => parse_param!(val, amdepth, ParamId::Amdepth),
@@ -423,9 +375,7 @@ impl Event {
                 "comp" => parse_param!(val, comp, ParamId::Comp),
                 "compattack" | "cattack" => event.compattack = val.parse().ok(),
                 "comprelease" | "crelease" => event.comprelease = val.parse().ok(),
-                "comporbit" | "corbit" => {
-                    event.comporbit = val.parse::<f32>().ok().map(|f| f as usize)
-                }
+                "comporbit" | "corbit" => event.comporbit = Self::parse_usize(val),
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
                 "fold" => parse_param!(val, fold, ParamId::Fold),
@@ -459,7 +409,7 @@ impl Event {
                 "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
                 "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
-                "inchan" => event.inchan = val.parse::<f32>().ok().map(|f| f as usize),
+                "inchan" => event.inchan = Self::parse_usize(val),
                 _ => {}
             }
         }

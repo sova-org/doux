@@ -5,18 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.1.0] - Unreleased
 
+### Added
+
+- **Internal parameter metadata** — every source and effect now carries static `ModuleInfo` with parameter names, aliases, descriptions, defaults, and ranges, queryable at runtime via `all_modules()`
+- **Envelope modulation type** (`^`) — gate-aware DAHDSR envelope applicable to any modulatable parameter via inline syntax (`min^max:attack:decay:sustain:release`). Replaces per-module filter, pitch, and FM envelopes with a single universal mechanism
+
 ### Changed
 
+- **Shared CLI infrastructure** — extracted duplicated device enumeration, stream building, output config resolution, and device-loss recovery from `server.rs` and `repl.rs` into `cli_common` module. Exposed `find_device` from `audio` module
+- **`DelayLine` DSP primitive** — extracted circular buffer with linear-interpolated reads into `dsp::DelayLine<N>`, replacing inlined delay logic in chorus, comb, feedback, flanger, and haas effects
+- **`AudioCmd` moved to crate root** — extracted from `osc` module to `lib.rs` since it's a general engine command type used by all CLI binaries, not OSC-specific
 - **DAHDSR envelope** — replaced ADSR with a six-phase envelope: Delay, Attack, Hold, Decay, Sustain, Release. New `envdelay` (alias `envdly`) and `hold` (alias `hld`) parameters. The envelope is now self-timed via `gate` duration instead of responding to an external gate signal
 - **`gate` semantics** — `gate` is now the total note duration in seconds (delay + attack + hold + decay + sustain time). `gate/0` means infinite sustain. Replaces the old `duration` parameter
 - **Envelope retrigger** — retriggering during delay phase fades from the current value toward 0, eliminating clicks
+- **`MAX_PARAM_MODS`** bumped from 8 to 15 — more room for envelope and modulation chains per voice
+- **Transition modulation** (`>`) simplified to single-segment only. Multi-segment chaining removed in favor of the new envelope modulation type
 
 ### Removed
 
 - **Mutable Instruments Plaits oscillators** — removed all 10 Plaits synthesis engines (`modal`, `va`, `ws`, `fm2`, `grain`, `additive`, `wavetable`, `chord`, `swarm`, `pnoise`) and the `mi-plaits-dsp` dependency. The native additive oscillator (`add`) retains `harmonics`, `timbre`, `morph`, and `partials` parameters
-- **Glide (portamento)** — removed `glide` parameter from engine, event parsing, and documentation. Audio-rate frequency modulation (`freq` with `>`, `~`) replaces this functionality
+- **Glide (portamento)** — removed `glide` parameter from engine, event parsing, and documentation. Audio-rate frequency modulation (`freq` with `>`, `~`, `^`) replaces this functionality
 - **Repeat** — removed `repeat` parameter from engine, event parsing, and documentation
 - **`duration` parameter** — removed in favor of `gate`
+- **Per-module filter envelopes** (`lpe/lpa/lpd/lps/lpr`, `hpe/hpa/hpd/hps/hpr`, `bpe/bpa/bpd/bps/bpr`) — use envelope modulation on the cutoff parameter instead (e.g. `lpf/200^8000:0.01:0.1:0.5:0.3`)
+- **Pitch envelope** (`penv/patt/pdec/psus/prel`) — use `freq` or `detune` with `^` envelope modulation instead
+- **FM envelope** (`fme/fma/fmd/fms/fmr`) — use `fm` with `^` envelope modulation instead (e.g. `fm/0^5:0.01:0.1:0.3:0.5`)
 
 ### Fixed
 

@@ -3,7 +3,7 @@
 //! Creates the characteristic "jet plane" sweep by mixing the input with a
 //! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
 
-use crate::dsp::Phasor;
+use crate::dsp::{DelayLine, Phasor};
 use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -23,23 +23,11 @@ const MAX_DELAY_MS: f32 = 10.0;
 const DELAY_RANGE_MS: f32 = MAX_DELAY_MS - MIN_DELAY_MS;
 
 /// Mono flanger with feedback.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Flanger {
-    buffer: [f32; BUFFER_SIZE],
-    write_pos: usize,
+    delay: DelayLine<BUFFER_SIZE>,
     lfo: Phasor,
-    feedback: f32,
-}
-
-impl Default for Flanger {
-    fn default() -> Self {
-        Self {
-            buffer: [0.0; BUFFER_SIZE],
-            write_pos: 0,
-            lfo: Phasor::default(),
-            feedback: 0.0,
-        }
-    }
+    feedback_sample: f32,
 }
 
 impl Flanger {
@@ -63,25 +51,13 @@ impl Flanger {
         let lfo_val = self.lfo.sine(rate, isr);
         let depth_curve = depth * depth;
         let delay_ms = MIN_DELAY_MS + depth_curve * DELAY_RANGE_MS * (lfo_val * 0.5 + 0.5);
-
         let delay_samples = (delay_ms * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
 
-        let read_pos_int = delay_samples.floor() as usize;
-        let frac = delay_samples - read_pos_int as f32;
-
-        let read_index1 = (self.write_pos + BUFFER_SIZE - read_pos_int) & (BUFFER_SIZE - 1);
-        let read_index2 = (self.write_pos + BUFFER_SIZE - read_pos_int - 1) & (BUFFER_SIZE - 1);
-
-        let delayed1 = self.buffer[read_index1];
-        let delayed2 = self.buffer[read_index2];
-        let delayed = delayed1 + frac * (delayed2 - delayed1);
-
+        let delayed = self.delay.read(delay_samples);
         let feedback = feedback.clamp(0.0, 0.95);
 
-        self.buffer[self.write_pos] = input + self.feedback * feedback;
-        self.write_pos = (self.write_pos + 1) & (BUFFER_SIZE - 1);
-
-        self.feedback = delayed;
+        self.delay.write(input + self.feedback_sample * feedback);
+        self.feedback_sample = delayed;
 
         input * 0.5 + delayed * 0.5
     }

@@ -6,8 +6,8 @@
 //! - **Core** - frequency, gain, panning, gate
 //! - **Oscillator** - sound source, pulse width, spread, waveshaping
 //! - **Amplitude Envelope** - DAHDSR for volume
-//! - **Filters** - lowpass, highpass, bandpass with optional envelopes
-//! - **Pitch Modulation** - pitch envelope, vibrato, FM
+//! - **Filters** - lowpass, highpass, bandpass
+//! - **Pitch Modulation** - vibrato, FM
 //! - **Amplitude Modulation** - AM, ring modulation
 //! - **Effects** - phaser, flanger, chorus, distortion
 //! - **Routing** - orbit assignment, effect sends
@@ -94,64 +94,20 @@ pub struct VoiceParams {
     pub release: f32,
 
     // ─────────────────────────────────────────────────────────────────────
-    // Lowpass Filter
+    // Filters
     // ─────────────────────────────────────────────────────────────────────
     /// Lowpass cutoff frequency in Hz. `None` = filter bypassed.
     pub lpf: Option<f32>,
     /// Lowpass resonance/Q (0.0 to 1.0).
     pub lpq: f32,
-    /// Lowpass envelope depth multiplier.
-    pub lpe: f32,
-    /// Lowpass envelope attack time.
-    pub lpa: f32,
-    /// Lowpass envelope decay time.
-    pub lpd: f32,
-    /// Lowpass envelope sustain level.
-    pub lps: f32,
-    /// Lowpass envelope release time.
-    pub lpr: f32,
-    /// Enable lowpass filter envelope modulation.
-    pub lp_env_active: bool,
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Highpass Filter
-    // ─────────────────────────────────────────────────────────────────────
     /// Highpass cutoff frequency in Hz. `None` = filter bypassed.
     pub hpf: Option<f32>,
     /// Highpass resonance/Q (0.0 to 1.0).
     pub hpq: f32,
-    /// Highpass envelope depth multiplier.
-    pub hpe: f32,
-    /// Highpass envelope attack time.
-    pub hpa: f32,
-    /// Highpass envelope decay time.
-    pub hpd: f32,
-    /// Highpass envelope sustain level.
-    pub hps: f32,
-    /// Highpass envelope release time.
-    pub hpr: f32,
-    /// Enable highpass filter envelope modulation.
-    pub hp_env_active: bool,
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Bandpass Filter
-    // ─────────────────────────────────────────────────────────────────────
     /// Bandpass center frequency in Hz. `None` = filter bypassed.
     pub bpf: Option<f32>,
     /// Bandpass resonance/Q (0.0 to 1.0).
     pub bpq: f32,
-    /// Bandpass envelope depth multiplier.
-    pub bpe: f32,
-    /// Bandpass envelope attack time.
-    pub bpa: f32,
-    /// Bandpass envelope decay time.
-    pub bpd: f32,
-    /// Bandpass envelope sustain level.
-    pub bps: f32,
-    /// Bandpass envelope release time.
-    pub bpr: f32,
-    /// Enable bandpass filter envelope modulation.
-    pub bp_env_active: bool,
 
     // ─────────────────────────────────────────────────────────────────────
     // Ladder Filter
@@ -168,22 +124,6 @@ pub struct VoiceParams {
     pub lbpf: Option<f32>,
     /// Ladder bandpass resonance (0.0 to 1.0).
     pub lbpq: f32,
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Pitch Envelope
-    // ─────────────────────────────────────────────────────────────────────
-    /// Pitch envelope depth in semitones.
-    pub penv: f32,
-    /// Pitch envelope attack time.
-    pub patt: f32,
-    /// Pitch envelope decay time.
-    pub pdec: f32,
-    /// Pitch envelope sustain level.
-    pub psus: f32,
-    /// Pitch envelope release time.
-    pub prel: f32,
-    /// Enable pitch envelope modulation.
-    pub pitch_env_active: bool,
 
     // ─────────────────────────────────────────────────────────────────────
     // Vibrato
@@ -204,18 +144,6 @@ pub struct VoiceParams {
     pub fmh: f32,
     /// FM modulator waveform.
     pub fmshape: LfoShape,
-    /// FM envelope depth multiplier.
-    pub fme: f32,
-    /// FM envelope attack time.
-    pub fma: f32,
-    /// FM envelope decay time.
-    pub fmd: f32,
-    /// FM envelope sustain level.
-    pub fms: f32,
-    /// FM envelope release time.
-    pub fmr: f32,
-    /// Enable FM envelope modulation.
-    pub fm_env_active: bool,
     /// FM operator 2 modulation index (depth). 0 = off.
     pub fm2: f32,
     /// FM operator 2 harmonic ratio (mod2 freq = carrier freq * fm2h).
@@ -436,52 +364,22 @@ impl Default for VoiceParams {
             release: 0.005,
             lpf: None,
             lpq: 0.2,
-            lpe: 1.0,
-            lpa: 0.001,
-            lpd: 0.0,
-            lps: 1.0,
-            lpr: 0.005,
-            lp_env_active: false,
             hpf: None,
             hpq: 0.2,
-            hpe: 1.0,
-            hpa: 0.001,
-            hpd: 0.0,
-            hps: 1.0,
-            hpr: 0.005,
-            hp_env_active: false,
             bpf: None,
             bpq: 0.2,
-            bpe: 1.0,
-            bpa: 0.001,
-            bpd: 0.0,
-            bps: 1.0,
-            bpr: 0.005,
-            bp_env_active: false,
             llpf: None,
             llpq: 0.2,
             lhpf: None,
             lhpq: 0.2,
             lbpf: None,
             lbpq: 0.2,
-            penv: 1.0,
-            patt: 0.001,
-            pdec: 0.0,
-            psus: 1.0,
-            prel: 0.005,
-            pitch_env_active: false,
             vib: 0.0,
             vibmod: 0.5,
             vibshape: LfoShape::Sine,
             fm: 0.0,
             fmh: 1.0,
             fmshape: LfoShape::Sine,
-            fme: 1.0,
-            fma: 0.001,
-            fmd: 0.0,
-            fms: 1.0,
-            fmr: 0.005,
-            fm_env_active: false,
             fm2: 0.0,
             fm2h: 1.0,
             fmalgo: 0,

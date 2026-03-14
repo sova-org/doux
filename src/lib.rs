@@ -1,6 +1,8 @@
 #[cfg(feature = "native")]
 pub mod audio;
 #[cfg(feature = "native")]
+pub mod cli_common;
+#[cfg(feature = "native")]
 pub mod config;
 pub mod dsp;
 pub mod effects;
@@ -22,6 +24,12 @@ pub mod types;
 pub mod voice;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
+
+pub enum AudioCmd {
+    Evaluate(String),
+    Hush,
+    Panic,
+}
 
 use dsp::{fast_tanh_f32, init_envelope};
 use event::Event;
@@ -824,33 +832,12 @@ impl Engine {
         }
 
         // --- Filters ---
-        // Macro to apply envelope params (env amount + DAHDSR) to a target
-        macro_rules! apply_env {
-            ($src:expr, $dst:expr, $e:ident, $a:ident, $d:ident, $s:ident, $r:ident, $active:ident) => {
-                let env = init_envelope($src.$e, None, $src.$a, None, $src.$d, $src.$s, $src.$r);
-                if env.active {
-                    $dst.$e = env.env;
-                    $dst.$a = env.att;
-                    $dst.$d = env.dec;
-                    $dst.$s = env.sus;
-                    $dst.$r = env.rel;
-                    $dst.$active = true;
-                }
-            };
-        }
-
         copy_opt_some!(event, v.params, lpf);
         copy_opt!(event, v.params, lpq);
-        apply_env!(event, v.params, lpe, lpa, lpd, lps, lpr, lp_env_active);
-
         copy_opt_some!(event, v.params, hpf);
         copy_opt!(event, v.params, hpq);
-        apply_env!(event, v.params, hpe, hpa, hpd, hps, hpr, hp_env_active);
-
         copy_opt_some!(event, v.params, bpf);
         copy_opt!(event, v.params, bpq);
-        apply_env!(event, v.params, bpe, bpa, bpd, bps, bpr, bp_env_active);
-
         copy_opt_some!(event, v.params, llpf);
         copy_opt!(event, v.params, llpq);
         copy_opt_some!(event, v.params, lhpf);
@@ -859,19 +846,8 @@ impl Engine {
         copy_opt!(event, v.params, lbpq);
 
         // --- Modulation ---
-        apply_env!(
-            event,
-            v.params,
-            penv,
-            patt,
-            pdec,
-            psus,
-            prel,
-            pitch_env_active
-        );
         copy_opt!(event, v.params, vib, vibmod, vibshape);
         copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmalgo, fmfb);
-        apply_env!(event, v.params, fme, fma, fmd, fms, fmr, fm_env_active);
         copy_opt!(event, v.params, am, amdepth, amshape);
         copy_opt!(event, v.params, rm, rmdepth, rmshape);
 

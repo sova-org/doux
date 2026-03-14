@@ -21,17 +21,12 @@
 //! - Default bind: `0.0.0.0:<port>` (all interfaces)
 //! - Supports both single messages and bundles (bundles are flattened)
 
+use crate::AudioCmd;
 use crossbeam_channel::Sender;
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
-pub enum AudioCmd {
-    Evaluate(String),
-    Hush,
-    Panic,
-}
 
 /// Maximum UDP packet size for incoming OSC messages.
 const BUFFER_SIZE: usize = 4096;
