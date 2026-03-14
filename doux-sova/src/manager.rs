@@ -249,9 +249,15 @@ impl DouxManager {
                 move |data: &[f32], _| {
                     input_producer.push_slice(data);
                 },
-                move |err| {
-                    eprintln!("[doux] input stream error: {err}");
-                    flag.store(true, Ordering::Release);
+                move |err| match err {
+                    cpal::StreamError::DeviceNotAvailable
+                    | cpal::StreamError::StreamInvalidated => {
+                        eprintln!("[doux] input device lost: {err}");
+                        flag.store(true, Ordering::Release);
+                    }
+                    other => {
+                        eprintln!("[doux] input stream: {other}");
+                    }
                 },
                 None,
             ) {
@@ -369,9 +375,15 @@ impl DouxManager {
                         }
                     }
                 },
-                move |err| {
-                    eprintln!("output stream error: {err}");
-                    flag.store(true, Ordering::Release);
+                move |err| match err {
+                    cpal::StreamError::DeviceNotAvailable
+                    | cpal::StreamError::StreamInvalidated => {
+                        eprintln!("[doux] output device lost: {err}");
+                        flag.store(true, Ordering::Release);
+                    }
+                    other => {
+                        eprintln!("[doux] output stream: {other}");
+                    }
                 },
                 None,
             )

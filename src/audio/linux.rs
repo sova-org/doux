@@ -9,13 +9,17 @@ use cpal::{Device, Host};
 /// Host selection mode for Linux.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HostSelection {
-    /// Try JACK first, fallback to ALSA (default behavior).
+    /// Try PipeWire, then JACK, then ALSA (default behavior).
     #[default]
     Auto,
     /// Use JACK backend explicitly.
     Jack,
     /// Use ALSA backend explicitly.
     Alsa,
+    /// Use PipeWire backend explicitly.
+    PipeWire,
+    /// Use PulseAudio backend explicitly.
+    PulseAudio,
 }
 
 impl std::str::FromStr for HostSelection {
@@ -26,7 +30,9 @@ impl std::str::FromStr for HostSelection {
             "auto" => Ok(HostSelection::Auto),
             "jack" => Ok(HostSelection::Jack),
             "alsa" => Ok(HostSelection::Alsa),
-            _ => Err(format!("unknown host: {s} (use: auto, jack, alsa)")),
+            "pipewire" => Ok(HostSelection::PipeWire),
+            "pulseaudio" | "pulse" => Ok(HostSelection::PulseAudio),
+            _ => Err(format!("unknown host: {s} (use: auto, jack, alsa, pipewire, pulseaudio)")),
         }
     }
 }
@@ -37,6 +43,8 @@ impl std::fmt::Display for HostSelection {
             HostSelection::Auto => write!(f, "auto"),
             HostSelection::Jack => write!(f, "jack"),
             HostSelection::Alsa => write!(f, "alsa"),
+            HostSelection::PipeWire => write!(f, "pipewire"),
+            HostSelection::PulseAudio => write!(f, "pulseaudio"),
         }
     }
 }
@@ -65,15 +73,38 @@ pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
             }
             Err(DouxError::HostNotFound("alsa".to_string()))
         }
+        HostSelection::PipeWire => {
+            for host_id in cpal::available_hosts() {
+                if host_id.name().to_lowercase().contains("pipewire") {
+                    if let Ok(host) = cpal::host_from_id(host_id) {
+                        return Ok(host);
+                    }
+                }
+            }
+            Err(DouxError::HostNotFound("pipewire".to_string()))
+        }
+        HostSelection::PulseAudio => {
+            for host_id in cpal::available_hosts() {
+                if host_id.name().to_lowercase().contains("pulse") {
+                    if let Ok(host) = cpal::host_from_id(host_id) {
+                        return Ok(host);
+                    }
+                }
+            }
+            Err(DouxError::HostNotFound("pulseaudio".to_string()))
+        }
     }
 }
 
-/// Returns the preferred audio host, trying JACK first (works with pipewire-jack).
+/// Returns the preferred audio host: PipeWire → JACK → ALSA.
 pub fn preferred_host() -> Host {
-    for host_id in cpal::available_hosts() {
-        if host_id.name().to_lowercase().contains("jack") {
-            if let Ok(host) = cpal::host_from_id(host_id) {
-                return host;
+    let hosts = cpal::available_hosts();
+    for name in ["pipewire", "jack"] {
+        for &host_id in &hosts {
+            if host_id.name().to_lowercase().contains(name) {
+                if let Ok(host) = cpal::host_from_id(host_id) {
+                    return host;
+                }
             }
         }
     }

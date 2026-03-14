@@ -165,9 +165,15 @@ pub fn build_audio_streams(
                 move |data: &[f32], _| {
                     input_producer.push_slice(data);
                 },
-                move |err| {
-                    eprintln!("input stream error: {err}");
-                    flag.store(true, Ordering::Release);
+                move |err| match err {
+                    cpal::StreamError::DeviceNotAvailable
+                    | cpal::StreamError::StreamInvalidated => {
+                        eprintln!("[doux] input device lost: {err}");
+                        flag.store(true, Ordering::Release);
+                    }
+                    other => {
+                        eprintln!("[doux] input stream: {other}");
+                    }
                 },
                 None,
             )
@@ -219,9 +225,15 @@ pub fn build_audio_streams(
                 engine.metrics.load.set_buffer_time(buffer_time_ns);
                 engine.process_block(data, &[], &scratch[..raw_len]);
             },
-            move |err| {
-                eprintln!("stream error: {err}");
-                flag.store(true, Ordering::Release);
+            move |err| match err {
+                cpal::StreamError::DeviceNotAvailable
+                | cpal::StreamError::StreamInvalidated => {
+                    eprintln!("[doux] output device lost: {err}");
+                    flag.store(true, Ordering::Release);
+                }
+                other => {
+                    eprintln!("[doux] output stream: {other}");
+                }
             },
             None,
         )
