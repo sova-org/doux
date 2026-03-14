@@ -24,7 +24,7 @@ use crate::sampling::WebSampleSource;
 use crate::sampling::{FileSource, SampleInfo};
 use crate::types::CHANNELS;
 
-pub const MAX_PARAM_MODS: usize = 8;
+pub const MAX_PARAM_MODS: usize = 15;
 
 pub struct Voice {
     pub params: VoiceParams,
@@ -32,15 +32,9 @@ pub struct Voice {
     pub sub_phasor: Phasor,
     pub spread_phasors: [Phasor; 7],
     pub dahdsr: Dahdsr,
-    pub lp_dahdsr: Dahdsr,
-    pub hp_dahdsr: Dahdsr,
-    pub bp_dahdsr: Dahdsr,
     pub lp: [SvfState; CHANNELS],
     pub hp: [SvfState; CHANNELS],
     pub bp: [SvfState; CHANNELS],
-    // Modulation
-    pub pitch_dahdsr: Dahdsr,
-    pub fm_dahdsr: Dahdsr,
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
     pub fm2_phasor: Phasor,
@@ -107,14 +101,9 @@ impl Default for Voice {
                 p
             }),
             dahdsr: Dahdsr::default(),
-            lp_dahdsr: Dahdsr::default(),
-            hp_dahdsr: Dahdsr::default(),
-            bp_dahdsr: Dahdsr::default(),
             lp: [SvfState::default(); CHANNELS],
             hp: [SvfState::default(); CHANNELS],
             bp: [SvfState::default(); CHANNELS],
-            pitch_dahdsr: Dahdsr::default(),
-            fm_dahdsr: Dahdsr::default(),
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
             fm2_phasor: Phasor::default(),
@@ -168,14 +157,9 @@ impl Clone for Voice {
             sub_phasor: self.sub_phasor,
             spread_phasors: self.spread_phasors,
             dahdsr: self.dahdsr,
-            lp_dahdsr: self.lp_dahdsr,
-            hp_dahdsr: self.hp_dahdsr,
-            bp_dahdsr: self.bp_dahdsr,
             lp: self.lp,
             hp: self.hp,
             bp: self.bp,
-            pitch_dahdsr: self.pitch_dahdsr,
-            fm_dahdsr: self.fm_dahdsr,
             vib_lfo: self.vib_lfo,
             fm_phasor: self.fm_phasor,
             fm2_phasor: self.fm2_phasor,
@@ -342,18 +326,8 @@ impl Voice {
 
         // FM synthesis (3-operator)
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
-            let env_scale = if self.params.fm_env_active {
-                let env = self.fm_dahdsr.update(
-                    isr, 0.0, self.params.fma, 0.0,
-                    self.params.fmd, self.params.fms, self.params.fmr,
-                );
-                self.params.fme * env + 1.0
-            } else {
-                1.0
-            };
-
-            let fm1 = self.params.fm * env_scale;
-            let fm2 = self.params.fm2 * env_scale;
+            let fm1 = self.params.fm;
+            let fm2 = self.params.fm2;
             let shape = self.params.fmshape;
             let fb = (self.fm_fb_prev + self.fm_fb_prev2) * 0.5 * self.params.fmfb;
 
@@ -402,20 +376,6 @@ impl Voice {
             }
         }
 
-        // Pitch envelope
-        if self.params.pitch_env_active && self.params.penv != 0.0 {
-            let env = self.pitch_dahdsr.update(
-                isr, 0.0, self.params.patt, 0.0,
-                self.params.pdec, self.params.psus, self.params.prel,
-            );
-            let env_adj = if self.params.psus == 1.0 {
-                env - 1.0
-            } else {
-                env
-            };
-            freq *= exp2f(env_adj * self.params.penv / 12.0);
-        }
-
         // Vibrato
         if self.params.vib > 0.0 && self.params.vibmod > 0.0 {
             let mod_val = self.vib_lfo.lfo(self.params.vibshape, self.params.vib, isr);
@@ -428,20 +388,16 @@ impl Voice {
 
     pub fn force_release(&mut self) {
         self.dahdsr.force_release();
-        if self.params.lp_env_active { self.lp_dahdsr.force_release(); }
-        if self.params.hp_env_active { self.hp_dahdsr.force_release(); }
-        if self.params.bp_env_active { self.bp_dahdsr.force_release(); }
-        if self.params.fm_env_active { self.fm_dahdsr.force_release(); }
-        if self.params.pitch_env_active { self.pitch_dahdsr.force_release(); }
+        for i in 0..self.param_mod_count as usize {
+            self.param_mods[i].1.force_release();
+        }
     }
 
     fn trigger_envelopes(&mut self) {
         self.dahdsr.trigger(self.params.gate);
-        if self.params.lp_env_active { self.lp_dahdsr.trigger(self.params.gate); }
-        if self.params.hp_env_active { self.hp_dahdsr.trigger(self.params.gate); }
-        if self.params.bp_env_active { self.bp_dahdsr.trigger(self.params.gate); }
-        if self.params.fm_env_active { self.fm_dahdsr.trigger(self.params.gate); }
-        if self.params.pitch_env_active { self.pitch_dahdsr.trigger(0.0); }
+        for i in 0..self.param_mod_count as usize {
+            self.param_mods[i].1.trigger(self.params.gate);
+        }
     }
 
     #[cfg(feature = "native")]
@@ -529,47 +485,15 @@ impl Voice {
         let isr = 1.0 / self.sr;
         let nch = self.nch;
 
-        // Compute filter envelopes once per sample (reused for SVF + ladder)
-        let lp_env_val = if self.params.lp_env_active {
-            self.lp_dahdsr.update(isr, 0.0, self.params.lpa, 0.0, self.params.lpd, self.params.lps, self.params.lpr)
-        } else {
-            0.0
-        };
-        let hp_env_val = if self.params.hp_env_active {
-            self.hp_dahdsr.update(isr, 0.0, self.params.hpa, 0.0, self.params.hpd, self.params.hps, self.params.hpr)
-        } else {
-            0.0
-        };
-        let bp_env_val = if self.params.bp_env_active {
-            self.bp_dahdsr.update(isr, 0.0, self.params.bpa, 0.0, self.params.bpd, self.params.bps, self.params.bpr)
-        } else {
-            0.0
-        };
-
         // Update filter cutoffs
         if let Some(lpf) = self.params.lpf {
-            let cutoff = if self.params.lp_env_active {
-                self.params.lpe * lp_env_val * lpf + lpf
-            } else {
-                lpf
-            };
-            for c in 0..nch { self.lp[c].cutoff = cutoff; }
+            for c in 0..nch { self.lp[c].cutoff = lpf; }
         }
         if let Some(hpf) = self.params.hpf {
-            let cutoff = if self.params.hp_env_active {
-                self.params.hpe * hp_env_val * hpf + hpf
-            } else {
-                hpf
-            };
-            for c in 0..nch { self.hp[c].cutoff = cutoff; }
+            for c in 0..nch { self.hp[c].cutoff = hpf; }
         }
         if let Some(bpf) = self.params.bpf {
-            let cutoff = if self.params.bp_env_active {
-                self.params.bpe * bp_env_val * bpf + bpf
-            } else {
-                bpf
-            };
-            for c in 0..nch { self.bp[c].cutoff = cutoff; }
+            for c in 0..nch { self.bp[c].cutoff = bpf; }
         }
 
         // Pre-filter gain
@@ -592,35 +516,20 @@ impl Voice {
             }
         }
 
-        // Ladder filters (reuse envelope values from above)
+        // Ladder filters
         if let Some(llpf) = self.params.llpf {
-            let cutoff = if self.params.lp_env_active {
-                self.params.lpe * lp_env_val * llpf + llpf
-            } else {
-                llpf
-            };
             for c in 0..nch {
-                self.ch[c] = self.ladder_lp[c].process(self.ch[c], cutoff, self.params.llpq, LadderMode::Lp, self.sr);
+                self.ch[c] = self.ladder_lp[c].process(self.ch[c], llpf, self.params.llpq, LadderMode::Lp, self.sr);
             }
         }
         if let Some(lhpf) = self.params.lhpf {
-            let cutoff = if self.params.hp_env_active {
-                self.params.hpe * hp_env_val * lhpf + lhpf
-            } else {
-                lhpf
-            };
             for c in 0..nch {
-                self.ch[c] = self.ladder_hp[c].process(self.ch[c], cutoff, self.params.lhpq, LadderMode::Hp, self.sr);
+                self.ch[c] = self.ladder_hp[c].process(self.ch[c], lhpf, self.params.lhpq, LadderMode::Hp, self.sr);
             }
         }
         if let Some(lbpf) = self.params.lbpf {
-            let cutoff = if self.params.bp_env_active {
-                self.params.bpe * bp_env_val * lbpf + lbpf
-            } else {
-                lbpf
-            };
             for c in 0..nch {
-                self.ch[c] = self.ladder_bp[c].process(self.ch[c], cutoff, self.params.lbpq, LadderMode::Bp, self.sr);
+                self.ch[c] = self.ladder_bp[c].process(self.ch[c], lbpf, self.params.lbpq, LadderMode::Bp, self.sr);
             }
         }
 

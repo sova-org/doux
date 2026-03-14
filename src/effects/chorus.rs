@@ -16,7 +16,7 @@
 //! The three voices are phase-offset by 120° to avoid reinforcement artifacts.
 //! Left and right taps use opposite modulation polarity for stereo width.
 
-use crate::dsp::Phasor;
+use crate::dsp::{DelayLine, Phasor};
 use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -43,24 +43,18 @@ const VOICES: usize = 3;
 /// non-pulsing modulation.
 #[derive(Clone, Copy)]
 pub struct Chorus {
-    /// Circular delay buffer (mono, power-of-2 for efficient wrapping).
-    buffer: [f32; BUFFER_SIZE],
-    /// Current write position in the delay buffer.
-    write_pos: usize,
-    /// Per-voice LFOs for delay time modulation.
+    delay: DelayLine<BUFFER_SIZE>,
     lfo: [Phasor; VOICES],
 }
 
 impl Default for Chorus {
     fn default() -> Self {
         let mut lfo = [Phasor::default(); VOICES];
-        // Distribute LFO phases evenly: 0°, 120°, 240°
         for (i, l) in lfo.iter_mut().enumerate() {
             l.phase = i as f32 / VOICES as f32;
         }
         Self {
-            buffer: [0.0; BUFFER_SIZE],
-            write_pos: 0,
+            delay: DelayLine::default(),
             lfo,
         }
     }
@@ -96,9 +90,8 @@ impl Chorus {
         let depth = depth.clamp(0.0, 1.0);
         let mod_range = delay_ms * 0.8;
 
-        // Sum to mono for delay line (common chorus technique)
         let mono = (left + right) * 0.5;
-        self.buffer[self.write_pos] = mono;
+        self.delay.write(mono);
 
         let mut out_l = 0.0_f32;
         let mut out_r = 0.0_f32;
@@ -109,39 +102,20 @@ impl Chorus {
         for v in 0..VOICES {
             let lfo = self.lfo[v].sine(rate, isr);
 
-            // Opposite modulation for L/R creates stereo width
             let modulation = depth * mod_range * lfo;
             let dly_l = (delay_ms + modulation).clamp(min_delay, max_delay);
             let dly_r = (delay_ms - modulation).clamp(min_delay, max_delay);
 
-            // Convert ms to samples
             let samp_l = (dly_l * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
             let samp_r = (dly_r * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
 
-            // Linear interpolation for sub-sample accuracy
-            let pos_l = samp_l.floor() as usize;
-            let frac_l = samp_l - pos_l as f32;
-            let idx_l0 = (self.write_pos + BUFFER_SIZE - pos_l) & (BUFFER_SIZE - 1);
-            let idx_l1 = (self.write_pos + BUFFER_SIZE - pos_l - 1) & (BUFFER_SIZE - 1);
-            let tap_l = self.buffer[idx_l0] + frac_l * (self.buffer[idx_l1] - self.buffer[idx_l0]);
-
-            let pos_r = samp_r.floor() as usize;
-            let frac_r = samp_r - pos_r as f32;
-            let idx_r0 = (self.write_pos + BUFFER_SIZE - pos_r) & (BUFFER_SIZE - 1);
-            let idx_r1 = (self.write_pos + BUFFER_SIZE - pos_r - 1) & (BUFFER_SIZE - 1);
-            let tap_r = self.buffer[idx_r0] + frac_r * (self.buffer[idx_r1] - self.buffer[idx_r0]);
-
-            out_l += tap_l;
-            out_r += tap_r;
+            out_l += self.delay.read(samp_l);
+            out_r += self.delay.read(samp_r);
         }
 
-        self.write_pos = (self.write_pos + 1) & (BUFFER_SIZE - 1);
-
-        // Average the voices
         out_l /= VOICES as f32;
         out_r /= VOICES as f32;
 
-        // Equal-power mix: dry × 0.707 + wet × 0.707
         const MIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
         [mono * MIX + out_l * MIX, mono * MIX + out_r * MIX]
     }

@@ -16,7 +16,7 @@ Sample rate reduction, bit crushing, and waveshaping distortion.
 
 Sample rate reduction. Holds each sample for <code>n</code> samples, creating stair-stepping and aliasing artifacts.
 
-<CodeEditor code={`/penv/36/pdec/.5/coarse/8`} rows={2} />
+<CodeEditor code={`/freq/130^8000:0.003:0.5/coarse/8`} rows={2} />
 
 <CodeEditor code={`/sound/saw/freq/100/coarse/1>16:2/decay/2/gate/3`} rows={2} />
 
@@ -26,7 +26,7 @@ Sample rate reduction. Holds each sample for <code>n</code> samples, creating st
 
 Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, creating stepping distortion.
 
-<CodeEditor code={`/penv/36/pdec/.5/crush/4`} rows={2} />
+<CodeEditor code={`/freq/130^8000:0.003:0.5/crush/4`} rows={2} />
 
 <CodeEditor code={`/sound/saw/crush/16>2:1.5/freq/100/decay/1.5/gate/2`} rows={2} />
 

@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use crate::dsp::envelope::Dahdsr;
 use crate::dsp::{cosf, exp2f, log2f, sinf};
 
 #[inline]
@@ -29,13 +30,6 @@ pub enum ModShape {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ModSegment {
-    pub target: f32,
-    pub freq: f32,
-    pub curve: ModCurve,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub enum ModChain {
     Oscillate {
         min: f32,
@@ -45,15 +39,26 @@ pub enum ModChain {
     },
     Transition {
         start: f32,
-        segments: [ModSegment; 4],
-        count: u8,
+        target: f32,
+        freq: f32,
+        curve: ModCurve,
         looping: bool,
+    },
+    Envelope {
+        min: f32,
+        max: f32,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
     },
 }
 
 impl ModChain {
     pub fn parse(s: &str) -> Option<Self> {
-        if s.contains('>') {
+        if s.contains('^') {
+            Self::parse_envelope(s)
+        } else if s.contains('>') {
             Self::parse_transition(s)
         } else if s.contains('~') {
             Self::parse_oscillate(s)
@@ -66,56 +71,32 @@ impl ModChain {
 
     pub fn map_values(self, f: impl Fn(f32) -> f32) -> Self {
         match self {
-            ModChain::Transition { start, mut segments, count, looping } => {
-                let start = f(start);
-                for seg in segments.iter_mut().take(count as usize) {
-                    seg.target = f(seg.target);
-                }
-                ModChain::Transition { start, segments, count, looping }
-            }
             ModChain::Oscillate { min, max, freq, shape } => {
                 ModChain::Oscillate { min: f(min), max: f(max), freq, shape }
+            }
+            ModChain::Transition { start, target, freq, curve, looping } => {
+                ModChain::Transition { start: f(start), target: f(target), freq, curve, looping }
+            }
+            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+                ModChain::Envelope { min: f(min), max: f(max), attack, decay, sustain, release }
             }
         }
     }
 
-    fn parse_transition(s: &str) -> Option<Self> {
-        let parts: Vec<&str> = s.split('>').collect();
-        if parts.len() < 2 || parts.len() > 5 {
+    fn parse_envelope(s: &str) -> Option<Self> {
+        let caret = s.find('^')?;
+        let min: f32 = s[..caret].parse().ok()?;
+        let rest = &s[caret + 1..];
+        let parts: Vec<&str> = rest.split(':').collect();
+        if parts.is_empty() || parts.len() > 5 {
             return None;
         }
-        let start: f32 = parts[0].parse().ok()?;
-        let mut segments = [ModSegment { target: 0.0, freq: 1.0, curve: ModCurve::Linear }; 4];
-        let mut looping = false;
-        let count = (parts.len() - 1) as u8;
-
-        for (i, part) in parts[1..].iter().enumerate() {
-            let colon = part.find(':')?;
-            let target: f32 = part[..colon].parse().ok()?;
-            let dur_str = &part[colon + 1..];
-
-            let (dur_str, is_loop) = if let Some(stripped) = dur_str.strip_suffix('~') {
-                (stripped, true)
-            } else {
-                (dur_str, false)
-            };
-
-            if is_loop {
-                if i == parts.len() - 2 {
-                    looping = true;
-                } else {
-                    return None;
-                }
-            }
-
-            let (period, curve) = parse_duration_curve(dur_str)?;
-            if period <= 0.0 {
-                return None;
-            }
-            segments[i] = ModSegment { target, freq: 1.0 / period, curve };
-        }
-
-        Some(ModChain::Transition { start, segments, count, looping })
+        let max: f32 = parts[0].parse().ok()?;
+        let attack: f32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.003);
+        let decay: f32 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let sustain: f32 = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(1.0);
+        let release: f32 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.005);
+        Some(ModChain::Envelope { min, max, attack, decay, sustain, release })
     }
 
     fn parse_oscillate(s: &str) -> Option<Self> {
@@ -164,6 +145,26 @@ impl ModChain {
         Some(ModChain::Oscillate { min, max, freq: 1.0 / period, shape })
     }
 
+    fn parse_transition(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split('>').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        let start: f32 = parts[0].parse().ok()?;
+        let colon = parts[1].find(':')?;
+        let target: f32 = parts[1][..colon].parse().ok()?;
+        let dur_str = &parts[1][colon + 1..];
+        let (dur_str, looping) = if let Some(stripped) = dur_str.strip_suffix('~') {
+            (stripped, true)
+        } else {
+            (dur_str, false)
+        };
+        let (period, curve) = parse_duration_curve(dur_str)?;
+        if period <= 0.0 {
+            return None;
+        }
+        Some(ModChain::Transition { start, target, freq: 1.0 / period, curve, looping })
+    }
 }
 
 fn parse_duration_curve(s: &str) -> Option<(f32, ModCurve)> {
@@ -179,6 +180,32 @@ fn parse_duration_curve(s: &str) -> Option<(f32, ModCurve)> {
         Some((stripped.parse().ok()?, ModCurve::Stair))
     } else {
         Some((s.parse().ok()?, ModCurve::Linear))
+    }
+}
+
+fn interpolate(from: f32, to: f32, t: f32, curve: ModCurve) -> f32 {
+    match curve {
+        ModCurve::Linear => from + (to - from) * t,
+        ModCurve::Exponential => {
+            if from > 0.0 && to > 0.0 {
+                from * exp2f(t * log2f(to / from))
+            } else {
+                from + (to - from) * t * t
+            }
+        }
+        ModCurve::Smooth => {
+            let t = (1.0 - cosf(t * PI)) * 0.5;
+            from + (to - from) * t
+        }
+        ModCurve::Swell => from + (to - from) * t * t,
+        ModCurve::Pluck => {
+            let inv = 1.0 - t;
+            from + (to - from) * (1.0 - inv * inv)
+        }
+        ModCurve::Stair => {
+            let stepped = (t * 8.0).floor() / 7.0;
+            from + (to - from) * stepped
+        }
     }
 }
 
@@ -258,11 +285,11 @@ pub enum ParamId {
 pub struct ParamMod {
     pub chain: ModChain,
     pub phase: f32,
-    pub segment_idx: u8,
     pub prev_rand: f32,
     pub next_rand: f32,
     pub seed: u32,
     pub drunk_pos: f32,
+    pub envelope: Dahdsr,
 }
 
 impl Default for ParamMod {
@@ -270,11 +297,11 @@ impl Default for ParamMod {
         Self {
             chain: ModChain::Oscillate { min: 0.0, max: 0.0, freq: 0.0, shape: ModShape::Sine },
             phase: 0.0,
-            segment_idx: 0,
             prev_rand: 0.0,
             next_rand: 0.0,
             seed: 0,
             drunk_pos: 0.5,
+            envelope: Dahdsr::default(),
         }
     }
 }
@@ -284,11 +311,11 @@ impl ParamMod {
         let mut m = Self {
             chain,
             phase: 0.0,
-            segment_idx: 0,
             prev_rand: 0.0,
             next_rand: 0.0,
             seed,
             drunk_pos: 0.5,
+            envelope: Dahdsr::default(),
         };
         m.prev_rand = m.rand();
         m.next_rand = m.rand();
@@ -300,14 +327,39 @@ impl ParamMod {
         ((self.seed >> 16) & 0x7fff) as f32 / 32767.0
     }
 
+    pub fn trigger(&mut self, gate: f32) {
+        if matches!(self.chain, ModChain::Envelope { .. }) {
+            self.envelope.trigger(gate);
+        }
+    }
+
+    pub fn force_release(&mut self) {
+        if matches!(self.chain, ModChain::Envelope { .. }) {
+            self.envelope.force_release();
+        }
+    }
+
     pub fn tick(&mut self, isr: f32) -> f32 {
         match self.chain {
             ModChain::Oscillate { min, max, freq, shape } => {
                 self.phase += freq * isr;
                 self.tick_oscillate(min, max, shape)
             }
-            ModChain::Transition { start, segments, count, looping } => {
-                self.tick_transition(start, segments, count, looping, isr)
+            ModChain::Transition { start, target, freq, curve, looping } => {
+                self.phase += freq * isr;
+                if self.phase >= 1.0 {
+                    if looping {
+                        self.phase -= 1.0;
+                    } else {
+                        self.phase = 1.0;
+                        return target;
+                    }
+                }
+                interpolate(start, target, self.phase, curve)
+            }
+            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+                let env_val = self.envelope.update(isr, 0.0, attack, 0.0, decay, sustain, release);
+                min + (max - min) * env_val
             }
         }
     }
@@ -369,72 +421,6 @@ impl ParamMod {
             }
         }
     }
-
-    fn tick_transition(
-        &mut self,
-        start: f32,
-        segments: [ModSegment; 4],
-        count: u8,
-        looping: bool,
-        isr: f32,
-    ) -> f32 {
-        let mut first = true;
-        loop {
-            let idx = self.segment_idx as usize;
-            if idx >= count as usize {
-                return segments[count as usize - 1].target;
-            }
-
-            let seg = &segments[idx];
-            if first {
-                self.phase += seg.freq * isr;
-                first = false;
-            }
-
-            if self.phase >= 1.0 {
-                if idx + 1 < count as usize {
-                    self.phase -= 1.0;
-                    self.segment_idx += 1;
-                } else if looping {
-                    self.phase -= 1.0;
-                    self.segment_idx = 0;
-                } else {
-                    self.phase = 1.0;
-                    return seg.target;
-                }
-                continue;
-            }
-
-            let seg_start = if idx == 0 { start } else { segments[idx - 1].target };
-            return interpolate(seg_start, seg.target, self.phase, seg.curve);
-        }
-    }
-}
-
-fn interpolate(from: f32, to: f32, t: f32, curve: ModCurve) -> f32 {
-    match curve {
-        ModCurve::Linear => from + (to - from) * t,
-        ModCurve::Exponential => {
-            if from > 0.0 && to > 0.0 {
-                from * exp2f(t * log2f(to / from))
-            } else {
-                from + (to - from) * t * t
-            }
-        }
-        ModCurve::Smooth => {
-            let t = (1.0 - cosf(t * PI)) * 0.5;
-            from + (to - from) * t
-        }
-        ModCurve::Swell => from + (to - from) * t * t,
-        ModCurve::Pluck => {
-            let inv = 1.0 - t;
-            from + (to - from) * (1.0 - inv * inv)
-        }
-        ModCurve::Stair => {
-            let stepped = (t * 8.0).floor() / 7.0;
-            from + (to - from) * stepped
-        }
-    }
 }
 
 #[cfg(test)]
@@ -492,86 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_transition_single() {
-        let m = ModChain::parse("200>4000:2").unwrap();
-        match m {
-            ModChain::Transition { start, segments, count, looping } => {
-                assert_eq!(start, 200.0);
-                assert_eq!(count, 1);
-                assert_eq!(segments[0].target, 4000.0);
-                assert_eq!(segments[0].freq, 0.5);
-                assert_eq!(segments[0].curve, ModCurve::Linear);
-                assert!(!looping);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
-    fn parse_transition_exp() {
-        let m = ModChain::parse("200>4000:2e").unwrap();
-        match m {
-            ModChain::Transition { segments, .. } => {
-                assert_eq!(segments[0].curve, ModCurve::Exponential);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
-    fn parse_transition_smooth() {
-        let m = ModChain::parse("200>4000:2s").unwrap();
-        match m {
-            ModChain::Transition { segments, .. } => {
-                assert_eq!(segments[0].curve, ModCurve::Smooth);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
-    fn parse_transition_multi() {
-        let m = ModChain::parse("200>4000:1>800:2").unwrap();
-        match m {
-            ModChain::Transition { start, segments, count, looping } => {
-                assert_eq!(start, 200.0);
-                assert_eq!(count, 2);
-                assert_eq!(segments[0].target, 4000.0);
-                assert_eq!(segments[0].freq, 1.0);
-                assert_eq!(segments[1].target, 800.0);
-                assert_eq!(segments[1].freq, 0.5);
-                assert!(!looping);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
-    fn parse_transition_multi_curves() {
-        let m = ModChain::parse("200>4000:1e>200:1.5s").unwrap();
-        match m {
-            ModChain::Transition { segments, count, .. } => {
-                assert_eq!(count, 2);
-                assert_eq!(segments[0].curve, ModCurve::Exponential);
-                assert_eq!(segments[1].curve, ModCurve::Smooth);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
-    fn parse_transition_looping() {
-        let m = ModChain::parse("200>4000:1>200:1~").unwrap();
-        match m {
-            ModChain::Transition { looping, count, .. } => {
-                assert_eq!(count, 2);
-                assert!(looping);
-            }
-            _ => panic!("expected Transition"),
-        }
-    }
-
-    #[test]
     fn parse_random_hold() {
         let m = ModChain::parse("200?4000:0.5").unwrap();
         match m {
@@ -615,15 +521,109 @@ mod tests {
     }
 
     #[test]
-    fn parse_direction_reversal() {
-        let m = ModChain::parse("4000>200:2").unwrap();
+    fn parse_transition_single() {
+        let m = ModChain::parse("200>4000:2").unwrap();
         match m {
-            ModChain::Transition { start, segments, .. } => {
-                assert_eq!(start, 4000.0);
-                assert_eq!(segments[0].target, 200.0);
+            ModChain::Transition { start, target, freq, curve, looping } => {
+                assert_eq!(start, 200.0);
+                assert_eq!(target, 4000.0);
+                assert_eq!(freq, 0.5);
+                assert_eq!(curve, ModCurve::Linear);
+                assert!(!looping);
             }
             _ => panic!("expected Transition"),
         }
+    }
+
+    #[test]
+    fn parse_transition_exp() {
+        let m = ModChain::parse("200>4000:2e").unwrap();
+        match m {
+            ModChain::Transition { curve, .. } => assert_eq!(curve, ModCurve::Exponential),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_smooth() {
+        let m = ModChain::parse("200>4000:2s").unwrap();
+        match m {
+            ModChain::Transition { curve, .. } => assert_eq!(curve, ModCurve::Smooth),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_swell() {
+        let m = ModChain::parse("200>4000:2i").unwrap();
+        match m {
+            ModChain::Transition { curve, .. } => assert_eq!(curve, ModCurve::Swell),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_pluck() {
+        let m = ModChain::parse("200>4000:2o").unwrap();
+        match m {
+            ModChain::Transition { curve, .. } => assert_eq!(curve, ModCurve::Pluck),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_stair() {
+        let m = ModChain::parse("200>4000:2p").unwrap();
+        match m {
+            ModChain::Transition { curve, .. } => assert_eq!(curve, ModCurve::Stair),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_looping() {
+        let m = ModChain::parse("200>4000:2~").unwrap();
+        match m {
+            ModChain::Transition { looping, .. } => assert!(looping),
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_direction_reversal() {
+        let m = ModChain::parse("4000>200:2").unwrap();
+        match m {
+            ModChain::Transition { start, target, .. } => {
+                assert_eq!(start, 4000.0);
+                assert_eq!(target, 200.0);
+            }
+            _ => panic!("expected Transition"),
+        }
+    }
+
+    #[test]
+    fn parse_transition_multi_segment_rejected() {
+        assert!(ModChain::parse("200>4000:1>800:2").is_none());
+    }
+
+    #[test]
+    fn interpolate_swell() {
+        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Swell);
+        assert!((v - 25.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn interpolate_pluck() {
+        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Pluck);
+        assert!((v - 75.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn interpolate_stair() {
+        let v0 = interpolate(0.0, 100.0, 0.0, ModCurve::Stair);
+        assert!((v0 - 0.0).abs() < 0.01);
+        let v1 = interpolate(0.0, 100.0, 0.99, ModCurve::Stair);
+        assert!((v1 - 100.0).abs() < 0.01);
     }
 
     #[test]
@@ -641,84 +641,74 @@ mod tests {
     }
 
     #[test]
-    fn parse_percussive_envelope() {
-        let m = ModChain::parse("0>1:0.01>0.7:0.1>0:2").unwrap();
+    fn parse_envelope_full() {
+        let m = ModChain::parse("200^8000:0.01:0.1:0.5:0.3").unwrap();
         match m {
-            ModChain::Transition { start, segments, count, looping } => {
-                assert_eq!(start, 0.0);
-                assert_eq!(count, 3);
-                assert_eq!(segments[0].target, 1.0);
-                assert_eq!(segments[1].target, 0.7);
-                assert_eq!(segments[2].target, 0.0);
-                assert!(!looping);
+            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+                assert_eq!(min, 200.0);
+                assert_eq!(max, 8000.0);
+                assert_eq!(attack, 0.01);
+                assert_eq!(decay, 0.1);
+                assert_eq!(sustain, 0.5);
+                assert_eq!(release, 0.3);
             }
-            _ => panic!("expected Transition"),
+            _ => panic!("expected Envelope"),
         }
     }
 
     #[test]
-    fn parse_looping_sawtooth() {
-        let m = ModChain::parse("200>4000:2~").unwrap();
+    fn parse_envelope_attack_only() {
+        let m = ModChain::parse("0^1:0.01").unwrap();
         match m {
-            ModChain::Transition { count, looping, .. } => {
-                assert_eq!(count, 1);
-                assert!(looping);
+            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+                assert_eq!(min, 0.0);
+                assert_eq!(max, 1.0);
+                assert_eq!(attack, 0.01);
+                assert_eq!(decay, 0.0);
+                assert_eq!(sustain, 1.0);
+                assert_eq!(release, 0.005);
             }
-            _ => panic!("expected Transition"),
+            _ => panic!("expected Envelope"),
         }
     }
 
     #[test]
-    fn parse_transition_swell() {
-        let m = ModChain::parse("200>4000:2i").unwrap();
+    fn parse_envelope_min_max_only() {
+        let m = ModChain::parse("200^8000").unwrap();
         match m {
-            ModChain::Transition { segments, .. } => {
-                assert_eq!(segments[0].curve, ModCurve::Swell);
+            ModChain::Envelope { min, max, attack, .. } => {
+                assert_eq!(min, 200.0);
+                assert_eq!(max, 8000.0);
+                assert_eq!(attack, 0.003);
             }
-            _ => panic!("expected Transition"),
+            _ => panic!("expected Envelope"),
         }
     }
 
     #[test]
-    fn parse_transition_pluck() {
-        let m = ModChain::parse("200>4000:2o").unwrap();
+    fn parse_envelope_negative() {
+        let m = ModChain::parse("-12^12:0.01:0.1:0.0:0.5").unwrap();
         match m {
-            ModChain::Transition { segments, .. } => {
-                assert_eq!(segments[0].curve, ModCurve::Pluck);
+            ModChain::Envelope { min, max, sustain, .. } => {
+                assert_eq!(min, -12.0);
+                assert_eq!(max, 12.0);
+                assert_eq!(sustain, 0.0);
             }
-            _ => panic!("expected Transition"),
+            _ => panic!("expected Envelope"),
         }
     }
 
     #[test]
-    fn parse_transition_stair() {
-        let m = ModChain::parse("200>4000:2p").unwrap();
-        match m {
-            ModChain::Transition { segments, .. } => {
-                assert_eq!(segments[0].curve, ModCurve::Stair);
+    fn envelope_map_values() {
+        let m = ModChain::Envelope { min: 100.0, max: 200.0, attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.3 };
+        let mapped = m.map_values(|v| v * 2.0);
+        match mapped {
+            ModChain::Envelope { min, max, attack, .. } => {
+                assert_eq!(min, 200.0);
+                assert_eq!(max, 400.0);
+                assert_eq!(attack, 0.01);
             }
-            _ => panic!("expected Transition"),
+            _ => panic!("expected Envelope"),
         }
     }
-
-    #[test]
-    fn interpolate_swell() {
-        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Swell);
-        assert!((v - 25.0).abs() < 0.01); // 0.5^2 = 0.25
-    }
-
-    #[test]
-    fn interpolate_pluck() {
-        let v = interpolate(0.0, 100.0, 0.5, ModCurve::Pluck);
-        assert!((v - 75.0).abs() < 0.01); // 1-(1-0.5)^2 = 0.75
-    }
-
-    #[test]
-    fn interpolate_stair() {
-        let v0 = interpolate(0.0, 100.0, 0.0, ModCurve::Stair);
-        assert!((v0 - 0.0).abs() < 0.01);
-        let v1 = interpolate(0.0, 100.0, 0.99, ModCurve::Stair);
-        assert!((v1 - 100.0).abs() < 0.01); // floor(7.92)/7 = 1.0
-    }
-
 }

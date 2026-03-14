@@ -20,6 +20,8 @@ The frequency modulation index. FM multiplies the gain of the modulator, thus co
 
 <CodeEditor code={`/voice/0/fm/2/time/0\n\n/voice/0/fm/4/time/1`} rows={4} />
 
+<CodeEditor code={`/fm/0^5:0.01:0.1:0.3:0.5/fmh/3/decay/1/gate/2`} rows={2} />
+
 </CommandEntry>
 
 <CommandEntry name="fmh" type="number" default={1} mod>
@@ -42,49 +44,9 @@ FM modulator waveform shape. Options: `sine`, `tri`, `saw`, `square`, `sh` (samp
 
 </CommandEntry>
 
-<CommandEntry name="fmenv" type="number" default={0}>
-
-Envelope amount of frequency envelope.
-
-<CodeEditor code={`/fm/4/fmenv/4/fmd/0.25`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fma" type="number" min={0} default={0} unit="s">
-
-The duration (seconds) of the fm envelope's attack phase.
-
-<CodeEditor code={`/fm/4/fma/0.25`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fmd" type="number" min={0} default={0} unit="s">
-
-The duration (seconds) of the fm envelope's decay phase.
-
-<CodeEditor code={`/fm/4/fmd/0.25`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fms" type="number" min={0} max={1} default={1}>
-
-The sustain level of the fm envelope.
-
-<CodeEditor code={`/fm/4/fmd/0.25/fms/.5`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fmr" type="number" min={0} default={0} unit="s">
-
-The duration (seconds) of the fm envelope's release phase.
-
-<CodeEditor code={`/fm/4/fmr/1/release/1/gate/.1`} rows={2} />
-
-</CommandEntry>
-
 <CommandEntry name="fm2" type="number" min={0} default={0} mod>
 
-Modulation index for the second FM operator. When `fm2` is greater than 0, a third operator is introduced. Its routing depends on `fmalgo`. The second operator shares the same waveform (`fmshape`) and envelope (`fma`, `fmd`, `fms`, `fmr`) as the first.
+Modulation index for the second FM operator. When `fm2` is greater than 0, a third operator is introduced. Its routing depends on `fmalgo`. The second operator shares the same waveform (`fmshape`) as the first.
 
 <CodeEditor code={`/fm/3/fmh/1/fm2/1.5/fm2h/14/decay/1/gate/1.5/note/36`} rows={2} />
 

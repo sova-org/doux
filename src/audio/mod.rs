@@ -130,17 +130,17 @@ pub fn list_input_devices() -> Vec<AudioDeviceInfo> {
 pub fn find_output_device(spec: &str) -> Option<Device> {
     let host = preferred_host();
     let devices = host.output_devices().ok()?;
-    find_device_impl(devices, spec)
+    find_device(devices, spec)
 }
 
 /// Finds an input device by index or partial name match.
 pub fn find_input_device(spec: &str) -> Option<Device> {
     let host = preferred_host();
     let devices = host.input_devices().ok()?;
-    find_device_impl(devices, spec)
+    find_device(devices, spec)
 }
 
-fn find_device_impl<I>(devices: I, spec: &str) -> Option<Device>
+pub fn find_device<I>(devices: I, spec: &str) -> Option<Device>
 where
     I: Iterator<Item = Device>,
 {

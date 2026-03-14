@@ -117,19 +117,6 @@ const INFO_ENVELOPE: ModuleInfo = ModuleInfo {
     ],
 };
 
-const INFO_PENV: ModuleInfo = ModuleInfo {
-    name: "penv",
-    description: "Pitch envelope",
-    group: ModuleGroup::Synthesis,
-    params: &[
-        ParamInfo { name: "penv", aliases: &[], description: "depth in semitones", default: "1.0", min: -48.0, max: 48.0 },
-        ParamInfo { name: "patt", aliases: &[], description: "attack time", default: "0.001", min: 0.0, max: 10.0 },
-        ParamInfo { name: "pdec", aliases: &[], description: "decay time", default: "0.0", min: 0.0, max: 10.0 },
-        ParamInfo { name: "psus", aliases: &[], description: "sustain level", default: "1.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "prel", aliases: &[], description: "release time", default: "0.005", min: 0.0, max: 10.0 },
-    ],
-};
-
 const INFO_VIBRATO: ModuleInfo = ModuleInfo {
     name: "vibrato",
     description: "Pitch LFO modulation",
@@ -148,11 +135,6 @@ const INFO_FM: ModuleInfo = ModuleInfo {
     params: &[
         ParamInfo { name: "fm", aliases: &["fmi"], description: "modulation index (depth)", default: "0.0", min: 0.0, max: 100.0 },
         ParamInfo { name: "fmh", aliases: &[], description: "harmonic ratio", default: "1.0", min: 0.0, max: 32.0 },
-        ParamInfo { name: "fme", aliases: &[], description: "FM envelope depth", default: "1.0", min: -10.0, max: 10.0 },
-        ParamInfo { name: "fma", aliases: &[], description: "FM envelope attack", default: "0.001", min: 0.0, max: 10.0 },
-        ParamInfo { name: "fmd", aliases: &[], description: "FM envelope decay", default: "0.0", min: 0.0, max: 10.0 },
-        ParamInfo { name: "fms", aliases: &[], description: "FM envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "fmr", aliases: &[], description: "FM envelope release", default: "0.005", min: 0.0, max: 10.0 },
         ParamInfo { name: "fm2", aliases: &[], description: "operator 2 modulation index", default: "0.0", min: 0.0, max: 100.0 },
         ParamInfo { name: "fm2h", aliases: &[], description: "operator 2 harmonic ratio", default: "1.0", min: 0.0, max: 32.0 },
         ParamInfo { name: "fmalgo", aliases: &[], description: "algorithm (0=cascade, 1=parallel, 2=branch)", default: "0.0", min: 0.0, max: 2.0 },
@@ -196,46 +178,31 @@ const INFO_RECORDER: ModuleInfo = ModuleInfo {
 
 const INFO_LPF: ModuleInfo = ModuleInfo {
     name: "lpf",
-    description: "State variable lowpass filter with envelope",
+    description: "State variable lowpass filter",
     group: ModuleGroup::Effect,
     params: &[
         ParamInfo { name: "lpf", aliases: &["cutoff"], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
         ParamInfo { name: "lpq", aliases: &["resonance"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
-        ParamInfo { name: "lpe", aliases: &["lpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
-        ParamInfo { name: "lpa", aliases: &["lpattack"], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
-        ParamInfo { name: "lpd", aliases: &["lpdecay"], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
-        ParamInfo { name: "lps", aliases: &["lpsustain"], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "lpr", aliases: &["lprelease"], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
     ],
 };
 
 const INFO_HPF: ModuleInfo = ModuleInfo {
     name: "hpf",
-    description: "State variable highpass filter with envelope",
+    description: "State variable highpass filter",
     group: ModuleGroup::Effect,
     params: &[
         ParamInfo { name: "hpf", aliases: &["hcutoff"], description: "cutoff frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
         ParamInfo { name: "hpq", aliases: &["hresonance"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
-        ParamInfo { name: "hpe", aliases: &["hpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
-        ParamInfo { name: "hpa", aliases: &[], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
-        ParamInfo { name: "hpd", aliases: &[], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
-        ParamInfo { name: "hps", aliases: &[], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "hpr", aliases: &[], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
     ],
 };
 
 const INFO_BPF: ModuleInfo = ModuleInfo {
     name: "bpf",
-    description: "State variable bandpass filter with envelope",
+    description: "State variable bandpass filter",
     group: ModuleGroup::Effect,
     params: &[
         ParamInfo { name: "bpf", aliases: &["bandf"], description: "center frequency in Hz", default: "0.0", min: 0.0, max: 20000.0 },
         ParamInfo { name: "bpq", aliases: &["bandq"], description: "resonance", default: "0.2", min: 0.0, max: 1.0 },
-        ParamInfo { name: "bpe", aliases: &["bpenv"], description: "envelope depth multiplier", default: "1.0", min: -10.0, max: 10.0 },
-        ParamInfo { name: "bpa", aliases: &["bpattack"], description: "envelope attack", default: "0.001", min: 0.0, max: 10.0 },
-        ParamInfo { name: "bpd", aliases: &["bpdecay"], description: "envelope decay", default: "0.0", min: 0.0, max: 10.0 },
-        ParamInfo { name: "bps", aliases: &["bpsustain"], description: "envelope sustain", default: "1.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "bpr", aliases: &["bprelease"], description: "envelope release", default: "0.005", min: 0.0, max: 10.0 },
     ],
 };
 
@@ -249,7 +216,6 @@ pub const ALL_MODULES: &[&ModuleInfo] = &[
     &INFO_GAIN,
     &INFO_OSCILLATOR,
     &INFO_ENVELOPE,
-    &INFO_PENV,
     &INFO_VIBRATO,
     &INFO_FM,
     &INFO_AM,
