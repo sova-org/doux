@@ -97,13 +97,16 @@ pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
 }
 
 /// Returns the preferred audio host: PipeWire → JACK → ALSA.
+/// Verifies the host actually has a working output device before selecting it.
 pub fn preferred_host() -> Host {
     let hosts = cpal::available_hosts();
     for name in ["pipewire", "jack"] {
         for &host_id in &hosts {
             if host_id.name().to_lowercase().contains(name) {
                 if let Ok(host) = cpal::host_from_id(host_id) {
-                    return host;
+                    if host.default_output_device().is_some() {
+                        return host;
+                    }
                 }
             }
         }
@@ -126,21 +129,27 @@ fn jack_input_device(client_name: &str) -> Option<Device> {
 }
 
 /// Returns the default output device.
-/// Uses JACK with "doux" as the client name if available.
+/// Uses JACK with "doux" as the client name only when JACK is the preferred host.
 pub fn default_output_device() -> Option<Device> {
-    if let Some(device) = jack_output_device("doux") {
-        return Some(device);
+    let host = preferred_host();
+    if host.id().name().to_lowercase().contains("jack") {
+        if let Some(device) = jack_output_device("doux") {
+            return Some(device);
+        }
     }
-    preferred_host().default_output_device()
+    host.default_output_device()
 }
 
 /// Returns the default input device.
-/// Uses JACK with "doux" as the client name if available.
+/// Uses JACK with "doux" as the client name only when JACK is the preferred host.
 pub fn default_input_device() -> Option<Device> {
-    if let Some(device) = jack_input_device("doux") {
-        return Some(device);
+    let host = preferred_host();
+    if host.id().name().to_lowercase().contains("jack") {
+        if let Some(device) = jack_input_device("doux") {
+            return Some(device);
+        }
     }
-    preferred_host().default_input_device()
+    host.default_input_device()
 }
 
 /// Runs Linux-specific audio diagnostics.
@@ -163,7 +172,17 @@ pub fn run_diagnostics(hosts: &[AudioHostInfo]) -> Vec<DiagnosticResult> {
 
     let host = preferred_host();
     let host_name = host.id().name();
-    results.push(DiagnosticResult::ok("Active host", host_name));
+    let reason = if hosts.iter().any(|h| h.name.to_lowercase().contains("pipewire") && h.available) {
+        "pipewire preferred"
+    } else if hosts.iter().any(|h| h.name.to_lowercase().contains("jack") && h.available) {
+        "jack preferred"
+    } else {
+        "fallback"
+    };
+    results.push(DiagnosticResult::ok(
+        "Active host",
+        &format!("{host_name} ({reason})"),
+    ));
 
     match host.default_output_device() {
         Some(device) => {
@@ -209,6 +228,18 @@ pub fn run_diagnostics(hosts: &[AudioHostInfo]) -> Vec<DiagnosticResult> {
         if output.status.success() {
             results.push(DiagnosticResult::ok("PipeWire", "running"));
         }
+    }
+
+    // pipewire-alsa check (needed for MIDI port visibility)
+    if std::path::Path::new("/usr/lib/alsa-lib/libasound_module_pcm_pipewire.so").exists()
+        || std::path::Path::new("/usr/lib64/alsa-lib/libasound_module_pcm_pipewire.so").exists()
+    {
+        results.push(DiagnosticResult::ok("pipewire-alsa", "installed (MIDI bridge available)"));
+    } else if hosts.iter().any(|h| h.name.to_lowercase().contains("pipewire")) {
+        results.push(DiagnosticResult::warn(
+            "pipewire-alsa",
+            "not found — MIDI ports may not be visible (install pipewire-alsa)",
+        ));
     }
 
     results

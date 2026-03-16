@@ -255,6 +255,9 @@ impl DouxManager {
                         eprintln!("[doux] input device lost: {err}");
                         flag.store(true, Ordering::Release);
                     }
+                    cpal::StreamError::BufferUnderrun => {
+                        eprintln!("[doux] xrun");
+                    }
                     other => {
                         eprintln!("[doux] input stream: {other}");
                     }
@@ -380,6 +383,9 @@ impl DouxManager {
                     | cpal::StreamError::StreamInvalidated => {
                         eprintln!("[doux] output device lost: {err}");
                         flag.store(true, Ordering::Release);
+                    }
+                    cpal::StreamError::BufferUnderrun => {
+                        eprintln!("[doux] xrun");
                     }
                     other => {
                         eprintln!("[doux] output stream: {other}");
