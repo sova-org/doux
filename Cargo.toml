@@ -29,6 +29,7 @@ default = ["native"]
 native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline", "dep:arc-swap", "dep:crossbeam-channel", "dep:ringbuf"]
 render = ["dep:clap", "dep:symphonia", "dep:arc-swap", "dep:hound"]
 soundfont = ["native", "dep:soundfont"]
+asio = ["dep:cpal", "cpal/asio"]
 
 [dependencies]
 clap = { version = "4", optional = true, features = ["derive"] }

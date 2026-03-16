@@ -1,4 +1,4 @@
-//! Windows-specific audio implementation (WASAPI).
+//! Windows-specific audio implementation (WASAPI, optionally ASIO).
 
 use super::common::{AudioHostInfo, DiagnosticResult};
 use crate::error::DouxError;
@@ -12,6 +12,9 @@ pub enum HostSelection {
     Auto,
     /// Use WASAPI backend explicitly.
     Wasapi,
+    /// Use ASIO backend explicitly (requires `asio` feature).
+    #[cfg(feature = "asio")]
+    Asio,
 }
 
 impl std::str::FromStr for HostSelection {
@@ -21,6 +24,10 @@ impl std::str::FromStr for HostSelection {
         match s.to_lowercase().as_str() {
             "auto" => Ok(HostSelection::Auto),
             "wasapi" => Ok(HostSelection::Wasapi),
+            #[cfg(feature = "asio")]
+            "asio" => Ok(HostSelection::Asio),
+            #[cfg(not(feature = "asio"))]
+            "asio" => Err("ASIO support not compiled in — rebuild with --features asio".into()),
             "jack" | "alsa" => Err(format!(
                 "{s} is not available on Windows (use: auto, wasapi)"
             )),
@@ -34,15 +41,17 @@ impl std::fmt::Display for HostSelection {
         match self {
             HostSelection::Auto => write!(f, "auto"),
             HostSelection::Wasapi => write!(f, "wasapi"),
+            #[cfg(feature = "asio")]
+            HostSelection::Asio => write!(f, "asio"),
         }
     }
 }
 
 /// Gets an audio host by selection mode.
-/// On Windows, both Auto and Wasapi return the default WASAPI host.
 pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
     match selection {
-        HostSelection::Auto | HostSelection::Wasapi => {
+        HostSelection::Auto => Ok(preferred_host()),
+        HostSelection::Wasapi => {
             for host_id in cpal::available_hosts() {
                 if host_id.name().to_lowercase().contains("wasapi") {
                     if let Ok(host) = cpal::host_from_id(host_id) {
@@ -52,11 +61,38 @@ pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
             }
             Ok(cpal::default_host())
         }
+        #[cfg(feature = "asio")]
+        HostSelection::Asio => {
+            for host_id in cpal::available_hosts() {
+                if host_id.name().to_lowercase().contains("asio") {
+                    if let Ok(host) = cpal::host_from_id(host_id) {
+                        return Ok(host);
+                    }
+                }
+            }
+            Err(DouxError::HostNotFound("asio".to_string()))
+        }
     }
 }
 
-/// Returns the preferred audio host (WASAPI on Windows).
+/// Returns the preferred audio host.
+/// With `asio` feature: tries ASIO first (if it has a working output device), then WASAPI.
+/// Without: WASAPI only.
 pub fn preferred_host() -> Host {
+    #[cfg(feature = "asio")]
+    {
+        let hosts = cpal::available_hosts();
+        for &host_id in &hosts {
+            if host_id.name().to_lowercase().contains("asio") {
+                if let Ok(host) = cpal::host_from_id(host_id) {
+                    if host.default_output_device().is_some() {
+                        return host;
+                    }
+                }
+            }
+        }
+    }
+
     for host_id in cpal::available_hosts() {
         if host_id.name().to_lowercase().contains("wasapi") {
             if let Ok(host) = cpal::host_from_id(host_id) {

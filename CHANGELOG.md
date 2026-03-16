@@ -3,7 +3,21 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.0.13] - Unreleased
+## [0.0.14] - Unreleased
+
+### Changed
+
+- **ASIO feature flag** — opt-in `asio` feature enables ASIO backend on Windows. `preferred_host()` tries ASIO first (if a working output device exists), falling back to WASAPI
+- **`doux-sova` ASIO forwarding** — `asio = ["doux/asio"]` feature in doux-sova
+
+### Fixed
+
+- **Linux host validation** — `preferred_host()` now verifies the host has a working output device before selecting it, preventing crashes when JACK/PipeWire reports available but can't provide a device
+- **Linux device selection** — `default_output_device()` and `default_input_device()` only use JACK client names when JACK is the preferred host, preventing hangs under PipeWire
+- **Buffer underrun logging** — `BufferUnderrun` stream errors now logged as xrun in both `cli_common` and `doux-sova` manager
+- **Linux diagnostics** — shows host selection reason, checks for `pipewire-alsa` package
+
+## [0.0.13] - 2026-03-14
 
 ### Changed
 

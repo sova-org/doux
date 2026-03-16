@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 soundfont = ["doux/soundfont"]
+asio = ["doux/asio"]
 
 [dependencies]
 doux = { path = "..", features = ["native"] }

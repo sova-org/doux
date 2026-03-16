@@ -14,7 +14,7 @@
 //!   -o, --output <DEVICE>   Output device (name or index)
 //!       --channels <N>      Number of output channels (default: 2)
 //!       --list-devices      List available audio devices and exit
-//!       --host <HOST>       Audio host: jack, alsa, or auto (default: auto)
+//!       --host <HOST>       Audio host: jack, alsa, asio, or auto (default: auto)
 //!       --diagnose          Run audio diagnostics and exit
 //! ```
 //!
@@ -174,6 +174,7 @@ struct Args {
 
     /// Audio host backend: jack, alsa, or auto (default: auto).
     /// On Linux with PipeWire, use 'jack' for best compatibility.
+    /// On Windows, use 'asio' for low-latency pro audio (requires --features asio).
     #[arg(long, default_value = "auto")]
     host: String,
 
