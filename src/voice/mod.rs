@@ -393,6 +393,12 @@ impl Voice {
         }
     }
 
+    /// Cut this voice immediately (~1ms fade to avoid clicks).
+    pub fn hard_cut(&mut self) {
+        self.params.release = 0.001;
+        self.force_release();
+    }
+
     fn trigger_envelopes(&mut self) {
         self.dahdsr.trigger(self.params.gate);
         for i in 0..self.param_mod_count as usize {

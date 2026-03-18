@@ -489,11 +489,16 @@ impl Engine {
 
     /// Process an event, handling voice selection like dough.c's process_engine_event()
     fn process_event(&mut self, event: &Event) -> Option<usize> {
-        // Cut group: release any voices in the same cut group
+        // Cut group: reuse first matching voice, hard_cut any extras
+        let mut cut_reuse: Option<usize> = None;
         if let Some(cut) = event.cut {
             for i in 0..self.active_voices {
                 if self.voices[i].params.cut == Some(cut) {
-                    self.voices[i].force_release();
+                    if cut_reuse.is_none() {
+                        cut_reuse = Some(i);
+                    } else {
+                        self.voices[i].hard_cut();
+                    }
                 }
             }
         }
@@ -521,7 +526,9 @@ impl Engine {
             }
         }
 
-        let (voice_idx, is_new_voice) = if let Some(v) = event.voice {
+        let (voice_idx, is_new_voice) = if let Some(reuse_idx) = cut_reuse {
+            (reuse_idx, true)
+        } else if let Some(v) = event.voice {
             if v < self.active_voices {
                 // Voice exists - reuse it
                 (v, false)
@@ -547,7 +554,13 @@ impl Engine {
         let should_reset = is_new_voice || event.reset.unwrap_or(false);
 
         if should_reset {
+            let old_env = if cut_reuse.is_some() {
+                self.voices[voice_idx].dahdsr.current_val
+            } else {
+                0.0
+            };
             self.voices[voice_idx] = Voice::default();
+            self.voices[voice_idx].dahdsr.current_val = old_env;
             self.voices[voice_idx].seed = self.voice_seed;
             self.voice_seed = modulation::lcg(self.voice_seed);
             self.voices[voice_idx].sr = self.sr;
@@ -928,6 +941,9 @@ impl Engine {
 
             if diff < tolerance {
                 self.process_event(&event);
+            } else {
+                #[cfg(feature = "native")]
+                self.metrics.dropped_events.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
         }

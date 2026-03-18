@@ -85,7 +85,7 @@ pub struct Dahdsr {
     phase_time: f32,
     elapsed: f32,
     start_val: f32,
-    current_val: f32,
+    pub(crate) current_val: f32,
     gate_time: f32,
     attack_curve: f32,
     decay_curve: f32,

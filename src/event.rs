@@ -265,7 +265,7 @@ impl Event {
                     event.tick = val
                         .parse::<f64>()
                         .ok()
-                        .map(|t| (t * sr as f64).round() as u64);
+                        .map(|t| (t * sr as f64).floor() as u64);
                 }
                 "delta" => event.delta = val.parse().ok(),
                 "gate" => event.gate = val.parse().ok(),
@@ -469,5 +469,15 @@ mod tests {
         let (b, end) = e.resolve_range();
         assert!((b - 0.1).abs() < 1e-6);
         assert!((end - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn floor_prevents_boundary_collision() {
+        // Two times straddling a sample boundary must not produce the same tick
+        let t_low = format!("time/{}", 4.9999999 / SR as f64);
+        let t_high = format!("time/{}", 5.0000001 / SR as f64);
+        let e_low = Event::parse(&t_low, SR);
+        let e_high = Event::parse(&t_high, SR);
+        assert_ne!(e_low.tick, e_high.tick, "floor should keep boundary times on distinct ticks");
     }
 }

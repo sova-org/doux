@@ -3,7 +3,16 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.0.14] - Unreleased
+## [0.0.15] - 2026-03-18
+
+### Fixed
+
+- **Cut group retrigger** — reuse the matched voice slot in-place instead of allocating a new one, eliminating double-attack transient
+- **Cut group amplitude dip** — preserve envelope level across voice reset so retrigger ramps from old level instead of silence
+- **Loop boundary double attacks** — `floor()` instead of `round()` in time-to-tick conversion prevents two cycle-boundary events from snapping to the same tick
+- **Dropped event counter** — `EngineMetrics.dropped_events` tracks late events silently discarded by the scheduler
+
+## [0.0.14]
 
 ### Changed
 
