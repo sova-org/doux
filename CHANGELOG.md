@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.16] - 2026-03-19
+
+### Added
+
+- **Per-channel peak metering** — lock-free double-buffered `PeakCapture` accumulates per-channel `max(abs())` from interleaved output, supporting up to 32 channels with no heap allocation in the audio callback. `DouxManager` exposes `peak_capture()` accessor alongside existing `scope_capture()`
+
 ## [0.0.15] - 2026-03-18
 
 ### Fixed
