@@ -3,6 +3,14 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.17] - 2026-03-19
+
+### Added
+
+- **Host selection in `DouxConfig`** — `host: Option<String>` field lets the GUI explicitly select ASIO vs WASAPI (or JACK vs ALSA). `DouxManager` resolves devices through the selected host instead of hardcoding `preferred_host()`
+- **ASIO/JACK buffer size handling** — `host_controls_buffer_size(&Host)` replaces `is_jack_host()`, covering both JACK and ASIO
+- **cpal re-export** — `doux::audio::cpal` eliminates `doux-sova`'s direct cpal dependency
+
 ## [0.0.16] - 2026-03-19
 
 ### Added

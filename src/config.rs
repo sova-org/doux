@@ -7,6 +7,8 @@ use crate::types::DEFAULT_MAX_VOICES;
 /// Configuration for the Doux audio engine.
 #[derive(Debug, Clone)]
 pub struct DouxConfig {
+    /// Audio host backend (e.g. "jack", "asio", "wasapi"). None uses auto-detect.
+    pub host: Option<String>,
     /// Output device specification (name or index). None uses system default.
     pub output_device: Option<String>,
     /// Input device specification (name or index). None uses system default.
@@ -24,6 +26,7 @@ pub struct DouxConfig {
 impl Default for DouxConfig {
     fn default() -> Self {
         Self {
+            host: None,
             output_device: None,
             input_device: None,
             channels: 2,
@@ -37,6 +40,11 @@ impl Default for DouxConfig {
 impl DouxConfig {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_host(mut self, host: impl Into<String>) -> Self {
+        self.host = Some(host.into());
+        self
     }
 
     pub fn with_output_device(mut self, device: impl Into<String>) -> Self {

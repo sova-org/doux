@@ -655,7 +655,6 @@ name = "doux-sova"
 version = "0.0.1"
 dependencies = [
  "core",
- "cpal",
  "crossbeam-channel",
  "doux",
  "ringbuf",

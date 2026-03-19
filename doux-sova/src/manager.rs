@@ -3,15 +3,15 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::{Device, Stream, SupportedStreamConfig};
+use doux::audio::cpal;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{Device, Host, Stream, SupportedStreamConfig};
 use crossbeam_channel::Sender;
 use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
 
 use doux::audio::{
-    default_input_device, default_output_device, find_input_device, find_output_device,
-    max_output_channels,
+    find_device, get_host, host_controls_buffer_size, max_output_channels, HostSelection,
 };
 use doux::config::DouxConfig;
 use doux::error::DouxError;
@@ -85,6 +85,7 @@ pub struct DouxManager {
     metrics: Arc<EngineMetrics>,
     cmd_tx: Option<Sender<AudioCmd>>,
     config: DouxConfig,
+    host_selection: HostSelection,
     sample_rate: f32,
     actual_channels: usize,
     output_stream: Option<Stream>,
@@ -96,12 +97,48 @@ pub struct DouxManager {
     master_gain: Arc<AtomicU32>,
 }
 
-fn resolve_output_device(config: &DouxConfig) -> Result<Device, DouxError> {
+fn parse_host_selection(host: Option<&str>) -> Result<HostSelection, DouxError> {
+    match host {
+        Some(s) => s
+            .parse::<HostSelection>()
+            .map_err(DouxError::HostNotFound),
+        None => Ok(HostSelection::default()),
+    }
+}
+
+fn resolve_output_device(host: &Host, config: &DouxConfig) -> Result<Device, DouxError> {
     match &config.output_device {
+        Some(spec) => host
+            .output_devices()
+            .ok()
+            .and_then(|devs| find_device(devs, spec))
+            .ok_or_else(|| DouxError::DeviceNotFound(spec.clone())),
+        None => host
+            .default_output_device()
+            .ok_or(DouxError::NoDefaultDevice),
+    }
+}
+
+fn resolve_input_device(host: &Host, config: &DouxConfig) -> Option<Device> {
+    match &config.input_device {
         Some(spec) => {
-            find_output_device(spec).ok_or_else(|| DouxError::DeviceNotFound(spec.clone()))
+            let dev = host
+                .input_devices()
+                .ok()
+                .and_then(|devs| find_device(devs, spec));
+            if dev.is_none() {
+                eprintln!("[doux] input device not found: {spec}");
+            }
+            dev
         }
-        None => default_output_device().ok_or(DouxError::NoDefaultDevice),
+        None => {
+            let dev = host.default_input_device();
+            match &dev {
+                Some(_) => eprintln!("[doux] using default input device"),
+                None => eprintln!("[doux] no input device available"),
+            }
+            dev
+        }
     }
 }
 
@@ -120,7 +157,9 @@ fn compute_channels(device: &Device, requested: u16) -> usize {
 
 impl DouxManager {
     pub fn new(config: DouxConfig) -> Result<Self, DouxError> {
-        let output_device = resolve_output_device(&config)?;
+        let host_selection = parse_host_selection(config.host.as_deref())?;
+        let host = get_host(host_selection)?;
+        let output_device = resolve_output_device(&host, &config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
 
@@ -139,6 +178,7 @@ impl DouxManager {
             metrics,
             cmd_tx: None,
             config,
+            host_selection,
             sample_rate,
             actual_channels,
             output_stream: None,
@@ -188,36 +228,26 @@ impl DouxManager {
             .take()
             .expect("pending_engine must be set before build_streams");
 
-        let output_device = resolve_output_device(&self.config)?;
+        let host = get_host(self.host_selection)?;
+        let output_device = resolve_output_device(&host, &self.config)?;
         let (device_config, _) = get_device_config(&output_device)?;
+
+        let buf_size = match self.config.buffer_size {
+            Some(buf) if !host_controls_buffer_size(&host) => cpal::BufferSize::Fixed(buf),
+            Some(_) => {
+                eprintln!("[doux] host controls buffer size, ignoring configured value");
+                cpal::BufferSize::Default
+            }
+            None => cpal::BufferSize::Default,
+        };
 
         let stream_config = cpal::StreamConfig {
             channels: self.actual_channels as u16,
             sample_rate: device_config.sample_rate(),
-            buffer_size: self
-                .config
-                .buffer_size
-                .map(cpal::BufferSize::Fixed)
-                .unwrap_or(cpal::BufferSize::Default),
+            buffer_size: buf_size,
         };
 
-        let input_device = match &self.config.input_device {
-            Some(spec) => {
-                let dev = find_input_device(spec);
-                if dev.is_none() {
-                    eprintln!("[doux] input device not found: {spec}");
-                }
-                dev
-            }
-            None => {
-                let dev = default_input_device();
-                match &dev {
-                    Some(_) => eprintln!("[doux] using default input device"),
-                    None => eprintln!("[doux] no input device available"),
-                }
-                dev
-            }
-        };
+        let input_device = resolve_input_device(&host, &self.config);
 
         let input_channels: usize = input_device
             .as_ref()
@@ -431,7 +461,8 @@ impl DouxManager {
         self.peaks = None;
         self.cmd_tx = None;
 
-        let output_device = resolve_output_device(&self.config)?;
+        let host = get_host(self.host_selection)?;
+        let output_device = resolve_output_device(&host, &self.config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, self.config.channels);
 
@@ -477,7 +508,9 @@ impl DouxManager {
         self.stop();
         self.device_lost.store(false, Ordering::Release);
 
-        let output_device = resolve_output_device(&config)?;
+        let host_selection = parse_host_selection(config.host.as_deref())?;
+        let host = get_host(host_selection)?;
+        let output_device = resolve_output_device(&host, &config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
 
@@ -497,6 +530,7 @@ impl DouxManager {
         }
 
         self.pending_engine = Some(engine);
+        self.host_selection = host_selection;
         self.metrics = metrics;
         self.config = config;
         self.sample_rate = sample_rate;

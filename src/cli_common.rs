@@ -5,7 +5,7 @@ use ringbuf::HeapRb;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::audio::{find_device, is_jack_host, list_hosts, max_output_channels};
+use crate::audio::{find_device, host_controls_buffer_size, list_hosts, max_output_channels};
 use crate::{AudioCmd, Engine};
 
 const INPUT_BUFFER_SIZE: usize = 8192;
@@ -44,9 +44,9 @@ pub fn resolve_output_config(
     let sample_rate = default_config.sample_rate() as f32;
 
     let buf_size = match buffer_size {
-        Some(buf) if !is_jack_host() => cpal::BufferSize::Fixed(buf),
+        Some(buf) if !host_controls_buffer_size(host) => cpal::BufferSize::Fixed(buf),
         Some(_) => {
-            eprintln!("Note: JACK controls buffer size, ignoring -b flag");
+            eprintln!("Note: host controls buffer size, ignoring -b flag");
             cpal::BufferSize::Default
         }
         None => cpal::BufferSize::Default,

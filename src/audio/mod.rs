@@ -28,6 +28,8 @@ use macos as platform;
 #[cfg(target_os = "windows")]
 use windows as platform;
 
+pub use cpal;
+
 use crate::error::DouxError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host, SupportedStreamConfig};
@@ -171,10 +173,11 @@ pub fn default_output_config(device: &Device) -> Option<SupportedStreamConfig> {
     device.default_output_config().ok()
 }
 
-/// Returns true if the preferred audio host is JACK.
-/// JACK enforces its own buffer size, so user-specified buffer sizes should be ignored.
-pub fn is_jack_host() -> bool {
-    preferred_host().id().name().to_lowercase().contains("jack")
+/// Returns true if the given host controls its own buffer size.
+/// JACK and ASIO enforce their own buffer sizes, so user-specified values should be ignored.
+pub fn host_controls_buffer_size(host: &Host) -> bool {
+    let name = host.id().name().to_lowercase();
+    name.contains("jack") || name.contains("asio")
 }
 
 /// Gets the maximum number of output channels supported by a device.

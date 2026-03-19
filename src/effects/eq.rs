@@ -31,6 +31,7 @@ pub struct Eq {
 impl Eq {
     /// Process one sample. Gains are in dB (0.0 = bypass).
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
         input: f32,

@@ -155,6 +155,7 @@ impl Dahdsr {
     /// - `decay`: Decay duration in seconds
     /// - `sustain`: Sustain level in range `[0.0, 1.0]`
     /// - `release`: Release duration in seconds
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         isr: f32,
