@@ -20,6 +20,7 @@ use doux::Engine;
 use sova_core::clock::SyncTime;
 use sova_core::protocol::audio_engine_proxy::AudioEngineProxy;
 
+use crate::peaks::PeakCapture;
 use crate::receiver::SovaReceiver;
 use crate::scope::ScopeCapture;
 use crate::time::TimeConverter;
@@ -90,6 +91,7 @@ pub struct DouxManager {
     input_stream: Option<Stream>,
     receiver_handle: Option<JoinHandle<()>>,
     scope: Option<Arc<ScopeCapture>>,
+    peaks: Option<Arc<PeakCapture>>,
     device_lost: Arc<AtomicBool>,
     master_gain: Arc<AtomicU32>,
 }
@@ -143,6 +145,7 @@ impl DouxManager {
             input_stream: None,
             receiver_handle: None,
             scope: None,
+            peaks: None,
             device_lost: Arc::new(AtomicBool::new(false)),
             master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
         })
@@ -284,6 +287,8 @@ impl DouxManager {
 
         let scope = Arc::new(ScopeCapture::new());
         let scope_clone = Arc::clone(&scope);
+        let peaks = Arc::new(PeakCapture::new(self.actual_channels));
+        let peaks_clone = Arc::clone(&peaks);
 
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
 
@@ -370,6 +375,8 @@ impl DouxManager {
                         }
                     }
 
+                    peaks_clone.push(data, output_channels);
+
                     for chunk in data.chunks(output_channels) {
                         if output_channels >= 2 {
                             scope_clone.push_stereo(chunk[0], chunk[1]);
@@ -401,6 +408,7 @@ impl DouxManager {
 
         self.output_stream = Some(output_stream);
         self.scope = Some(scope);
+        self.peaks = Some(peaks);
         self.cmd_tx = Some(cmd_tx);
 
         Ok(())
@@ -420,6 +428,7 @@ impl DouxManager {
         self.output_stream = None;
         self.input_stream = None;
         self.scope = None;
+        self.peaks = None;
         self.cmd_tx = None;
 
         let output_device = resolve_output_device(&self.config)?;
@@ -452,6 +461,7 @@ impl DouxManager {
         self.output_stream = None;
         self.input_stream = None;
         self.scope = None;
+        self.peaks = None;
         self.cmd_tx = None;
 
         if let Some(handle) = self.receiver_handle.take() {
@@ -584,6 +594,10 @@ impl DouxManager {
 
     pub fn scope_capture(&self) -> Option<Arc<ScopeCapture>> {
         self.scope.clone()
+    }
+
+    pub fn peak_capture(&self) -> Option<Arc<PeakCapture>> {
+        self.peaks.clone()
     }
 }
 
