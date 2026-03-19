@@ -158,7 +158,7 @@ fn compute_channels(device: &Device, requested: u16) -> usize {
 impl DouxManager {
     pub fn new(config: DouxConfig) -> Result<Self, DouxError> {
         let host_selection = parse_host_selection(config.host.as_deref())?;
-        let host = get_host(host_selection)?;
+        let host = get_host(host_selection.clone())?;
         let output_device = resolve_output_device(&host, &config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
@@ -228,7 +228,7 @@ impl DouxManager {
             .take()
             .expect("pending_engine must be set before build_streams");
 
-        let host = get_host(self.host_selection)?;
+        let host = get_host(self.host_selection.clone())?;
         let output_device = resolve_output_device(&host, &self.config)?;
         let (device_config, _) = get_device_config(&output_device)?;
 
@@ -461,7 +461,7 @@ impl DouxManager {
         self.peaks = None;
         self.cmd_tx = None;
 
-        let host = get_host(self.host_selection)?;
+        let host = get_host(self.host_selection.clone())?;
         let output_device = resolve_output_device(&host, &self.config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, self.config.channels);
@@ -509,7 +509,7 @@ impl DouxManager {
         self.device_lost.store(false, Ordering::Release);
 
         let host_selection = parse_host_selection(config.host.as_deref())?;
-        let host = get_host(host_selection)?;
+        let host = get_host(host_selection.clone())?;
         let output_device = resolve_output_device(&host, &config)?;
         let (_, sample_rate) = get_device_config(&output_device)?;
         let actual_channels = compute_channels(&output_device, config.channels);
