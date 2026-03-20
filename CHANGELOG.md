@@ -9,6 +9,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - Support i32/i16 sample formats at cpal boundary for ASIO compatibility
 
+### Fixed
+
+- Device name matching
+
 ## [0.0.17] - 2026-03-19
 
 ### Added
