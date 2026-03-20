@@ -1,4 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::FromSample;
 use crossbeam_channel::Receiver;
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
@@ -14,6 +15,7 @@ pub struct OutputConfig {
     pub stream_config: cpal::StreamConfig,
     pub output_channels: usize,
     pub sample_rate: f32,
+    pub sample_format: cpal::SampleFormat,
 }
 
 pub fn resolve_output_config(
@@ -52,6 +54,7 @@ pub fn resolve_output_config(
         None => cpal::BufferSize::Default,
     };
 
+    let sample_format = default_config.sample_format();
     OutputConfig {
         stream_config: cpal::StreamConfig {
             channels: output_channels as u16,
@@ -60,6 +63,7 @@ pub fn resolve_output_config(
         },
         output_channels,
         sample_rate,
+        sample_format,
     }
 }
 
@@ -158,29 +162,46 @@ pub fn build_audio_streams(
     let flag = Arc::clone(params.device_lost);
     let input_stream = input_device.and_then(|input_dev| {
         let input_config = input_dev.default_input_config().ok()?;
+        let input_format = input_config.sample_format();
         let flag = Arc::clone(&flag);
-        let stream = input_dev
-            .build_input_stream(
-                &input_config.into(),
-                move |data: &[f32], _| {
-                    input_producer.push_slice(data);
-                },
-                move |err| match err {
-                    cpal::StreamError::DeviceNotAvailable
-                    | cpal::StreamError::StreamInvalidated => {
-                        eprintln!("[doux] input device lost: {err}");
-                        flag.store(true, Ordering::Release);
-                    }
-                    cpal::StreamError::BufferUnderrun => {
-                        eprintln!("[doux] xrun");
-                    }
-                    other => {
-                        eprintln!("[doux] input stream: {other}");
-                    }
-                },
-                None,
-            )
-            .ok()?;
+
+        macro_rules! build_input {
+            ($T:ty) => {{
+                let mut scratch: Vec<f32> = Vec::new();
+                input_dev.build_input_stream(
+                    &input_config.into(),
+                    move |data: &[$T], _| {
+                        scratch.resize(data.len(), 0.0);
+                        for (dst, &src) in scratch.iter_mut().zip(data.iter()) {
+                            *dst = <f32 as FromSample<$T>>::from_sample_(src);
+                        }
+                        input_producer.push_slice(&scratch);
+                    },
+                    move |err| match err {
+                        cpal::StreamError::DeviceNotAvailable
+                        | cpal::StreamError::StreamInvalidated => {
+                            eprintln!("[doux] input device lost: {err}");
+                            flag.store(true, Ordering::Release);
+                        }
+                        cpal::StreamError::BufferUnderrun => {
+                            eprintln!("[doux] xrun");
+                        }
+                        other => {
+                            eprintln!("[doux] input stream: {other}");
+                        }
+                    },
+                    None,
+                )
+            }};
+        }
+
+        let stream = match input_format {
+            cpal::SampleFormat::F32 => build_input!(f32),
+            cpal::SampleFormat::I32 => build_input!(i32),
+            cpal::SampleFormat::I16 => build_input!(i16),
+            _ => return None,
+        }
+        .ok()?;
         stream.play().ok()?;
         Some(stream)
     });
@@ -203,47 +224,65 @@ pub fn build_audio_streams(
     let sr = params.config.sample_rate;
     let ch = params.config.output_channels;
     let mut scratch = vec![0.0f32; 1024];
+    let output_format = params.config.sample_format;
 
-    let output_stream = device
-        .build_output_stream(
-            &params.config.stream_config,
-            move |data: &mut [f32], _| {
-                while let Ok(cmd) = cmd_rx.try_recv() {
-                    match cmd {
-                        AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
-                        AudioCmd::Hush => engine.hush(),
-                        AudioCmd::Panic => engine.panic(),
+    macro_rules! build_output {
+        ($T:ty) => {{
+            let mut conv_buf: Vec<f32> = Vec::new();
+            device.build_output_stream(
+                &params.config.stream_config,
+                move |data: &mut [$T], _| {
+                    conv_buf.resize(data.len(), 0.0f32);
+
+                    while let Ok(cmd) = cmd_rx.try_recv() {
+                        match cmd {
+                            AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
+                            AudioCmd::Hush => engine.hush(),
+                            AudioCmd::Panic => engine.panic(),
+                        }
                     }
-                }
 
-                let buffer_samples = data.len() / ch;
-                let raw_len = buffer_samples * nch_in;
-                if scratch.len() < raw_len {
-                    scratch.resize(raw_len, 0.0);
-                }
-                scratch[..raw_len].fill(0.0);
-                input_consumer.pop_slice(&mut scratch[..raw_len]);
+                    let buffer_samples = conv_buf.len() / ch;
+                    let raw_len = buffer_samples * nch_in;
+                    if scratch.len() < raw_len {
+                        scratch.resize(raw_len, 0.0);
+                    }
+                    scratch[..raw_len].fill(0.0);
+                    input_consumer.pop_slice(&mut scratch[..raw_len]);
 
-                let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
-                engine.metrics.load.set_buffer_time(buffer_time_ns);
-                engine.process_block(data, &[], &scratch[..raw_len]);
-            },
-            move |err| match err {
-                cpal::StreamError::DeviceNotAvailable
-                | cpal::StreamError::StreamInvalidated => {
-                    eprintln!("[doux] output device lost: {err}");
-                    flag.store(true, Ordering::Release);
-                }
-                cpal::StreamError::BufferUnderrun => {
-                    eprintln!("[doux] xrun");
-                }
-                other => {
-                    eprintln!("[doux] output stream: {other}");
-                }
-            },
-            None,
-        )
-        .unwrap();
+                    let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
+                    engine.metrics.load.set_buffer_time(buffer_time_ns);
+                    engine.process_block(&mut conv_buf, &[], &scratch[..raw_len]);
+
+                    for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
+                        *out = <$T as FromSample<f32>>::from_sample_(src);
+                    }
+                },
+                move |err| match err {
+                    cpal::StreamError::DeviceNotAvailable
+                    | cpal::StreamError::StreamInvalidated => {
+                        eprintln!("[doux] output device lost: {err}");
+                        flag.store(true, Ordering::Release);
+                    }
+                    cpal::StreamError::BufferUnderrun => {
+                        eprintln!("[doux] xrun");
+                    }
+                    other => {
+                        eprintln!("[doux] output stream: {other}");
+                    }
+                },
+                None,
+            )
+        }};
+    }
+
+    let output_stream = match output_format {
+        cpal::SampleFormat::F32 => build_output!(f32),
+        cpal::SampleFormat::I32 => build_output!(i32),
+        cpal::SampleFormat::I16 => build_output!(i16),
+        format => panic!("unsupported output sample format: {format:?}"),
+    }
+    .unwrap();
 
     output_stream.play().unwrap();
 

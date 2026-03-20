@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.19] - 2026-03-20
+
+### Added
+
+- Support i32/i16 sample formats at cpal boundary for ASIO compatibility
+
 ## [0.0.17] - 2026-03-19
 
 ### Added

@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 
 use doux::audio::cpal;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, Host, Stream, SupportedStreamConfig};
+use cpal::{Device, FromSample, Host, Stream, SupportedStreamConfig};
 use crossbeam_channel::Sender;
 use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
@@ -155,6 +155,53 @@ fn compute_channels(device: &Device, requested: u16) -> usize {
     (requested as usize).min(max_ch as usize)
 }
 
+/// Negotiate a stream config that the device actually supports.
+///
+/// Tries the requested (channels, sample_rate) first. If no supported config
+/// range covers that combination, falls back to the device's default config.
+fn negotiate_stream_config(
+    device: &Device,
+    requested_channels: u16,
+    preferred_sample_rate: cpal::SampleRate,
+    buf_size: cpal::BufferSize,
+) -> Result<cpal::StreamConfig, DouxError> {
+    // Check if our target is within any supported range
+    let supported = device
+        .supported_output_configs()
+        .ok()
+        .map(|configs| {
+            configs.into_iter().any(|range| {
+                range.channels() >= requested_channels
+                    && range.min_sample_rate() <= preferred_sample_rate
+                    && range.max_sample_rate() >= preferred_sample_rate
+            })
+        })
+        .unwrap_or(false);
+
+    if supported {
+        return Ok(cpal::StreamConfig {
+            channels: requested_channels,
+            sample_rate: preferred_sample_rate,
+            buffer_size: buf_size,
+        });
+    }
+
+    // Fallback: use default config as-is
+    eprintln!(
+        "[doux] requested config ({requested_channels}ch @ {}Hz) not supported, falling back to device default",
+        preferred_sample_rate.0
+    );
+    let default = device
+        .default_output_config()
+        .map_err(|e| DouxError::DeviceConfigError(e.to_string()))?;
+
+    Ok(cpal::StreamConfig {
+        channels: default.channels(),
+        sample_rate: default.sample_rate(),
+        buffer_size: buf_size,
+    })
+}
+
 impl DouxManager {
     pub fn new(config: DouxConfig) -> Result<Self, DouxError> {
         let host_selection = parse_host_selection(config.host.as_deref())?;
@@ -241,11 +288,20 @@ impl DouxManager {
             None => cpal::BufferSize::Default,
         };
 
-        let stream_config = cpal::StreamConfig {
-            channels: self.actual_channels as u16,
-            sample_rate: device_config.sample_rate(),
-            buffer_size: buf_size,
-        };
+        let stream_config = negotiate_stream_config(
+            &output_device,
+            self.actual_channels as u16,
+            device_config.sample_rate(),
+            buf_size,
+        )?;
+
+        // Update actual values in case negotiation changed them
+        self.actual_channels = stream_config.channels as usize;
+        self.sample_rate = stream_config.sample_rate.0 as f32;
+        eprintln!(
+            "[doux] stream config: {}ch @ {}Hz, buffer: {:?}",
+            stream_config.channels, stream_config.sample_rate.0, stream_config.buffer_size
+        );
 
         let input_device = resolve_input_device(&host, &self.config);
 
@@ -275,28 +331,50 @@ impl DouxManager {
                     device_config.sample_rate()
                 );
             }
+            let input_format = input_cfg.sample_format();
             let mut input_producer = input_producer;
             let flag = Arc::clone(&flag);
-            let stream = match input_dev.build_input_stream(
-                &input_cfg.into(),
-                move |data: &[f32], _| {
-                    input_producer.push_slice(data);
-                },
-                move |err| match err {
-                    cpal::StreamError::DeviceNotAvailable
-                    | cpal::StreamError::StreamInvalidated => {
-                        eprintln!("[doux] input device lost: {err}");
-                        flag.store(true, Ordering::Release);
-                    }
-                    cpal::StreamError::BufferUnderrun => {
-                        eprintln!("[doux] xrun");
-                    }
-                    other => {
-                        eprintln!("[doux] input stream: {other}");
-                    }
-                },
-                None,
-            ) {
+
+            macro_rules! build_input {
+                ($T:ty) => {{
+                    let mut scratch: Vec<f32> = Vec::new();
+                    input_dev.build_input_stream(
+                        &input_cfg.into(),
+                        move |data: &[$T], _| {
+                            scratch.resize(data.len(), 0.0);
+                            for (dst, &src) in scratch.iter_mut().zip(data.iter()) {
+                                *dst = <f32 as FromSample<$T>>::from_sample_(src);
+                            }
+                            input_producer.push_slice(&scratch);
+                        },
+                        move |err| match err {
+                            cpal::StreamError::DeviceNotAvailable
+                            | cpal::StreamError::StreamInvalidated => {
+                                eprintln!("[doux] input device lost: {err}");
+                                flag.store(true, Ordering::Release);
+                            }
+                            cpal::StreamError::BufferUnderrun => {
+                                eprintln!("[doux] xrun");
+                            }
+                            other => {
+                                eprintln!("[doux] input stream: {other}");
+                            }
+                        },
+                        None,
+                    )
+                }};
+            }
+
+            let stream = match input_format {
+                cpal::SampleFormat::F32 => build_input!(f32),
+                cpal::SampleFormat::I32 => build_input!(i32),
+                cpal::SampleFormat::I16 => build_input!(i16),
+                format => {
+                    eprintln!("[doux] unsupported input sample format: {format:?}");
+                    return None;
+                }
+            };
+            let stream = match stream {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[doux] failed to build input stream: {e}");
@@ -334,103 +412,123 @@ impl DouxManager {
         let flag = Arc::clone(&self.device_lost);
         let master_gain = Arc::clone(&self.master_gain);
         let mut prev_gain = 1.0f32;
+        let output_format = device_config.sample_format();
 
-        let output_stream = output_device
-            .build_output_stream(
-                &stream_config,
-                move |data: &mut [f32], _| {
-                    // Drain command channel (lock-free)
-                    while let Ok(cmd) = cmd_rx.try_recv() {
-                        match cmd {
-                            AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
-                            AudioCmd::Hush => engine.hush(),
-                            AudioCmd::Panic => engine.panic(),
-                            AudioCmd::LoadSamples(samples) => {
-                                engine.sample_index.extend(samples);
-                            }
-                            AudioCmd::ClearSamples => {
-                                engine.sample_index.clear();
-                            }
-                            AudioCmd::RescanSamples(paths) => {
-                                engine.sample_index.clear();
-                                for path in &paths {
-                                    let index = doux::sampling::scan_samples_dir(path);
-                                    engine.sample_index.extend(index);
+        macro_rules! build_output {
+            ($T:ty) => {{
+                let mut conv_buf: Vec<f32> = Vec::new();
+                output_device.build_output_stream(
+                    &stream_config,
+                    move |data: &mut [$T], _| {
+                        conv_buf.resize(data.len(), 0.0f32);
+
+                        while let Ok(cmd) = cmd_rx.try_recv() {
+                            match cmd {
+                                AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
+                                AudioCmd::Hush => engine.hush(),
+                                AudioCmd::Panic => engine.panic(),
+                                AudioCmd::LoadSamples(samples) => {
+                                    engine.sample_index.extend(samples);
+                                }
+                                AudioCmd::ClearSamples => {
+                                    engine.sample_index.clear();
+                                }
+                                AudioCmd::RescanSamples(paths) => {
+                                    engine.sample_index.clear();
+                                    for path in &paths {
+                                        let index = doux::sampling::scan_samples_dir(path);
+                                        engine.sample_index.extend(index);
+                                    }
+                                }
+                                #[cfg(feature = "soundfont")]
+                                AudioCmd::LoadSoundfont(path) => {
+                                    if let Err(e) = engine.load_soundfont(&path) {
+                                        eprintln!("Failed to load soundfont {}: {e}", path.display());
+                                    }
                                 }
                             }
-                            #[cfg(feature = "soundfont")]
-                            AudioCmd::LoadSoundfont(path) => {
-                                if let Err(e) = engine.load_soundfont(&path) {
-                                    eprintln!("Failed to load soundfont {}: {e}", path.display());
-                                }
-                            }
                         }
-                    }
 
-                    // Fill live input buffer (raw multi-channel passthrough)
-                    let buffer_samples = data.len() / output_channels;
-                    let raw_len = buffer_samples * input_channels.max(1);
-                    if live_scratch.len() < raw_len {
-                        live_scratch.resize(raw_len, 0.0);
-                    }
-                    if input_channels == 0 {
-                        live_scratch[..raw_len].fill(0.0);
-                    } else {
-                        for sample in &mut live_scratch[..raw_len] {
-                            *sample = input_consumer.try_pop().unwrap_or(0.0);
+                        let buffer_samples = conv_buf.len() / output_channels;
+                        let raw_len = buffer_samples * input_channels.max(1);
+                        if live_scratch.len() < raw_len {
+                            live_scratch.resize(raw_len, 0.0);
                         }
-                    }
-                    let excess = input_consumer.occupied_len().saturating_sub(input_buffer_size / 2);
-                    for _ in 0..excess {
-                        input_consumer.try_pop();
-                    }
-
-                    let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
-                    engine.metrics.load.set_buffer_time(buffer_time_ns);
-                    engine.process_block(data, &[], &live_scratch[..raw_len]);
-
-                    let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
-                    if prev_gain != target_gain {
-                        let num_samples = data.len();
-                        let step = (target_gain - prev_gain) / num_samples as f32;
-                        let mut g = prev_gain;
-                        for sample in data.iter_mut() {
-                            g += step;
-                            *sample *= g;
-                        }
-                        prev_gain = target_gain;
-                    } else if target_gain != 1.0 {
-                        for sample in data.iter_mut() {
-                            *sample *= target_gain;
-                        }
-                    }
-
-                    peaks_clone.push(data, output_channels);
-
-                    for chunk in data.chunks(output_channels) {
-                        if output_channels >= 2 {
-                            scope_clone.push_stereo(chunk[0], chunk[1]);
+                        if input_channels == 0 {
+                            live_scratch[..raw_len].fill(0.0);
                         } else {
-                            scope_clone.push_mono(chunk[0]);
+                            for sample in &mut live_scratch[..raw_len] {
+                                *sample = input_consumer.try_pop().unwrap_or(0.0);
+                            }
                         }
-                    }
-                },
-                move |err| match err {
-                    cpal::StreamError::DeviceNotAvailable
-                    | cpal::StreamError::StreamInvalidated => {
-                        eprintln!("[doux] output device lost: {err}");
-                        flag.store(true, Ordering::Release);
-                    }
-                    cpal::StreamError::BufferUnderrun => {
-                        eprintln!("[doux] xrun");
-                    }
-                    other => {
-                        eprintln!("[doux] output stream: {other}");
-                    }
-                },
-                None,
-            )
-            .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
+                        let excess = input_consumer.occupied_len().saturating_sub(input_buffer_size / 2);
+                        for _ in 0..excess {
+                            input_consumer.try_pop();
+                        }
+
+                        let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
+                        engine.metrics.load.set_buffer_time(buffer_time_ns);
+                        engine.process_block(&mut conv_buf, &[], &live_scratch[..raw_len]);
+
+                        let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
+                        if prev_gain != target_gain {
+                            let num_samples = conv_buf.len();
+                            let step = (target_gain - prev_gain) / num_samples as f32;
+                            let mut g = prev_gain;
+                            for sample in conv_buf.iter_mut() {
+                                g += step;
+                                *sample *= g;
+                            }
+                            prev_gain = target_gain;
+                        } else if target_gain != 1.0 {
+                            for sample in conv_buf.iter_mut() {
+                                *sample *= target_gain;
+                            }
+                        }
+
+                        peaks_clone.push(&conv_buf, output_channels);
+
+                        for chunk in conv_buf.chunks(output_channels) {
+                            if output_channels >= 2 {
+                                scope_clone.push_stereo(chunk[0], chunk[1]);
+                            } else {
+                                scope_clone.push_mono(chunk[0]);
+                            }
+                        }
+
+                        for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
+                            *out = <$T as FromSample<f32>>::from_sample_(src);
+                        }
+                    },
+                    move |err| match err {
+                        cpal::StreamError::DeviceNotAvailable
+                        | cpal::StreamError::StreamInvalidated => {
+                            eprintln!("[doux] output device lost: {err}");
+                            flag.store(true, Ordering::Release);
+                        }
+                        cpal::StreamError::BufferUnderrun => {
+                            eprintln!("[doux] xrun");
+                        }
+                        other => {
+                            eprintln!("[doux] output stream: {other}");
+                        }
+                    },
+                    None,
+                )
+            }};
+        }
+
+        let output_stream = match output_format {
+            cpal::SampleFormat::F32 => build_output!(f32),
+            cpal::SampleFormat::I32 => build_output!(i32),
+            cpal::SampleFormat::I16 => build_output!(i16),
+            format => {
+                return Err(DouxError::StreamCreationFailed(
+                    format!("unsupported output sample format: {format:?}"),
+                ));
+            }
+        }
+        .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
 
         output_stream
             .play()

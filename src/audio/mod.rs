@@ -46,7 +46,7 @@ pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
         HostSelection::Auto => Ok(preferred_host()),
         HostSelection::Named(name) => {
             for host_id in cpal::available_hosts() {
-                if host_id.name().to_lowercase().contains(&name) {
+                if host_id.name().to_lowercase().contains(&name.to_lowercase()) {
                     if let Ok(host) = cpal::host_from_id(host_id) {
                         return Ok(host);
                     }
