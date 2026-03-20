@@ -203,15 +203,38 @@ where
     I: Iterator<Item = Device>,
 {
     let devices: Vec<_> = devices.collect();
-    if let Ok(idx) = spec.parse::<usize>() {
-        return devices.into_iter().nth(idx);
-    }
+
+    let names: Vec<Option<String>> = devices
+        .iter()
+        .map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+        .collect();
+
     let spec_lower = spec.to_lowercase();
-    devices.into_iter().find(|d| {
-        d.description()
-            .map(|desc| desc.name().to_lowercase().contains(&spec_lower))
-            .unwrap_or(false)
-    })
+
+    let pos = names
+        .iter()
+        .position(|n| n.as_deref() == Some(spec))
+        .or_else(|| {
+            names.iter().position(|n| {
+                n.as_ref()
+                    .map(|n| n.to_lowercase() == spec_lower)
+                    .unwrap_or(false)
+            })
+        })
+        .or_else(|| {
+            names.iter().position(|n| {
+                n.as_ref()
+                    .map(|n| n.to_lowercase().contains(&spec_lower))
+                    .unwrap_or(false)
+            })
+        })
+        .or_else(|| {
+            spec.parse::<usize>()
+                .ok()
+                .filter(|&idx| idx < devices.len())
+        });
+
+    pos.map(|i| devices.into_iter().nth(i).unwrap())
 }
 
 /// Returns the default output device for a given host.
