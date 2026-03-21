@@ -189,7 +189,7 @@ fn negotiate_stream_config(
     // Fallback: use default config as-is
     eprintln!(
         "[doux] requested config ({requested_channels}ch @ {}Hz) not supported, falling back to device default",
-        preferred_sample_rate.0
+        preferred_sample_rate
     );
     let default = device
         .default_output_config()
@@ -297,10 +297,10 @@ impl DouxManager {
 
         // Update actual values in case negotiation changed them
         self.actual_channels = stream_config.channels as usize;
-        self.sample_rate = stream_config.sample_rate.0 as f32;
+        self.sample_rate = stream_config.sample_rate as f32;
         eprintln!(
             "[doux] stream config: {}ch @ {}Hz, buffer: {:?}",
-            stream_config.channels, stream_config.sample_rate.0, stream_config.buffer_size
+            stream_config.channels, stream_config.sample_rate, stream_config.buffer_size
         );
 
         let input_device = resolve_input_device(&host, &self.config);

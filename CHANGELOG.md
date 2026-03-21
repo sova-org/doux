@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.20] - 2026-03-21
+
+### Fixed
+
+- **doux-sova: cpal 0.17 compatibility** — `SampleRate` changed from tuple struct `SampleRate(u32)` to plain `u32` type alias in cpal 0.17; removed `.0` field access in `negotiate_stream_config()` and stream setup
+
 ## [0.0.19] - 2026-03-20
 
 ### Added
