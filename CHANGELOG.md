@@ -3,7 +3,7 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.21] - 2026-03-26
 
 ### Added
 
