@@ -50,7 +50,7 @@ High shelf gain at 5000Hz.
 
 ## EQ Frequencies
 
-<CommandEntry name="eqlofreq" type="number" default={200} unit="Hz">
+<CommandEntry name="eqlofreq" type="number" default={200} unit="Hz" mod>
 
 Low shelf frequency.
 
@@ -58,7 +58,7 @@ Low shelf frequency.
 
 </CommandEntry>
 
-<CommandEntry name="eqmidfreq" type="number" default={1000} unit="Hz">
+<CommandEntry name="eqmidfreq" type="number" default={1000} unit="Hz" mod>
 
 Mid peak frequency.
 
@@ -66,7 +66,7 @@ Mid peak frequency.
 
 </CommandEntry>
 
-<CommandEntry name="eqhifreq" type="number" default={5000} unit="Hz">
+<CommandEntry name="eqhifreq" type="number" default={5000} unit="Hz" mod>
 
 High shelf frequency.
 

@@ -278,6 +278,14 @@ pub enum ParamId {
     Comb,
     Wrap,
     Feedback,
+    FbTime,
+    CombFreq,
+    CombFeedback,
+    DelayTime,
+    DelayFeedback,
+    EqLoFreq,
+    EqMidFreq,
+    EqHiFreq,
     Comp,
 }
 

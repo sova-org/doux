@@ -20,7 +20,7 @@ Send level to the delay bus.
 
 </CommandEntry>
 
-<CommandEntry name="delayfeedback" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="delayfeedback" type="number" min={0} max={1} default={0.5} mod>
 
 Feedback amount (clamped to 0.95 max). Output is fed back into input.
 
@@ -28,7 +28,7 @@ Feedback amount (clamped to 0.95 max). Output is fed back into input.
 
 </CommandEntry>
 
-<CommandEntry name="delaytime" type="number" min={0} default={0.25} unit="s">
+<CommandEntry name="delaytime" type="number" min={0} default={0.25} unit="s" mod>
 
 Delay time in seconds (max ~1s at 48kHz).
 

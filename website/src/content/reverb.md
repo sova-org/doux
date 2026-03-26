@@ -53,7 +53,7 @@ Higher values darken the reverb tail.
 
 </CommandEntry>
 
-<CommandEntry name="verbpredelay" type="number" min={0} max={1} default={0.1}>
+<CommandEntry name="verbpredelay" type="number" min={0} max={1} default={0}>
 
 Gap before the reverb starts.
 

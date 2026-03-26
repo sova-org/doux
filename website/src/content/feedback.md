@@ -22,7 +22,7 @@ Feedback delay send level and re-injection amount. 0 = bypassed. Internally clam
 
 </CommandEntry>
 
-<CommandEntry name="fbtime" type="number" min={0.1} max={680} default={10} unit="ms">
+<CommandEntry name="fbtime" type="number" min={0.1} max={680} default={10} unit="ms" mod>
 
 Feedback delay time in milliseconds. Short values produce metallic resonances, longer values give slapback echoes.
 

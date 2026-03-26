@@ -10,7 +10,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         ParamInfo { name: "verbtype", aliases: &["vtype"], description: "algorithm (plate, space)", default: "1.0", min: 0.0, max: 1.0 },
         ParamInfo { name: "verbdecay", aliases: &[], description: "decay time", default: "0.75", min: 0.0, max: 0.99 },
         ParamInfo { name: "verbdamp", aliases: &[], description: "damping", default: "0.95", min: 0.0, max: 1.0 },
-        ParamInfo { name: "verbpredelay", aliases: &[], description: "pre-delay in seconds", default: "0.1", min: 0.0, max: 0.3 },
+        ParamInfo { name: "verbpredelay", aliases: &[], description: "pre-delay in seconds", default: "0.0", min: 0.0, max: 0.3 },
         ParamInfo { name: "verbdiff", aliases: &[], description: "diffusion amount", default: "0.7", min: 0.0, max: 1.0 },
         ParamInfo { name: "verbprelow", aliases: &[], description: "pre-filter low cutoff (space only)", default: "0.2", min: 0.0, max: 1.0 },
         ParamInfo { name: "verbprehigh", aliases: &[], description: "pre-filter high cutoff (space only)", default: "0.8", min: 0.0, max: 1.0 },

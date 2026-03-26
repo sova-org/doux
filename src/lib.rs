@@ -69,6 +69,7 @@ use types::WASM_BLOCK_SIZE;
 #[cfg(feature = "native")]
 use types::DEFAULT_NATIVE_BLOCK_SIZE;
 use voice::{Voice, VoiceParams, modulation};
+use voice::modulation::ParamId;
 
 #[cfg(feature = "soundfont")]
 struct GmResolved {
@@ -725,8 +726,10 @@ impl Engine {
         // Sample playback via lock-free registry (native)
         #[cfg(feature = "native")]
         if let Some((sample_name, sample_data)) = registry_sample_data {
-            // Use Wavetable mode if scan param present, otherwise Sample
-            v.params.sound = if event.scan.is_some() {
+            // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
+            let has_scan = event.scan.is_some()
+                || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+            v.params.sound = if has_scan {
                 Source::Wavetable
             } else {
                 Source::Sample
@@ -767,8 +770,10 @@ impl Engine {
         if let Some(sample_idx) = loaded_sample {
             if let Some(info) = self.samples.get(sample_idx) {
                 use sampling::FileSource;
-                // Use Wavetable mode if scan param present, otherwise Sample
-                v.params.sound = if event.scan.is_some() {
+                // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
+                let has_scan = event.scan.is_some()
+                    || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+                v.params.sound = if has_scan {
                     Source::Wavetable
                 } else {
                     Source::Sample
@@ -797,8 +802,10 @@ impl Engine {
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
             use sampling::WebSampleSource;
             let (begin, end) = event.resolve_range();
-            // Use Wavetable mode if scan param present, otherwise WebSample
-            v.params.sound = if event.scan.is_some() {
+            // Use Wavetable mode if scan param present (static or modulated), otherwise WebSample
+            let has_scan = event.scan.is_some()
+                || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+            v.params.sound = if has_scan {
                 Source::Wavetable
             } else {
                 Source::WebSample

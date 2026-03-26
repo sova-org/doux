@@ -22,7 +22,7 @@ Noise into a tuned comb creates plucked string sounds (Karplus-Strong).
 
 </CommandEntry>
 
-<CommandEntry name="combfreq" type="number" min={20} max={20000} default={220} unit="Hz">
+<CommandEntry name="combfreq" type="number" min={20} max={20000} default={220} unit="Hz" mod>
 
 Resonant frequency. All voices share the same orbit comb.
 
@@ -30,7 +30,7 @@ Resonant frequency. All voices share the same orbit comb.
 
 </CommandEntry>
 
-<CommandEntry name="combfeedback" type="number" min={0} max={0.99} default={0.9}>
+<CommandEntry name="combfeedback" type="number" min={0} max={0.99} default={0.9} mod>
 
 Feedback amount. Higher values create longer resonance.
 

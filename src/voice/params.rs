@@ -427,7 +427,7 @@ impl Default for VoiceParams {
             verbtype: ReverbType::Space,
             verbdecay: 0.75,
             verbdamp: 0.95,
-            verbpredelay: 0.1,
+            verbpredelay: 0.0,
             verbdiff: 0.7,
             verbprelow: 0.2,
             verbprehigh: 0.8,

@@ -95,6 +95,7 @@ pub struct DouxManager {
     peaks: Option<Arc<PeakCapture>>,
     device_lost: Arc<AtomicBool>,
     master_gain: Arc<AtomicU32>,
+    registry: Arc<doux::SampleRegistry>,
 }
 
 fn parse_host_selection(host: Option<&str>) -> Result<HostSelection, DouxError> {
@@ -202,6 +203,34 @@ fn negotiate_stream_config(
     })
 }
 
+fn spawn_preload(
+    index: &[doux::sampling::SampleEntry],
+    target_sr: f32,
+    registry: &Arc<doux::SampleRegistry>,
+) {
+    if index.is_empty() {
+        return;
+    }
+    let entries: Vec<(String, std::path::PathBuf)> =
+        index.iter().map(|e| (e.name.clone(), e.path.clone())).collect();
+    let registry = Arc::clone(registry);
+    std::thread::Builder::new()
+        .name("sample-preload".into())
+        .spawn(move || {
+            let mut batch = Vec::with_capacity(entries.len());
+            for (name, path) in &entries {
+                match doux::sampling::decode_sample_head(path, target_sr) {
+                    Ok(data) => batch.push((name.clone(), Arc::new(data))),
+                    Err(e) => eprintln!("[doux] preload {name}: {e}"),
+                }
+            }
+            if !batch.is_empty() {
+                registry.insert_batch(batch);
+            }
+        })
+        .expect("failed to spawn preload thread");
+}
+
 impl DouxManager {
     pub fn new(config: DouxConfig) -> Result<Self, DouxError> {
         let host_selection = parse_host_selection(config.host.as_deref())?;
@@ -220,6 +249,9 @@ impl DouxManager {
             engine.sample_index.extend(index);
         }
 
+        let registry = Arc::clone(&engine.sample_registry);
+        spawn_preload(&engine.sample_index, sample_rate, &registry);
+
         Ok(Self {
             pending_engine: Some(engine),
             metrics,
@@ -235,6 +267,7 @@ impl DouxManager {
             peaks: None,
             device_lost: Arc::new(AtomicBool::new(false)),
             master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
+            registry,
         })
     }
 
@@ -581,6 +614,8 @@ impl DouxManager {
             let index = doux::sampling::scan_samples_dir(path);
             engine.sample_index.extend(index);
         }
+        self.registry = Arc::clone(&engine.sample_registry);
+        spawn_preload(&engine.sample_index, sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
         self.build_streams()
@@ -626,6 +661,8 @@ impl DouxManager {
             let index = doux::sampling::scan_samples_dir(path);
             engine.sample_index.extend(index);
         }
+        self.registry = Arc::clone(&engine.sample_registry);
+        spawn_preload(&engine.sample_index, sample_rate, &self.registry);
 
         self.pending_engine = Some(engine);
         self.host_selection = host_selection;
@@ -682,6 +719,7 @@ impl DouxManager {
 
     pub fn add_sample_path(&mut self, path: std::path::PathBuf) {
         let index = doux::sampling::scan_samples_dir(&path);
+        spawn_preload(&index, self.sample_rate, &self.registry);
         if let Some(tx) = &self.cmd_tx {
             let _ = tx.send(AudioCmd::LoadSamples(index));
         }

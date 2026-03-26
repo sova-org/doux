@@ -309,6 +309,14 @@ impl Voice {
             ParamId::Verb => self.params.verb = val,
             ParamId::Comb => self.params.comb = val,
             ParamId::Feedback => self.params.feedback = val,
+            ParamId::FbTime => self.params.fbtime = val,
+            ParamId::CombFreq => self.params.combfreq = val,
+            ParamId::CombFeedback => self.params.combfeedback = val,
+            ParamId::DelayTime => self.params.delaytime = val,
+            ParamId::DelayFeedback => self.params.delayfeedback = val,
+            ParamId::EqLoFreq => self.params.eqlofreq = val,
+            ParamId::EqMidFreq => self.params.eqmidfreq = val,
+            ParamId::EqHiFreq => self.params.eqhifreq = val,
             ParamId::Comp => self.params.comp = val,
         }
     }

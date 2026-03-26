@@ -3,6 +3,16 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Audio-rate modulation for 8 new parameters** — `fbtime`, `combfreq`, `combfeedback`, `delaytime`, `delayfeedback`, `eqlofreq`, `eqmidfreq`, `eqhifreq` now support inline modulation syntax (e.g. `delaytime/0.1~0.5:2`, `combfreq/200~2000:4t`)
+
+### Fixed
+
+- **Wavetable scan with modulation** — using modulation syntax on scan (e.g. `scan/0~1:2`) caused the voice to fall back to `Source::Sample`, playing the wavetable linearly instead of scanning between cycles
+
 ## [0.0.20] - 2026-03-21
 
 ### Fixed
