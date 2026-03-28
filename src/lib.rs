@@ -479,11 +479,12 @@ impl Engine {
             return None;
         }
         let i = self.active_voices;
-        self.voices[i] = Voice::default();
+        self.voices[i].reset();
         self.voices[i].seed = self.voice_seed;
         self.voice_seed = modulation::lcg(self.voice_seed);
         self.voices[i].params = params;
         self.voices[i].sr = self.sr;
+        self.voices[i].ensure_effects();
         self.active_voices += 1;
         Some(i)
     }
@@ -560,7 +561,7 @@ impl Engine {
             } else {
                 0.0
             };
-            self.voices[voice_idx] = Voice::default();
+            self.voices[voice_idx].reset();
             self.voices[voice_idx].dahdsr.current_val = old_env;
             self.voices[voice_idx].seed = self.voice_seed;
             self.voice_seed = modulation::lcg(self.voice_seed);
@@ -569,6 +570,7 @@ impl Engine {
 
         // Update voice params (only the ones explicitly set in event)
         self.update_voice_params(voice_idx, event);
+        self.voices[voice_idx].ensure_effects();
 
         Some(voice_idx)
     }

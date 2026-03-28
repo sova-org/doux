@@ -3,6 +3,13 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- **Lazy-allocated heavy voice effects** — chorus, flanger, and haas delay buffers (~20.5 KB per voice) are now `Option<Box<T>>`, allocated only when the effect is first used. Voices that don't use these effects carry ~1 KB instead of ~21 KB
+- **In-place voice reset** — voice reuse on note triggers no longer drops and reallocates the entire struct; `Voice::reset()` resets fields in-place and drops unused effect boxes, eliminating heap churn on the audio thread
+
 ## [0.0.21] - 2026-03-26
 
 ### Added

@@ -61,13 +61,13 @@ pub struct Voice {
     pub web_sample: Option<WebSampleSource>,
     // Effects
     pub phaser: [Phaser; CHANNELS],
-    pub flanger: [Flanger; CHANNELS],
+    pub flanger: Option<Box<[Flanger; CHANNELS]>>,
     pub smear: [Smear; CHANNELS],
-    pub chorus: Chorus,
+    pub chorus: Option<Box<Chorus>>,
     pub coarse: [Coarse; CHANNELS],
     pub eq: [Eq; CHANNELS],
     pub tilt: [Tilt; CHANNELS],
-    pub haas: Haas,
+    pub haas: Option<Box<Haas>>,
     pub ladder_lp: [LadderFilter; CHANNELS],
     pub ladder_hp: [LadderFilter; CHANNELS],
     pub ladder_bp: [LadderFilter; CHANNELS],
@@ -125,13 +125,13 @@ impl Default for Voice {
             stretch: StretchState::default(),
             web_sample: None,
             phaser: [Phaser::default(); CHANNELS],
-            flanger: [Flanger::default(); CHANNELS],
+            flanger: None,
             smear: [Smear::default(); CHANNELS],
-            chorus: Chorus::default(),
+            chorus: None,
             coarse: [Coarse::default(); CHANNELS],
             eq: [Eq::default(); CHANNELS],
             tilt: [Tilt::default(); CHANNELS],
-            haas: Haas::default(),
+            haas: None,
             ladder_lp: [LadderFilter::default(); CHANNELS],
             ladder_hp: [LadderFilter::default(); CHANNELS],
             ladder_bp: [LadderFilter::default(); CHANNELS],
@@ -181,13 +181,13 @@ impl Clone for Voice {
             stretch: self.stretch,
             web_sample: self.web_sample,
             phaser: self.phaser,
-            flanger: self.flanger,
+            flanger: self.flanger.clone(),
             smear: self.smear,
-            chorus: self.chorus,
+            chorus: self.chorus.clone(),
             coarse: self.coarse,
             eq: self.eq,
             tilt: self.tilt,
-            haas: self.haas,
+            haas: self.haas.clone(),
             ladder_lp: self.ladder_lp,
             ladder_hp: self.ladder_hp,
             ladder_bp: self.ladder_bp,
@@ -206,6 +206,76 @@ impl Clone for Voice {
 }
 
 impl Voice {
+    pub fn reset(&mut self) {
+        self.params = VoiceParams::default();
+        self.phasor = Phasor::default();
+        self.sub_phasor = Phasor::default();
+        for (i, p) in self.spread_phasors.iter_mut().enumerate() {
+            *p = Phasor::default();
+            p.phase = i as f32 / 7.0;
+        }
+        self.dahdsr = Dahdsr::default();
+        self.lp = [SvfState::default(); CHANNELS];
+        self.hp = [SvfState::default(); CHANNELS];
+        self.bp = [SvfState::default(); CHANNELS];
+        self.vib_lfo = Phasor::default();
+        self.fm_phasor = Phasor::default();
+        self.fm2_phasor = Phasor::default();
+        self.fm_fb_prev = 0.0;
+        self.fm_fb_prev2 = 0.0;
+        self.am_lfo = Phasor::default();
+        self.rm_lfo = Phasor::default();
+        self.current_freq = 330.0;
+        self.pink_noise = PinkNoise::default();
+        self.brown_noise = BrownNoise::default();
+        #[cfg(not(feature = "native"))]
+        { self.file_source = None; }
+        #[cfg(feature = "native")]
+        {
+            self.registry_sample = None;
+            self.registry_sample_b = None;
+        }
+        self.sample_blend = 0.0;
+        #[cfg(feature = "native")]
+        { self.stretch = StretchState::default(); }
+        self.web_sample = None;
+        self.phaser = [Phaser::default(); CHANNELS];
+        self.flanger = None;
+        self.smear = [Smear::default(); CHANNELS];
+        self.chorus = None;
+        self.coarse = [Coarse::default(); CHANNELS];
+        self.eq = [Eq::default(); CHANNELS];
+        self.tilt = [Tilt::default(); CHANNELS];
+        self.haas = None;
+        self.ladder_lp = [LadderFilter::default(); CHANNELS];
+        self.ladder_hp = [LadderFilter::default(); CHANNELS];
+        self.ladder_bp = [LadderFilter::default(); CHANNELS];
+        self.param_mods = [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS];
+        self.param_mod_count = 0;
+        self.triggered = false;
+        self.time = 0.0;
+        self.ch = [0.0; CHANNELS];
+        self.nch = 1;
+        self.spread_side = 0.0;
+        self.sr = 44100.0;
+        self.seed = 123456789;
+        self.drum_svf = SvfState::default();
+    }
+
+    /// Pre-allocate effect buffers based on current params.
+    /// Call after setting params, before the audio loop runs.
+    pub fn ensure_effects(&mut self) {
+        if self.params.chorus > 0.0 && self.chorus.is_none() {
+            self.chorus = Some(Box::new(Chorus::default()));
+        }
+        if self.params.flanger > 0.0 && self.flanger.is_none() {
+            self.flanger = Some(Box::new([Flanger::default(); CHANNELS]));
+        }
+        if self.params.haas > 0.0 && self.haas.is_none() {
+            self.haas = Some(Box::new(Haas::default()));
+        }
+    }
+
     #[inline]
     pub(super) fn rand(&mut self) -> f32 {
         self.seed = modulation::lcg(self.seed);
@@ -597,8 +667,9 @@ impl Voice {
 
         // Flanger
         if self.params.flanger > 0.0 {
+            let flanger = self.flanger.get_or_insert_with(|| Box::new([Flanger::default(); CHANNELS]));
             for c in 0..nch {
-                self.ch[c] = self.flanger[c].process(
+                self.ch[c] = flanger[c].process(
                     self.ch[c],
                     self.params.flanger,
                     self.params.flangerdepth,
@@ -661,7 +732,8 @@ impl Voice {
 
         // Chorus
         if self.params.chorus > 0.0 {
-            let stereo = self.chorus.process(
+            let chorus = self.chorus.get_or_insert_with(|| Box::new(Chorus::default()));
+            let stereo = chorus.process(
                 self.ch[0],
                 self.ch[1],
                 self.params.chorus,
@@ -685,7 +757,8 @@ impl Voice {
 
         // Haas (delay right channel)
         if self.params.haas > 0.0 {
-            self.ch[1] = self.haas.process(self.ch[1], self.params.haas, self.sr);
+            let haas = self.haas.get_or_insert_with(|| Box::new(Haas::default()));
+            self.ch[1] = haas.process(self.ch[1], self.params.haas, self.sr);
         }
 
         // Panning
