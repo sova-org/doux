@@ -5,7 +5,7 @@
 //! - `fold`: Wavefolding (complex harmonics)
 //! - [`wrap`]: Phase wrapping (harsh, digital)
 
-use crate::dsp::{exp2f, expm1f, sinf};
+use crate::dsp::{exp2f, sinf};
 use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -26,7 +26,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
 /// Higher `amount` = more compression and harmonics.
 #[inline]
 pub fn distort(input: f32, amount: f32, postgain: f32) -> f32 {
-    let k = expm1f(amount);
+    let k = amount.exp_m1();
     ((1.0 + k) * input / (1.0 + k * input.abs())) * postgain
 }
 

@@ -5,7 +5,7 @@
 
 use std::f32::consts::TAU;
 
-use crate::dsp::{exp2f, expf, sinf, SvfMode};
+use crate::dsp::{exp2f, sinf, SvfMode};
 use crate::types::Source;
 
 use super::Voice;
@@ -55,7 +55,7 @@ impl Voice {
     fn drum_kick(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 4.0;
         let rate = 20.0 + self.params.harmonics * 80.0;
-        let pitch_env = expf(-self.time * rate);
+        let pitch_env = (-self.time * rate).exp();
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
@@ -74,7 +74,7 @@ impl Voice {
     #[inline]
     fn drum_snare(&mut self, freq: f32, isr: f32) -> f32 {
         let rate = 40.0 + self.params.harmonics * 60.0;
-        let pitch_env = expf(-self.time * rate);
+        let pitch_env = (-self.time * rate).exp();
         let actual_freq = freq * exp2f(1.5 * pitch_env);
 
         let phase = self.phasor.phase;
@@ -113,7 +113,7 @@ impl Voice {
     fn drum_tom(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 1.5;
         let rate = 15.0 + self.params.harmonics * 40.0;
-        let pitch_env = expf(-self.time * rate);
+        let pitch_env = (-self.time * rate).exp();
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
@@ -128,7 +128,7 @@ impl Voice {
     #[inline]
     fn drum_rim(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 2.0;
-        let pitch_env = expf(-self.time * 200.0);
+        let pitch_env = (-self.time * 200.0).exp();
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;

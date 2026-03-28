@@ -1,4 +1,4 @@
-use crate::dsp::{exp2f, expf, ftz, pow10, sinf};
+use crate::dsp::{exp2f, ftz, pow10, sinf};
 
 const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
@@ -269,7 +269,7 @@ impl VitalVerb {
         {
             let size_exp = -3.0 + size * 4.0;
             let size_mult = exp2f(size_exp);
-            let decay_sec = expf(-6.0 + decay * 12.0).clamp(0.1, 100.0);
+            let decay_sec = (-6.0 + decay * 12.0).exp().clamp(0.1, 100.0);
             let decay_samples = decay_sec * sr;
 
             c.decay = decay;
@@ -313,7 +313,7 @@ impl VitalVerb {
         let chorus_depth = chorus_amt * chorus_amt * 2500.0 * sr_ratio * size_mult;
 
         // Chorus frequency: exp(remap(0,1,-8,3)) Hz, clamp 16Hz.
-        let chorus_hz = expf(-8.0 + chorus_freq * 11.0).min(16.0);
+        let chorus_hz = (-8.0 + chorus_freq * 11.0).exp().min(16.0);
         let lfo_inc = chorus_hz / sr;
 
         // --- Step 1: Write input to predelay, read back ---
