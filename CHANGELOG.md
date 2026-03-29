@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.23] - 2026-03-29
+
+### Changed
+
+- **Less aggressive master output and voice compensation** — removed 0.7 pre-gain from master tanh soft clip, switched voice count compensation from sqrt to cbrt for more dynamic, crispier sound
+
 ## [0.0.22] - 2026-03-28
 
 

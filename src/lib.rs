@@ -1133,7 +1133,7 @@ impl Engine {
         }
 
         for c in 0..self.output_channels {
-            output[base_idx + c] = fast_tanh_f32(output[base_idx + c] * 0.7);
+            output[base_idx + c] = fast_tanh_f32(output[base_idx + c]);
         }
     }
 
@@ -1162,7 +1162,7 @@ impl Engine {
             .take(num_orbits)
         {
             *target = if count > 0 {
-                1.0 / (count as f32).sqrt()
+                1.0 / (count as f32).cbrt()
             } else {
                 1.0
             };

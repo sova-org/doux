@@ -519,7 +519,7 @@ impl Voice {
             return false;
         }
 
-        self.apply_filters_and_effects(env);
+        self.apply_filters_and_effects(env, isr);
         true
     }
 
@@ -560,13 +560,12 @@ impl Voice {
             return false;
         }
 
-        self.apply_filters_and_effects(env);
+        self.apply_filters_and_effects(env, isr);
         true
     }
 
     #[inline]
-    fn apply_filters_and_effects(&mut self, env: f32) {
-        let isr = 1.0 / self.sr;
+    fn apply_filters_and_effects(&mut self, env: f32, isr: f32) {
         let nch = self.nch;
 
         // Update filter cutoffs
