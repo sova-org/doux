@@ -287,6 +287,7 @@ pub enum ParamId {
     EqMidFreq,
     EqHiFreq,
     Comp,
+    Mirror,
 }
 
 #[derive(Clone, Copy)]

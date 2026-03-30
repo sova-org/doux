@@ -289,7 +289,7 @@ impl Event {
                 "spread" => event.spread = val.parse().ok(),
                 "size" => event.size = val.parse().ok(),
                 "warp" => event.warp = val.parse().ok(),
-                "mirror" => event.mirror = val.parse().ok(),
+                "mirror" => parse_param!(val, mirror, ParamId::Mirror),
                 "harmonics" | "harm" => parse_param!(val, harmonics, ParamId::Harmonics),
                 "timbre" => parse_param!(val, timbre, ParamId::Timbre),
                 "morph" => parse_param!(val, morph, ParamId::Morph),

@@ -327,6 +327,7 @@ impl Voice {
             ParamId::Timbre => self.params.timbre = val,
             ParamId::Morph => self.params.morph = val,
             ParamId::Scan => self.params.scan = val,
+            ParamId::Mirror => self.params.shape.mirror = val,
             ParamId::Partials => self.params.partials = val,
             ParamId::Lpf => self.params.lpf = Some(val),
             ParamId::Lpq => self.params.lpq = val,

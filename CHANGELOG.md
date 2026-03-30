@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.0.23] - 2026-03-29
 
+### Added
+
+- **Audio-rate modulation for `mirror`** — the phase mirror parameter now supports inline modulation syntax (e.g. `mirror/0~1:2`, `mirror/0^0.8:0.01:0.2:0.5:0.3`)
+
 ### Changed
 
 - **Less aggressive master output and voice compensation** — removed 0.7 pre-gain from master tanh soft clip, switched voice count compensation from sqrt to cbrt for more dynamic, crispier sound
