@@ -102,6 +102,16 @@ Brown/red noise (1/f^2). Deep rumbling, heavily weighted toward low frequencies.
 
 </CommandEntry>
 
+<CommandEntry name="osc" type="source">
+
+Morphing oscillator. Sweeps through sine, triangle, saw, and square as `wave` goes from 0 to 1. The `wave` parameter is modulable.
+
+<CodeEditor code={`/sound/osc/note/60`} rows={2} />
+
+<CodeEditor code={`/sound/osc/note/48/wave/0~1:2/decay/4/gate/5`} rows={2} />
+
+</CommandEntry>
+
 <CommandEntry name="add" type="source">
 
 Additive oscillator. Builds timbres by stacking sine partials. Shape the spectrum with `timbre`, `morph`, `harmonics`, and `partials`.

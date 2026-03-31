@@ -8,6 +8,7 @@
   { "name": "white", "category": "basic", "group": "sources" },
   { "name": "pink", "category": "basic", "group": "sources" },
   { "name": "brown", "category": "basic", "group": "sources" },
+  { "name": "osc", "category": "basic", "group": "sources" },
   { "name": "kick", "category": "drums", "group": "sources" },
   { "name": "snare", "category": "drums", "group": "sources" },
   { "name": "hat", "category": "drums", "group": "sources" },

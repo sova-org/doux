@@ -2,7 +2,7 @@
 
 use std::f32::consts::TAU;
 
-use crate::dsp::{exp2f, sinf, Phasor};
+use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
 use crate::types::{Source, SubWave, CHANNELS};
@@ -60,6 +60,30 @@ fn additive_at(phase: f32, dt: f32, timbre: f32, morph: f32, harmonics: f32, par
     if norm > 0.0 { sum / norm } else { 0.0 }
 }
 
+#[inline]
+fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
+    let w = wave.clamp(0.0, 1.0) * 3.0;
+    let segment = (w as u32).min(2);
+    let t = w - segment as f32;
+    match segment {
+        0 => {
+            let a = Phasor::sine_at(phase, shape);
+            let b = Phasor::tri_at(phase, shape);
+            a + t * (b - a)
+        }
+        1 => {
+            let a = Phasor::tri_at(phase, shape);
+            let b = Phasor::saw_at(phase, dt, shape);
+            a + t * (b - a)
+        }
+        _ => {
+            let a = Phasor::saw_at(phase, dt, shape);
+            let b = Phasor::pulse_at(phase, dt, 0.5, shape);
+            a + t * (b - a)
+        }
+    }
+}
+
 impl Voice {
     #[inline]
     pub(super) fn osc_at(&self, phase: f32, dt: f32) -> f32 {
@@ -74,6 +98,7 @@ impl Voice {
                 let shaped = self.params.shape.apply(phase);
                 additive_at(shaped, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials)
             }
+            Source::Osc => osc_morph_at(phase, dt, self.params.wave, &self.params.shape),
             _ => 0.0,
         }
     }
@@ -406,6 +431,12 @@ impl Voice {
                     self.phasor.phase
                 };
                 let s = additive_at(phase, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials);
+                self.phasor.update(freq, isr);
+                s * 0.5
+            }
+            Source::Osc => {
+                let dt = freq * isr;
+                let s = osc_morph_at(self.phasor.phase, dt, self.params.wave, &self.params.shape);
                 self.phasor.update(freq, isr);
                 s * 0.5
             }

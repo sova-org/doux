@@ -3,7 +3,11 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.24] - 2026-03-31
+
+### Added
+
+- **`osc` source** — morphing oscillator that sweeps sine → triangle → saw → square via the `wave` parameter (0–1, modulable)
 
 ### Fixed
 

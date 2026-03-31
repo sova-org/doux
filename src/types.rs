@@ -68,6 +68,7 @@ pub enum Source {
     Pulse,
     Pulze,
     Add,
+    Osc,
     White,
     Pink,
     Brown,
@@ -85,9 +86,9 @@ pub enum Source {
     LiveInput,
 }
 
-const ALL_SOURCES: [Source; 22] = [
+const ALL_SOURCES: [Source; 23] = [
     Source::Tri, Source::Sine, Source::Saw, Source::Zaw,
-    Source::Pulse, Source::Pulze, Source::Add,
+    Source::Pulse, Source::Pulze, Source::Add, Source::Osc,
     Source::White, Source::Pink, Source::Brown,
     Source::Kick, Source::Snare, Source::Hat, Source::Tom,
     Source::Rim, Source::Cowbell, Source::Cymbal,
@@ -125,6 +126,11 @@ const INFO_ADD: SourceInfo = source_info!("add", &[], SourceCategory::Oscillator
     ParamInfo { name: "harmonics", aliases: &["harm"], description: "inharmonic stretch", default: "0.5", min: 0.0, max: 1.0 },
     ParamInfo { name: "partials", aliases: &[], description: "number of partials (1-32)", default: "32.0", min: 1.0, max: 32.0 },
 ], 6);
+
+const INFO_OSC: SourceInfo = source_info!("osc", &["oscillator"], SourceCategory::Oscillator,
+    "Morphing oscillator: sine → triangle → saw → square via wave parameter", None, &[
+    ParamInfo { name: "wave", aliases: &["waveform"], description: "waveform morph (0 sine, 0.33 tri, 0.67 saw, 1 square)", default: "0.0", min: 0.0, max: 1.0 },
+], 14);
 
 const INFO_WHITE: SourceInfo = source_info!("white", &[], SourceCategory::Noise, "White noise with equal energy at all frequencies", None, &[], 7);
 const INFO_PINK: SourceInfo = source_info!("pink", &[], SourceCategory::Noise, "Pink noise (1/f) with equal energy per octave", None, &[], 8);
@@ -220,6 +226,7 @@ impl Source {
             Self::Pulse => &INFO_PULSE,
             Self::Pulze => &INFO_PULZE,
             Self::Add => &INFO_ADD,
+            Self::Osc => &INFO_OSC,
             Self::White => &INFO_WHITE,
             Self::Pink => &INFO_PINK,
             Self::Brown => &INFO_BROWN,
