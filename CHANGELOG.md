@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- **doux-sova: move all file I/O off the real-time audio thread** — soundfont loading (SF2 parsing + resampling) and sample directory scanning no longer run inside the CPAL callback. A dedicated `engine-worker` background thread handles heavy I/O and forwards pre-computed results to the audio thread via lightweight channel messages. Fixes "UTC time limit expired" crashes on Linux
+
 ## [0.0.23] - 2026-03-29
 
 ### Added

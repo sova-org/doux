@@ -24,16 +24,19 @@ use crate::peaks::PeakCapture;
 use crate::receiver::SovaReceiver;
 use crate::scope::ScopeCapture;
 use crate::time::TimeConverter;
+use crate::worker::{EngineWorker, WorkerTask};
 
 pub enum AudioCmd {
     Evaluate(String),
     Hush,
     Panic,
-    LoadSamples(Vec<doux::sampling::SampleEntry>),
-    ClearSamples,
-    RescanSamples(Vec<PathBuf>),
+    SetSampleIndex(Vec<doux::sampling::SampleEntry>),
+    ExtendSampleIndex(Vec<doux::sampling::SampleEntry>),
     #[cfg(feature = "soundfont")]
-    LoadSoundfont(PathBuf),
+    InstallSoundfont {
+        bank: doux::soundfont::GmBank,
+        samples: Vec<(String, std::sync::Arc<doux::sampling::SampleData>)>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +99,7 @@ pub struct DouxManager {
     device_lost: Arc<AtomicBool>,
     master_gain: Arc<AtomicU32>,
     registry: Arc<doux::SampleRegistry>,
+    worker: Option<EngineWorker>,
 }
 
 fn parse_host_selection(host: Option<&str>) -> Result<HostSelection, DouxError> {
@@ -268,6 +272,7 @@ impl DouxManager {
             device_lost: Arc::new(AtomicBool::new(false)),
             master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             registry,
+            worker: None,
         })
     }
 
@@ -460,24 +465,16 @@ impl DouxManager {
                                 AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
                                 AudioCmd::Hush => engine.hush(),
                                 AudioCmd::Panic => engine.panic(),
-                                AudioCmd::LoadSamples(samples) => {
-                                    engine.sample_index.extend(samples);
+                                AudioCmd::SetSampleIndex(index) => {
+                                    engine.sample_index = index;
                                 }
-                                AudioCmd::ClearSamples => {
-                                    engine.sample_index.clear();
-                                }
-                                AudioCmd::RescanSamples(paths) => {
-                                    engine.sample_index.clear();
-                                    for path in &paths {
-                                        let index = doux::sampling::scan_samples_dir(path);
-                                        engine.sample_index.extend(index);
-                                    }
+                                AudioCmd::ExtendSampleIndex(entries) => {
+                                    engine.sample_index.extend(entries);
                                 }
                                 #[cfg(feature = "soundfont")]
-                                AudioCmd::LoadSoundfont(path) => {
-                                    if let Err(e) = engine.load_soundfont(&path) {
-                                        eprintln!("Failed to load soundfont {}: {e}", path.display());
-                                    }
+                                AudioCmd::InstallSoundfont { bank, samples } => {
+                                    engine.sample_registry.insert_batch(samples);
+                                    engine.gm_bank = Some(bank);
                                 }
                             }
                         }
@@ -568,6 +565,11 @@ impl DouxManager {
             .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
 
         self.output_stream = Some(output_stream);
+        self.worker = Some(EngineWorker::spawn(
+            cmd_tx.clone(),
+            Arc::clone(&self.registry),
+            self.sample_rate,
+        ));
         self.scope = Some(scope);
         self.peaks = Some(peaks);
         self.cmd_tx = Some(cmd_tx);
@@ -590,6 +592,9 @@ impl DouxManager {
         self.input_stream = None;
         self.scope = None;
         self.peaks = None;
+        if let Some(worker) = self.worker.take() {
+            worker.join();
+        }
         self.cmd_tx = None;
 
         let host = get_host(self.host_selection.clone())?;
@@ -626,6 +631,9 @@ impl DouxManager {
         self.input_stream = None;
         self.scope = None;
         self.peaks = None;
+        if let Some(worker) = self.worker.take() {
+            worker.join();
+        }
         self.cmd_tx = None;
 
         if let Some(handle) = self.receiver_handle.take() {
@@ -718,23 +726,21 @@ impl DouxManager {
     }
 
     pub fn add_sample_path(&mut self, path: std::path::PathBuf) {
-        let index = doux::sampling::scan_samples_dir(&path);
-        spawn_preload(&index, self.sample_rate, &self.registry);
-        if let Some(tx) = &self.cmd_tx {
-            let _ = tx.send(AudioCmd::LoadSamples(index));
+        if let Some(ref worker) = self.worker {
+            let _ = worker.tx.send(WorkerTask::AddSamplePath(path.clone()));
         }
         self.config.sample_paths.push(path);
     }
 
     pub fn rescan_samples(&mut self) {
-        if let Some(tx) = &self.cmd_tx {
-            let _ = tx.send(AudioCmd::RescanSamples(self.config.sample_paths.clone()));
+        if let Some(ref worker) = self.worker {
+            let _ = worker.tx.send(WorkerTask::RescanSamples(self.config.sample_paths.clone()));
         }
     }
 
     pub fn clear_samples(&mut self) {
         if let Some(tx) = &self.cmd_tx {
-            let _ = tx.send(AudioCmd::ClearSamples);
+            let _ = tx.send(AudioCmd::SetSampleIndex(Vec::new()));
         }
     }
 
@@ -752,13 +758,8 @@ impl DouxManager {
 
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont_from_paths(&self, sample_paths: &[PathBuf]) {
-        if let Some(tx) = &self.cmd_tx {
-            for path in sample_paths {
-                if let Some(sf2_path) = doux::soundfont::find_sf2_file(path) {
-                    let _ = tx.send(AudioCmd::LoadSoundfont(sf2_path));
-                    return;
-                }
-            }
+        if let Some(ref worker) = self.worker {
+            let _ = worker.tx.send(WorkerTask::LoadSoundfont(sample_paths.to_vec()));
         }
     }
 

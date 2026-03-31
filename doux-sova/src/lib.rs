@@ -4,6 +4,7 @@ pub mod peaks;
 mod receiver;
 pub mod scope;
 mod time;
+mod worker;
 
 pub use doux::audio;
 pub use doux::config::DouxConfig;
