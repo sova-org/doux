@@ -79,6 +79,13 @@ struct GmResolved {
     loop_start: f32,
     loop_end: f32,
     looping: bool,
+    attenuation: f32,
+    pan: f32,
+    filter_fc: f32,
+    filter_q: f32,
+    scale_tuning: f32,
+    delay: f32,
+    hold: f32,
     attack: f32,
     decay: f32,
     sustain: f32,
@@ -363,6 +370,13 @@ impl Engine {
             loop_start: zone.loop_start,
             loop_end: zone.loop_end,
             looping: zone.looping,
+            attenuation: zone.attenuation,
+            pan: zone.pan,
+            filter_fc: zone.filter_fc,
+            filter_q: zone.filter_q,
+            scale_tuning: zone.scale_tuning,
+            delay: zone.delay,
+            hold: zone.hold,
             attack: zone.attack,
             decay: zone.decay,
             sustain: zone.sustain,
@@ -704,15 +718,23 @@ impl Engine {
         if let Some(gm) = gm_resolved {
             let mut rs = RegistrySample::new(gm.name, gm.data, 0.0, 1.0);
             rs.root_freq = gm.root_freq;
+            rs.scale_tuning = gm.scale_tuning;
             if gm.looping {
                 rs.set_loop(gm.loop_start, gm.loop_end);
             }
+            rs.attenuation = gm.attenuation;
             v.registry_sample = Some(rs);
             if event.freq.is_none() {
                 v.params.freq = 261.626;
             }
+            if event.envdelay.is_none() {
+                v.params.envdelay = gm.delay;
+            }
             if event.attack.is_none() {
                 v.params.attack = gm.attack;
+            }
+            if event.hold.is_none() {
+                v.params.hold = gm.hold;
             }
             if event.decay.is_none() {
                 v.params.decay = gm.decay;
@@ -722,6 +744,13 @@ impl Engine {
             }
             if event.release.is_none() {
                 v.params.release = gm.release;
+            }
+            if event.pan.is_none() {
+                v.params.pan = gm.pan;
+            }
+            if event.lpf.is_none() && gm.filter_fc < 19500.0 {
+                v.params.lpf = Some(gm.filter_fc);
+                v.params.lpq = gm.filter_q;
             }
         }
 

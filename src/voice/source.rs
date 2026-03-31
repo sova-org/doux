@@ -120,11 +120,20 @@ impl Voice {
                     if done {
                         self.dahdsr.force_release();
                     }
+                    let gain = rs.attenuation * 0.7;
                     for c in 0..CHANNELS {
-                        self.ch[c] = rs.read(c) * 0.7;
+                        self.ch[c] = rs.read(c) * gain;
                     }
                     if !done {
-                        rs.advance(freq / rs.root_freq);
+                        // Scale tuning: interpolate between root pitch (0) and chromatic (1)
+                        let ratio = freq / rs.root_freq;
+                        let speed = if rs.scale_tuning == 1.0 {
+                            ratio
+                        } else {
+                            let semitones = 12.0 * ratio.log2();
+                            2.0_f32.powf(semitones * rs.scale_tuning / 12.0)
+                        };
+                        rs.advance(speed);
                     }
                     self.nch = CHANNELS;
                     return true;

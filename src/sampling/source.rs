@@ -15,6 +15,8 @@ pub struct RegistrySample {
     pub name: String,
     pub data: Arc<SampleData>,
     pub root_freq: f32,
+    pub attenuation: f32,
+    pub scale_tuning: f32,
     cursor: Cursor,
 }
 
@@ -23,7 +25,7 @@ impl RegistrySample {
     pub fn new(name: String, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let root_freq = data.freq;
         let cursor = Cursor::new(data.frame_count, begin, end);
-        Self { name, data, root_freq, cursor }
+        Self { name, data, root_freq, attenuation: 1.0, scale_tuning: 1.0, cursor }
     }
 
     /// Returns true if this is a head preload (not fully decoded yet).
@@ -98,6 +100,8 @@ impl Clone for RegistrySample {
             name: self.name.clone(),
             data: Arc::clone(&self.data),
             root_freq: self.root_freq,
+            attenuation: self.attenuation,
+            scale_tuning: self.scale_tuning,
             cursor: self.cursor,
         }
     }

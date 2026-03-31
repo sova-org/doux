@@ -20,6 +20,13 @@ struct ZoneEntry {
     loop_start: f32,
     loop_end: f32,
     looping: bool,
+    attenuation: f32,
+    pan: f32,
+    filter_fc: f32,
+    filter_q: f32,
+    scale_tuning: f32,
+    delay: f32,
+    hold: f32,
     attack: f32,
     decay: f32,
     sustain: f32,
@@ -32,6 +39,13 @@ pub struct GmZone<'a> {
     pub loop_start: f32,
     pub loop_end: f32,
     pub looping: bool,
+    pub attenuation: f32,
+    pub pan: f32,
+    pub filter_fc: f32,
+    pub filter_q: f32,
+    pub scale_tuning: f32,
+    pub delay: f32,
+    pub hold: f32,
     pub attack: f32,
     pub decay: f32,
     pub sustain: f32,
@@ -62,6 +76,13 @@ impl GmBank {
                 loop_start: z.loop_start,
                 loop_end: z.loop_end,
                 looping: z.looping,
+                attenuation: z.attenuation,
+                pan: z.pan,
+                filter_fc: z.filter_fc,
+                filter_q: z.filter_q,
+                scale_tuning: z.scale_tuning,
+                delay: z.delay,
+                hold: z.hold,
                 attack: z.attack,
                 decay: z.decay,
                 sustain: z.sustain,
@@ -315,20 +336,28 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                     continue;
                 }
 
-                // Resolve generators with fallback chain: izone -> inst_global -> preset_global
-                let get = |ty: GeneratorType| -> Option<i16> {
+                // SF2 spec Section 9.4: instrument-level generators use fallback
+                // (zone → global), preset-level generators are additive offsets.
+                let inst_val = |ty: GeneratorType| -> Option<i16> {
                     gen_i16(izone, ty)
                         .or_else(|| inst_global.and_then(|z| gen_i16(z, ty)))
+                };
+                let preset_offset = |ty: GeneratorType| -> i16 {
+                    gen_i16(pzone, ty)
                         .or_else(|| preset_global.and_then(|z| gen_i16(z, ty)))
+                        .unwrap_or(0)
+                };
+                let get = |ty: GeneratorType, default: i16| -> i16 {
+                    inst_val(ty).unwrap_or(default) + preset_offset(ty)
                 };
 
-                // Root key (override or from sample header)
-                let root_key = get(GeneratorType::OverridingRootKey)
+                // Root key (override, not additive)
+                let root_key = inst_val(GeneratorType::OverridingRootKey)
                     .filter(|&k| k >= 0)
                     .map(|k| k as u8)
                     .unwrap_or(hdr.origpitch);
-                let coarse_tune = get(GeneratorType::CoarseTune).unwrap_or(0);
-                let fine_tune = get(GeneratorType::FineTune).unwrap_or(0)
+                let coarse_tune = get(GeneratorType::CoarseTune, 0);
+                let fine_tune = get(GeneratorType::FineTune, 0)
                     + hdr.pitchadj as i16;
                 let root_freq = midi2freq(root_key as f32 + coarse_tune as f32 + fine_tune as f32 / 100.0);
 
@@ -341,23 +370,33 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                 let loop_end = loop_end_raw as f32 * ratio;
 
                 // Sample mode: 0=no loop, 1=loop continuous, 3=loop until release
-                let sample_mode = get(GeneratorType::SampleModes).unwrap_or(0);
+                let sample_mode = inst_val(GeneratorType::SampleModes).unwrap_or(0);
                 let looping = sample_mode == 1 || sample_mode == 3;
                 let valid_loop = looping && loop_end > loop_start + 1.0;
 
+                // Attenuation (centibels, default 0 = full volume)
+                let attenuation = centibels_to_linear(get(GeneratorType::InitialAttenuation, 0));
+
+                // Pan (-500..500 = -50%..+50%, default 0 = center)
+                let pan_raw = get(GeneratorType::Pan, 0);
+                let pan = (pan_raw as f32 / 1000.0).clamp(-0.5, 0.5) + 0.5;
+
+                // Filter (cents for cutoff, centibels for Q → 0..1 resonance)
+                let fc_cents = get(GeneratorType::InitialFilterFc, 13500);
+                let filter_fc = 8.176 * 2.0_f32.powf(fc_cents as f32 / 1200.0);
+                let fq_cb = get(GeneratorType::InitialFilterQ, 0);
+                let filter_q = (fq_cb as f32 / 960.0).clamp(0.0, 1.0);
+
+                // Scale tuning (cents/key, default 100 = normal chromatic)
+                let scale_tuning = get(GeneratorType::ScaleTuning, 100) as f32 / 100.0;
+
                 // Volume envelope
-                let attack = get(GeneratorType::AttackVolEnv)
-                    .map(timecents_to_secs)
-                    .unwrap_or(0.001);
-                let decay = get(GeneratorType::DecayVolEnv)
-                    .map(timecents_to_secs)
-                    .unwrap_or(0.0);
-                let sustain = get(GeneratorType::SustainVolEnv)
-                    .map(centibels_to_linear)
-                    .unwrap_or(1.0);
-                let release = get(GeneratorType::ReleaseVolEnv)
-                    .map(timecents_to_secs)
-                    .unwrap_or(0.001);
+                let delay = timecents_to_secs(get(GeneratorType::DelayVolEnv, -12000));
+                let attack = timecents_to_secs(get(GeneratorType::AttackVolEnv, -12000));
+                let hold = timecents_to_secs(get(GeneratorType::HoldVolEnv, -12000));
+                let decay = timecents_to_secs(get(GeneratorType::DecayVolEnv, -12000));
+                let sustain = centibels_to_linear(get(GeneratorType::SustainVolEnv, 0));
+                let release = timecents_to_secs(get(GeneratorType::ReleaseVolEnv, -12000));
 
                 entries.push(ZoneEntry {
                     preset: program,
@@ -371,6 +410,13 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                     loop_start: if valid_loop { loop_start } else { 0.0 },
                     loop_end: if valid_loop { loop_end } else { 0.0 },
                     looping: valid_loop,
+                    attenuation,
+                    pan,
+                    filter_fc,
+                    filter_q,
+                    scale_tuning,
+                    delay,
+                    hold,
                     attack,
                     decay,
                     sustain,

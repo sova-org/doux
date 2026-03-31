@@ -3,6 +3,16 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.25] - 2026-03-31
+
+### Added
+
+- **Better soundfont playback** — attenuation, pan, low-pass filter, scale tuning, and full DAHDSR envelope extracted from SF2 zones
+
+### Fixed
+
+- **SF2 generator resolution** — preset-level generators are now correctly added as offsets instead of used as fallbacks, per SF2 spec
+
 ## [0.0.24] - 2026-03-31
 
 ### Added
