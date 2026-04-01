@@ -12,41 +12,41 @@ order: 3
 
 General MIDI playback using SF2 soundfont files. Native engine only — examples on this page won't produce sound in the browser. Place an `.sf2` file inside your samples directory and start doux with `--samples`.
 
-<CommandEntry name="gm" type="source">
+<CommandEntry name="gm[preset]" type="source">
 
-Plays a General MIDI instrument. Use `/n/` to select a program by name (e.g. `piano`, `strings`, `drums`) or by number (0–127). The engine reads envelope and loop data from the soundfont.
+Plays a General MIDI instrument. The preset name is part of the source: `gmpiano`, `gmstrings`, `gmdrums`, etc. The engine reads envelope and loop data from the soundfont.
 
-<CodeEditor code={`/sound/gm/n/piano/note/60`} rows={2} />
+<CodeEditor code={`/sound/gmpiano/note/60`} rows={2} />
 
-<CodeEditor code={`/sound/gm/n/strings/note/48/decay/2`} rows={2} />
+<CodeEditor code={`/sound/gmstrings/note/48/decay/2`} rows={2} />
 
-<CodeEditor code={`/sound/gm/n/drums/note/36`} rows={2} />
+<CodeEditor code={`/sound/gmdrums/note/36`} rows={2} />
 
-<CodeEditor code={`/sound/gm/n/0/note/72`} rows={2} />
+<CodeEditor code={`/sound/gmflute/note/72`} rows={2} />
 
 <details class="presets">
 <summary>Available preset names</summary>
 <table><tbody>
-<tr><td>0</td><td>piano</td><td>24</td><td>guitar</td><td>48</td><td>strings</td><td>72</td><td>piccolo</td></tr>
-<tr><td>1</td><td>brightpiano</td><td>25</td><td>steelguitar</td><td>49</td><td>slowstrings</td><td>73</td><td>flute</td></tr>
-<tr><td>4</td><td>epiano</td><td>26</td><td>jazzguitar</td><td>52</td><td>choir</td><td>74</td><td>recorder</td></tr>
-<tr><td>6</td><td>harpsichord</td><td>27</td><td>cleangt</td><td>56</td><td>trumpet</td><td>75</td><td>panflute</td></tr>
-<tr><td>7</td><td>clavinet</td><td>29</td><td>overdrive</td><td>57</td><td>trombone</td><td>79</td><td>whistle</td></tr>
-<tr><td>8</td><td>celesta</td><td>30</td><td>distgt</td><td>58</td><td>tuba</td><td>80</td><td>ocarina</td></tr>
-<tr><td>9</td><td>glockenspiel</td><td>33</td><td>bass</td><td>60</td><td>horn</td><td>81</td><td>lead</td></tr>
-<tr><td>10</td><td>musicbox</td><td>34</td><td>pickbass</td><td>61</td><td>brass</td><td>82</td><td>sawlead</td></tr>
-<tr><td>11</td><td>vibraphone</td><td>35</td><td>fretless</td><td>64</td><td>sopranosax</td><td>89</td><td>pad</td></tr>
-<tr><td>12</td><td>marimba</td><td>36</td><td>slapbass</td><td>65</td><td>altosax</td><td>90</td><td>warmpad</td></tr>
-<tr><td>13</td><td>xylophone</td><td>38</td><td>synthbass</td><td>66</td><td>tenorsax</td><td>91</td><td>polysynth</td></tr>
-<tr><td>14</td><td>bells</td><td>40</td><td>violin</td><td>67</td><td>barisax</td><td>104</td><td>sitar</td></tr>
-<tr><td>16</td><td>organ</td><td>41</td><td>viola</td><td>68</td><td>oboe</td><td>105</td><td>banjo</td></tr>
-<tr><td>19</td><td>churchorgan</td><td>42</td><td>cello</td><td>70</td><td>bassoon</td><td>108</td><td>kalimba</td></tr>
-<tr><td>21</td><td>accordion</td><td>43</td><td>contrabass</td><td>71</td><td>clarinet</td><td>114</td><td>steeldrum</td></tr>
-<tr><td>22</td><td>harmonica</td><td>45</td><td>pizzicato</td><td></td><td></td><td></td><td></td></tr>
-<tr><td></td><td></td><td>46</td><td>harp</td><td></td><td></td><td></td><td></td></tr>
-<tr><td></td><td></td><td>47</td><td>timpani</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>0</td><td>gmpiano</td><td>24</td><td>gmguitar</td><td>48</td><td>gmstrings</td><td>72</td><td>gmpiccolo</td></tr>
+<tr><td>1</td><td>gmbrightpiano</td><td>25</td><td>gmsteelguitar</td><td>49</td><td>gmslowstrings</td><td>73</td><td>gmflute</td></tr>
+<tr><td>4</td><td>gmepiano</td><td>26</td><td>gmjazzguitar</td><td>52</td><td>gmchoir</td><td>74</td><td>gmrecorder</td></tr>
+<tr><td>6</td><td>gmharpsichord</td><td>27</td><td>gmcleangt</td><td>56</td><td>gmtrumpet</td><td>75</td><td>gmpanflute</td></tr>
+<tr><td>7</td><td>gmclavinet</td><td>29</td><td>gmoverdrive</td><td>57</td><td>gmtrombone</td><td>79</td><td>gmwhistle</td></tr>
+<tr><td>8</td><td>gmcelesta</td><td>30</td><td>gmdistgt</td><td>58</td><td>gmtuba</td><td>80</td><td>gmocarina</td></tr>
+<tr><td>9</td><td>gmglockenspiel</td><td>33</td><td>gmbass</td><td>60</td><td>gmhorn</td><td>81</td><td>gmlead</td></tr>
+<tr><td>10</td><td>gmmusicbox</td><td>34</td><td>gmpickbass</td><td>61</td><td>gmbrass</td><td>82</td><td>gmsawlead</td></tr>
+<tr><td>11</td><td>gmvibraphone</td><td>35</td><td>gmfretless</td><td>64</td><td>gmsopranosax</td><td>89</td><td>gmpad</td></tr>
+<tr><td>12</td><td>gmmarimba</td><td>36</td><td>gmslapbass</td><td>65</td><td>gmaltosax</td><td>90</td><td>gmwarmpad</td></tr>
+<tr><td>13</td><td>gmxylophone</td><td>38</td><td>gmsynthbass</td><td>66</td><td>gmtenorsax</td><td>91</td><td>gmpolysynth</td></tr>
+<tr><td>14</td><td>gmbells</td><td>40</td><td>gmviolin</td><td>67</td><td>gmbarisax</td><td>104</td><td>gmsitar</td></tr>
+<tr><td>16</td><td>gmorgan</td><td>41</td><td>gmviola</td><td>68</td><td>gmoboe</td><td>105</td><td>gmbanjo</td></tr>
+<tr><td>19</td><td>gmchurchorgan</td><td>42</td><td>gmcello</td><td>70</td><td>gmbassoon</td><td>108</td><td>gmkalimba</td></tr>
+<tr><td>21</td><td>gmaccordion</td><td>43</td><td>gmcontrabass</td><td>71</td><td>gmclarinet</td><td>114</td><td>gmsteeldrum</td></tr>
+<tr><td>22</td><td>gmharmonica</td><td>45</td><td>gmpizzicato</td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td>46</td><td>gmharp</td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td>47</td><td>gmtimpani</td><td></td><td></td><td></td><td></td></tr>
 </tbody></table>
-<p>Drums are on a separate bank: use <code>drums</code> or <code>percussion</code>.</p>
+<p>Drums are on a separate bank: use <code>gmdrums</code> or <code>gmpercussion</code>.</p>
 </details>
 
 </CommandEntry>
