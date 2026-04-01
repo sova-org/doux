@@ -297,6 +297,13 @@ impl FromStr for Source {
                 }
             }
         }
+        #[cfg(feature = "soundfont")]
+        if s.starts_with("gm")
+            && s.len() > 2
+            && crate::soundfont::resolve_gm_program(&s[2..]).is_some()
+        {
+            return Ok(Source::Gm);
+        }
         Err(())
     }
 }

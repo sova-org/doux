@@ -99,7 +99,7 @@ impl GmBank {
     }
 }
 
-fn resolve_gm_program(s: &str) -> Option<(u16, u16)> {
+pub fn resolve_gm_program(s: &str) -> Option<(u16, u16)> {
     if let Ok(n) = s.parse::<u16>() {
         return if n < 128 { Some((n, 0)) } else { None };
     }
@@ -254,8 +254,8 @@ pub fn gm_preset_docs() -> Vec<GmPresetDoc> {
     }
 
     grouped.into_iter().map(|((program, bank), names)| {
-        let canonical = names[0];
-        let aliases: Vec<&str> = names[1..].to_vec();
+        let canonical = format!("gm{}", names[0]);
+        let aliases: Vec<String> = names[1..].iter().map(|a| format!("gm{a}")).collect();
         let family = gm_family(program, bank);
         GmPresetDoc { name: canonical, aliases, program, bank, family }
     }).collect()
@@ -283,8 +283,8 @@ fn gm_family(program: u16, bank: u16) -> &'static str {
 }
 
 pub struct GmPresetDoc {
-    pub name: &'static str,
-    pub aliases: Vec<&'static str>,
+    pub name: String,
+    pub aliases: Vec<String>,
     pub program: u16,
     pub bank: u16,
     pub family: &'static str,

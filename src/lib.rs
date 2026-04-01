@@ -349,10 +349,8 @@ impl Engine {
     #[cfg(feature = "soundfont")]
     fn resolve_gm(&self, event: &Event) -> Option<GmResolved> {
         let sound_str = event.sound.as_ref()?;
-        if sound_str != "gm" {
-            return None;
-        }
-        let program_str = event.n.as_deref().unwrap_or("0");
+        let program_str = sound_str.strip_prefix("gm")?;
+        let program_str = if program_str.is_empty() { "0" } else { program_str };
 
         let note = event
             .freq
