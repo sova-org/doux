@@ -3,6 +3,18 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.27] - 2026-04-01
+
+### Changed
+
+- **GM soundfont sources are now prefixed** — instead of `sound=gm` + `n=piano`, presets are selected directly as `gmpiano`, `gmtrumpet`, `gmdrums`, etc. Bare `gm` still works (defaults to program 0)
+
+## [0.0.26] - 2026-04-01
+
+### Added
+
+- **Soundfont preset discoverability** — added `gm_preset_docs()` and `SourceDoc` documentation API exposing all GM preset names, aliases, program numbers, and instrument families
+
 ## [0.0.25] - 2026-03-31
 
 ### Added
