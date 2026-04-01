@@ -175,6 +175,121 @@ fn resolve_gm_program(s: &str) -> Option<(u16, u16)> {
     }
 }
 
+/// Returns all named GM preset mappings for documentation/completion.
+/// Each entry: (canonical_name, aliases, GM program number).
+pub fn gm_preset_docs() -> Vec<GmPresetDoc> {
+    // Group aliases by (program, bank)
+    let entries: &[(&str, u16, u16)] = &[
+        ("piano", 0, 0), ("grandpiano", 0, 0),
+        ("brightpiano", 1, 0),
+        ("epiano", 4, 0), ("electricpiano", 4, 0), ("rhodes", 4, 0),
+        ("harpsichord", 6, 0),
+        ("clavinet", 7, 0), ("clav", 7, 0),
+        ("celesta", 8, 0),
+        ("glockenspiel", 9, 0), ("glock", 9, 0),
+        ("musicbox", 10, 0),
+        ("vibraphone", 11, 0), ("vibes", 11, 0),
+        ("marimba", 12, 0),
+        ("xylophone", 13, 0), ("xylo", 13, 0),
+        ("bells", 14, 0), ("tubularbells", 14, 0),
+        ("organ", 16, 0),
+        ("churchorgan", 19, 0),
+        ("accordion", 21, 0),
+        ("harmonica", 22, 0),
+        ("guitar", 24, 0), ("nylon", 24, 0), ("nylonguitar", 24, 0),
+        ("steelguitar", 25, 0), ("steel", 25, 0),
+        ("jazzguitar", 26, 0),
+        ("cleangt", 27, 0), ("clean", 27, 0),
+        ("overdrive", 29, 0), ("overdriven", 29, 0),
+        ("distgt", 30, 0), ("distortionguitar", 30, 0),
+        ("bass", 33, 0), ("fingerbass", 33, 0),
+        ("pickbass", 34, 0),
+        ("fretless", 35, 0),
+        ("slapbass", 36, 0), ("slap", 36, 0),
+        ("synthbass", 38, 0),
+        ("violin", 40, 0),
+        ("viola", 41, 0),
+        ("cello", 42, 0),
+        ("contrabass", 43, 0),
+        ("pizzicato", 45, 0), ("pizz", 45, 0),
+        ("harp", 46, 0),
+        ("timpani", 47, 0),
+        ("strings", 48, 0), ("ensemble", 48, 0),
+        ("slowstrings", 49, 0),
+        ("choir", 52, 0),
+        ("trumpet", 56, 0),
+        ("trombone", 57, 0),
+        ("tuba", 58, 0),
+        ("horn", 60, 0), ("frenchhorn", 60, 0),
+        ("brass", 61, 0),
+        ("sopranosax", 64, 0),
+        ("altosax", 65, 0), ("alto", 65, 0),
+        ("tenorsax", 66, 0), ("tenor", 66, 0),
+        ("barisax", 67, 0), ("bari", 67, 0),
+        ("oboe", 68, 0),
+        ("bassoon", 70, 0),
+        ("clarinet", 71, 0),
+        ("piccolo", 72, 0),
+        ("flute", 73, 0),
+        ("recorder", 74, 0),
+        ("panflute", 75, 0), ("pan", 75, 0),
+        ("whistle", 79, 0),
+        ("ocarina", 80, 0),
+        ("lead", 81, 0), ("squarelead", 81, 0),
+        ("sawlead", 82, 0), ("sawsynth", 82, 0),
+        ("pad", 89, 0), ("newage", 89, 0),
+        ("warmpad", 90, 0), ("warm", 90, 0),
+        ("polysynth", 91, 0),
+        ("sitar", 104, 0),
+        ("banjo", 105, 0),
+        ("kalimba", 108, 0),
+        ("steeldrum", 114, 0),
+        ("drums", 0, 128), ("drum", 0, 128), ("percussion", 0, 128),
+    ];
+
+    // Group by (program, bank) to find canonical name + aliases
+    let mut grouped: std::collections::BTreeMap<(u16, u16), Vec<&str>> = std::collections::BTreeMap::new();
+    for &(name, program, bank) in entries {
+        grouped.entry((program, bank)).or_default().push(name);
+    }
+
+    grouped.into_iter().map(|((program, bank), names)| {
+        let canonical = names[0];
+        let aliases: Vec<&str> = names[1..].to_vec();
+        let family = gm_family(program, bank);
+        GmPresetDoc { name: canonical, aliases, program, bank, family }
+    }).collect()
+}
+
+fn gm_family(program: u16, bank: u16) -> &'static str {
+    if bank == 128 { return "Percussion"; }
+    match program {
+        0..=7 => "Piano",
+        8..=15 => "Chromatic Percussion",
+        16..=23 => "Organ",
+        24..=31 => "Guitar",
+        32..=39 => "Bass",
+        40..=47 => "Strings",
+        48..=55 => "Ensemble",
+        56..=63 => "Brass",
+        64..=71 => "Reed",
+        72..=79 => "Pipe",
+        80..=95 => "Synth",
+        96..=103 => "SFX",
+        104..=111 => "World",
+        112..=119 => "Percussion",
+        _ => "Other",
+    }
+}
+
+pub struct GmPresetDoc {
+    pub name: &'static str,
+    pub aliases: Vec<&'static str>,
+    pub program: u16,
+    pub bank: u16,
+    pub family: &'static str,
+}
+
 fn gen_i16(zone: &soundfont::Zone, ty: GeneratorType) -> Option<i16> {
     zone.gen_list
         .iter()

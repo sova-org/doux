@@ -248,6 +248,38 @@ impl Source {
     pub fn drum_defaults(&self) -> Option<(f32, f32, f32, f32, f32)> {
         self.info().drum_defaults.map(|d| (d.freq, d.attack, d.decay, d.sustain, d.release))
     }
+
+    /// Returns documentation metadata for all sources.
+    /// Each entry: (name, aliases, description, category, param descriptions).
+    pub fn all_source_docs() -> Vec<SourceDoc> {
+        Source::all().iter().map(|s| {
+            let info = s.info();
+            let params: Vec<(&str, &str)> = info.module.params.iter()
+                .map(|p| (p.name, p.description))
+                .collect();
+            SourceDoc {
+                name: info.module.name,
+                aliases: info.aliases,
+                description: info.module.description,
+                category: match info.category {
+                    SourceCategory::Oscillator => "Oscillator",
+                    SourceCategory::Noise => "Noise",
+                    SourceCategory::Drum => "Drum",
+                    SourceCategory::Sample => "Sample",
+                    SourceCategory::Input => "Input",
+                },
+                params,
+            }
+        }).collect()
+    }
+}
+
+pub struct SourceDoc {
+    pub name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub description: &'static str,
+    pub category: &'static str,
+    pub params: Vec<(&'static str, &'static str)>,
 }
 
 impl FromStr for Source {
