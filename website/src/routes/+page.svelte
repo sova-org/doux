@@ -189,6 +189,20 @@
         <p>FM index ramping up exponentially over 3 seconds:</p>
         <CodeEditor code={`/fm/0>8:3e/fmh/3/decay/3`} rows={2} />
 
+        <h3>Slew <code>&gt;</code> (no start)</h3>
+        <p>Transition from the <em>current</em> parameter value to a target.
+           Same as transition but without specifying the start — the voice reads
+           its own value. Ideal for persistent voices (<code>voice/0</code> + <code>gate/0</code>).
+           Syntax: <code>&gt;target:duration[curve]</code></p>
+        <ul>
+            <li><code>&gt;4000:0.2</code> — slew to 4000 over 0.2s (linear)</li>
+            <li><code>&gt;800:0.5e</code> — slew to 800 exponentially</li>
+            <li><code>&gt;1200:0.1s</code> — slew to 1200 with S-curve</li>
+        </ul>
+
+        <p>Start a persistent voice, then smoothly update its filter cutoff:</p>
+        <CodeEditor code={`/sound/saw/voice/0/gate/0/freq/220/lpf/4000\n\n/voice/0/lpf/>800:0.3e`} rows={4} />
+
         <h3>Envelope <code>^</code></h3>
         <p>A gate-aware DAHDSR envelope between two values. Starts on note trigger,
            sustains until gate-off, then releases.

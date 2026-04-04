@@ -3,6 +3,12 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.28] - 2026-04-04
+
+### Added
+
+- **Slew modulation** — new `>target:duration[curve]` syntax for audio-rate parameter transitions from the current value. Useful for persistent voices (`gate/0` + `voice/N`) where you want smooth parameter changes without specifying the start value
+
 ## [0.0.27] - 2026-04-01
 
 ### Changed

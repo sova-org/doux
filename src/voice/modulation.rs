@@ -52,6 +52,11 @@ pub enum ModChain {
         sustain: f32,
         release: f32,
     },
+    Slew {
+        target: f32,
+        freq: f32,
+        curve: ModCurve,
+    },
 }
 
 impl ModChain {
@@ -59,7 +64,11 @@ impl ModChain {
         if s.contains('^') {
             Self::parse_envelope(s)
         } else if s.contains('>') {
-            Self::parse_transition(s)
+            if s.starts_with('>') {
+                Self::parse_slew(s)
+            } else {
+                Self::parse_transition(s)
+            }
         } else if s.contains('~') {
             Self::parse_oscillate(s)
         } else if s.contains('?') {
@@ -79,6 +88,9 @@ impl ModChain {
             }
             ModChain::Envelope { min, max, attack, decay, sustain, release } => {
                 ModChain::Envelope { min: f(min), max: f(max), attack, decay, sustain, release }
+            }
+            ModChain::Slew { target, freq, curve } => {
+                ModChain::Slew { target: f(target), freq, curve }
             }
         }
     }
@@ -164,6 +176,18 @@ impl ModChain {
             return None;
         }
         Some(ModChain::Transition { start, target, freq: 1.0 / period, curve, looping })
+    }
+
+    fn parse_slew(s: &str) -> Option<Self> {
+        let rest = &s[1..];
+        let colon = rest.find(':')?;
+        let target: f32 = rest[..colon].parse().ok()?;
+        let dur_str = &rest[colon + 1..];
+        let (period, curve) = parse_duration_curve(dur_str)?;
+        if period <= 0.0 {
+            return None;
+        }
+        Some(ModChain::Slew { target, freq: 1.0 / period, curve })
     }
 }
 
@@ -370,6 +394,7 @@ impl ParamMod {
                 let env_val = self.envelope.update(isr, 0.0, attack, 0.0, decay, sustain, release);
                 min + (max - min) * env_val
             }
+            ModChain::Slew { target, .. } => target,
         }
     }
 
@@ -633,6 +658,60 @@ mod tests {
         assert!((v0 - 0.0).abs() < 0.01);
         let v1 = interpolate(0.0, 100.0, 0.99, ModCurve::Stair);
         assert!((v1 - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_slew_linear() {
+        let m = ModChain::parse(">4000:0.2").unwrap();
+        match m {
+            ModChain::Slew { target, freq, curve } => {
+                assert_eq!(target, 4000.0);
+                assert_eq!(freq, 5.0);
+                assert_eq!(curve, ModCurve::Linear);
+            }
+            _ => panic!("expected Slew"),
+        }
+    }
+
+    #[test]
+    fn parse_slew_exponential() {
+        let m = ModChain::parse(">800:0.5e").unwrap();
+        match m {
+            ModChain::Slew { target, freq, curve } => {
+                assert_eq!(target, 800.0);
+                assert_eq!(freq, 2.0);
+                assert_eq!(curve, ModCurve::Exponential);
+            }
+            _ => panic!("expected Slew"),
+        }
+    }
+
+    #[test]
+    fn parse_slew_smooth() {
+        let m = ModChain::parse(">1200:0.1s").unwrap();
+        match m {
+            ModChain::Slew { curve, .. } => assert_eq!(curve, ModCurve::Smooth),
+            _ => panic!("expected Slew"),
+        }
+    }
+
+    #[test]
+    fn parse_slew_map_values() {
+        let m = ModChain::Slew { target: 100.0, freq: 5.0, curve: ModCurve::Linear };
+        let mapped = m.map_values(|v| v * 2.0);
+        match mapped {
+            ModChain::Slew { target, freq, .. } => {
+                assert_eq!(target, 200.0);
+                assert_eq!(freq, 5.0);
+            }
+            _ => panic!("expected Slew"),
+        }
+    }
+
+    #[test]
+    fn parse_slew_invalid() {
+        assert!(ModChain::parse(">4000:0").is_none());
+        assert!(ModChain::parse(">:0.2").is_none());
     }
 
     #[test]

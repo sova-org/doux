@@ -27,3 +27,8 @@ Only has an effect when used together with voice. If set to 1, the selected voic
 <CodeEditor code={`/voice/0/freq/220/attack/.1\n\n/voice/0/freq/330/time/.25/reset/1`} rows={4} />
 
 </CommandEntry>
+
+Use slew modulation (<code>&gt;target:duration</code>) to smoothly transition parameters on an active voice instead of jumping instantly:
+
+<CodeEditor code={`/sound/saw/voice/0/gate/0/freq/220/lpf/4000\n\n/voice/0/freq/>440:0.2/lpf/>800:0.3e`} rows={4} />
+

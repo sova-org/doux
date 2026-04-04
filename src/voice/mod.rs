@@ -288,6 +288,12 @@ impl Voice {
     }
 
     pub fn set_mod(&mut self, id: ParamId, chain: ModChain) {
+        let chain = if let ModChain::Slew { target, freq, curve } = chain {
+            let start = self.read_param(id);
+            ModChain::Transition { start, target, freq, curve, looping: false }
+        } else {
+            chain
+        };
         for i in 0..self.param_mod_count as usize {
             if self.param_mods[i].0 == id {
                 self.param_mods[i].1 = ParamMod::new(chain, self.seed);
@@ -300,6 +306,87 @@ impl Voice {
             self.param_mods[i] = (id, ParamMod::new(chain, self.seed));
             self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
             self.param_mod_count += 1;
+        }
+    }
+
+    fn read_param(&self, id: ParamId) -> f32 {
+        match id {
+            ParamId::Freq => self.params.freq,
+            ParamId::Gain => self.params.gain,
+            ParamId::Postgain => self.params.postgain,
+            ParamId::Pan => self.params.pan,
+            ParamId::Speed => self.params.speed,
+            ParamId::Stretch => self.params.stretch,
+            ParamId::Detune => self.params.detune,
+            ParamId::Pw => self.params.pw,
+            ParamId::Wave => self.params.wave,
+            ParamId::Sub => self.params.sub,
+            ParamId::Harmonics => self.params.harmonics,
+            ParamId::Timbre => self.params.timbre,
+            ParamId::Morph => self.params.morph,
+            ParamId::Scan => self.params.scan,
+            ParamId::Mirror => self.params.shape.mirror,
+            ParamId::Partials => self.params.partials,
+            ParamId::Lpf => self.params.lpf.unwrap_or(20000.0),
+            ParamId::Lpq => self.params.lpq,
+            ParamId::Hpf => self.params.hpf.unwrap_or(0.0),
+            ParamId::Hpq => self.params.hpq,
+            ParamId::Bpf => self.params.bpf.unwrap_or(1000.0),
+            ParamId::Bpq => self.params.bpq,
+            ParamId::Llpf => self.params.llpf.unwrap_or(20000.0),
+            ParamId::Llpq => self.params.llpq,
+            ParamId::Lhpf => self.params.lhpf.unwrap_or(0.0),
+            ParamId::Lhpq => self.params.lhpq,
+            ParamId::Lbpf => self.params.lbpf.unwrap_or(1000.0),
+            ParamId::Lbpq => self.params.lbpq,
+            ParamId::Fm => self.params.fm,
+            ParamId::Fmh => self.params.fmh,
+            ParamId::Fm2 => self.params.fm2,
+            ParamId::Fm2h => self.params.fm2h,
+            ParamId::Fmfb => self.params.fmfb,
+            ParamId::Am => self.params.am,
+            ParamId::Amdepth => self.params.amdepth,
+            ParamId::Rm => self.params.rm,
+            ParamId::Rmdepth => self.params.rmdepth,
+            ParamId::Vib => self.params.vib,
+            ParamId::Vibmod => self.params.vibmod,
+            ParamId::Phaser => self.params.phaser,
+            ParamId::Phaserdepth => self.params.phaserdepth,
+            ParamId::Phasersweep => self.params.phasersweep,
+            ParamId::Phasercenter => self.params.phasercenter,
+            ParamId::Flanger => self.params.flanger,
+            ParamId::Flangerdepth => self.params.flangerdepth,
+            ParamId::Flangerfeedback => self.params.flangerfeedback,
+            ParamId::Smear => self.params.smear,
+            ParamId::Smearfreq => self.params.smearfreq,
+            ParamId::Smearfb => self.params.smearfb,
+            ParamId::Chorus => self.params.chorus,
+            ParamId::Chorusdepth => self.params.chorusdepth,
+            ParamId::Chorusdelay => self.params.chorusdelay,
+            ParamId::Fold => self.params.fold.unwrap_or(0.0),
+            ParamId::Crush => self.params.crush.unwrap_or(0.0),
+            ParamId::Coarse => self.params.coarse.unwrap_or(0.0),
+            ParamId::Distort => self.params.distort.unwrap_or(0.0),
+            ParamId::Wrap => self.params.wrap.unwrap_or(0.0),
+            ParamId::Eqlo => self.params.eqlo,
+            ParamId::Eqmid => self.params.eqmid,
+            ParamId::Eqhi => self.params.eqhi,
+            ParamId::Tilt => self.params.tilt,
+            ParamId::Width => self.params.width,
+            ParamId::Haas => self.params.haas,
+            ParamId::Delay => self.params.delay,
+            ParamId::Verb => self.params.verb,
+            ParamId::Comb => self.params.comb,
+            ParamId::Feedback => self.params.feedback,
+            ParamId::FbTime => self.params.fbtime,
+            ParamId::CombFreq => self.params.combfreq,
+            ParamId::CombFeedback => self.params.combfeedback,
+            ParamId::DelayTime => self.params.delaytime,
+            ParamId::DelayFeedback => self.params.delayfeedback,
+            ParamId::EqLoFreq => self.params.eqlofreq,
+            ParamId::EqMidFreq => self.params.eqmidfreq,
+            ParamId::EqHiFreq => self.params.eqhifreq,
+            ParamId::Comp => self.params.comp,
         }
     }
 
