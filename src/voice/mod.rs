@@ -752,18 +752,19 @@ impl Voice {
             }
         }
 
-        // Flanger
+        // Flanger (must be pre-allocated via ensure_effects)
         if self.params.flanger > 0.0 {
-            let flanger = self.flanger.get_or_insert_with(|| Box::new([Flanger::default(); CHANNELS]));
-            for c in 0..nch {
-                self.ch[c] = flanger[c].process(
-                    self.ch[c],
-                    self.params.flanger,
-                    self.params.flangerdepth,
-                    self.params.flangerfeedback,
-                    self.sr,
-                    isr,
-                );
+            if let Some(flanger) = self.flanger.as_mut() {
+                for c in 0..nch {
+                    self.ch[c] = flanger[c].process(
+                        self.ch[c],
+                        self.params.flanger,
+                        self.params.flangerdepth,
+                        self.params.flangerfeedback,
+                        self.sr,
+                        isr,
+                    );
+                }
             }
         }
 
@@ -817,20 +818,21 @@ impl Voice {
             }
         }
 
-        // Chorus
+        // Chorus (must be pre-allocated via ensure_effects)
         if self.params.chorus > 0.0 {
-            let chorus = self.chorus.get_or_insert_with(|| Box::new(Chorus::default()));
-            let stereo = chorus.process(
-                self.ch[0],
-                self.ch[1],
-                self.params.chorus,
-                self.params.chorusdepth,
-                self.params.chorusdelay,
-                self.sr,
-                isr,
-            );
-            self.ch[0] = stereo[0];
-            self.ch[1] = stereo[1];
+            if let Some(chorus) = self.chorus.as_mut() {
+                let stereo = chorus.process(
+                    self.ch[0],
+                    self.ch[1],
+                    self.params.chorus,
+                    self.params.chorusdepth,
+                    self.params.chorusdelay,
+                    self.sr,
+                    isr,
+                );
+                self.ch[0] = stereo[0];
+                self.ch[1] = stereo[1];
+            }
         }
 
         // Stereo width (mid-side matrix)
@@ -842,10 +844,11 @@ impl Voice {
             self.ch[1] = mid - side * w;
         }
 
-        // Haas (delay right channel)
+        // Haas (must be pre-allocated via ensure_effects)
         if self.params.haas > 0.0 {
-            let haas = self.haas.get_or_insert_with(|| Box::new(Haas::default()));
-            self.ch[1] = haas.process(self.ch[1], self.params.haas, self.sr);
+            if let Some(haas) = self.haas.as_mut() {
+                self.ch[1] = haas.process(self.ch[1], self.params.haas, self.sr);
+            }
         }
 
         // Panning

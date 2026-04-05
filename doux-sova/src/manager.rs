@@ -27,7 +27,8 @@ use crate::time::TimeConverter;
 use crate::worker::{EngineWorker, WorkerTask};
 
 pub enum AudioCmd {
-    Evaluate(String),
+    /// Pre-parsed event — RT-safe, no allocations on the audio thread.
+    DispatchEvent(doux::event::Event),
     Hush,
     Panic,
     SetSampleIndex(Vec<doux::sampling::SampleEntry>),
@@ -375,7 +376,10 @@ impl DouxManager {
 
             macro_rules! build_input {
                 ($T:ty) => {{
-                    let mut scratch: Vec<f32> = Vec::new();
+                    // Pre-allocate scratch buffer to avoid allocation on RT thread.
+                    // 8192 covers typical callback sizes; resize() below is a no-op
+                    // as long as the callback buffer doesn't exceed this capacity.
+                    let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                     input_dev.build_input_stream(
                         &input_cfg.into(),
                         move |data: &[$T], _| {
@@ -444,7 +448,10 @@ impl DouxManager {
         engine.input_channels = input_channels;
 
         let mut input_consumer = input_consumer;
-        let mut live_scratch = vec![0.0f32; 4096];
+        // Pre-allocate to cover typical max buffer sizes so resize() in
+        // the RT callback is a len-only change, not a heap allocation.
+        let max_scratch = 4096 * input_channels.max(1);
+        let mut live_scratch = vec![0.0f32; max_scratch];
         let sample_rate = self.sample_rate;
         let output_channels = self.actual_channels;
         let flag = Arc::clone(&self.device_lost);
@@ -454,7 +461,9 @@ impl DouxManager {
 
         macro_rules! build_output {
             ($T:ty) => {{
-                let mut conv_buf: Vec<f32> = Vec::new();
+                // Pre-allocate conversion buffer so resize() in the RT callback
+                // is a len-only change, not a heap allocation.
+                let mut conv_buf: Vec<f32> = vec![0.0f32; 4096 * output_channels];
                 output_device.build_output_stream(
                     &stream_config,
                     move |data: &mut [$T], _| {
@@ -462,16 +471,19 @@ impl DouxManager {
 
                         while let Ok(cmd) = cmd_rx.try_recv() {
                             match cmd {
-                                AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
+                                AudioCmd::DispatchEvent(event) => { engine.dispatch_event(event); }
                                 AudioCmd::Hush => engine.hush(),
                                 AudioCmd::Panic => engine.panic(),
+                                // NOTE: allocates, but only on explicit user command
                                 AudioCmd::SetSampleIndex(index) => {
                                     engine.sample_index = index;
                                 }
+                                // NOTE: allocates, but only on explicit user command
                                 AudioCmd::ExtendSampleIndex(entries) => {
                                     engine.sample_index.extend(entries);
                                 }
                                 #[cfg(feature = "soundfont")]
+                                // NOTE: allocates, but only on explicit user command
                                 AudioCmd::InstallSoundfont { bank, samples } => {
                                     engine.sample_registry.insert_batch(samples);
                                     engine.gm_bank = Some(bank);
@@ -518,7 +530,7 @@ impl DouxManager {
 
                         peaks_clone.push(&conv_buf, output_channels);
 
-                        for chunk in conv_buf.chunks(output_channels) {
+                        for chunk in conv_buf.chunks_exact(output_channels) {
                             if output_channels >= 2 {
                                 scope_clone.push_stereo(chunk[0], chunk[1]);
                             } else {

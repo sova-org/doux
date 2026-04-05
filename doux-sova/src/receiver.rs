@@ -1,4 +1,5 @@
 use crossbeam_channel::{Receiver, Sender};
+use doux::event::Event;
 use sova_core::protocol::audio_engine_proxy::AudioEnginePayload;
 
 use crate::manager::AudioCmd;
@@ -30,7 +31,8 @@ impl SovaReceiver {
     pub fn run(self) {
         while let Ok(payload) = self.rx.recv() {
             let cmd = payload_to_command(payload, &self.time_converter, self.sr);
-            let _ = self.cmd_tx.send(AudioCmd::Evaluate(cmd));
+            let event = Event::parse(&cmd, self.sr as f32);
+            let _ = self.cmd_tx.send(AudioCmd::DispatchEvent(event));
         }
     }
 }

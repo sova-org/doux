@@ -395,10 +395,14 @@ impl Engine {
         None
     }
 
+    /// Parse and dispatch — only call this off the RT thread.
     pub fn evaluate(&mut self, input: &str) -> Option<usize> {
         let event = Event::parse(input, self.sr);
+        self.dispatch_event(event)
+    }
 
-        // Default to "play" if no explicit command - matches dough's JS wrapper behavior
+    /// Dispatch a pre-parsed event. RT-safe (no parsing, no string allocation).
+    pub fn dispatch_event(&mut self, event: Event) -> Option<usize> {
         let cmd = event.cmd.as_deref().unwrap_or("play");
 
         match cmd {
@@ -465,6 +469,8 @@ impl Engine {
         self.process_event(&event)
     }
 
+    // NOTE: handle_rec allocates (format!, push, insert) but only fires on recording
+    // toggle-off, not per-block. Acceptable for now; defer to worker thread if needed.
     #[cfg(feature = "native")]
     fn handle_rec(&mut self, event: &Event) {
         let overdub = event.overdub.unwrap_or(false);
@@ -522,20 +528,16 @@ impl Engine {
         let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
         if let Some(ref sound_str) = event.sound {
             if !has_web_sample && sound_str.parse::<Source>().is_err() {
-                let effective_name = match &event.bank {
-                    Some(b) => format!("{sound_str}_{b}"),
-                    None => sound_str.clone(),
-                };
-                // Check if sample is loaded. If not, request loading and skip this event.
+                let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
                 #[cfg(feature = "native")]
                 {
                     let n = event.n_as_index();
-                    self.get_registry_sample(&effective_name, n)?;
+                    self.get_registry_sample(effective_name, n)?;
                 }
                 #[cfg(not(feature = "native"))]
                 {
                     let n = event.n_as_index();
-                    self.get_or_load_sample(&effective_name, n)?;
+                    self.get_or_load_sample(effective_name, n)?;
                 }
             }
         }
@@ -607,16 +609,13 @@ impl Engine {
                 if sound_str.parse::<Source>().is_ok() {
                     (None, None, 0.0f32)
                 } else {
-                    let effective_name = match &event.bank {
-                        Some(b) => format!("{sound_str}_{b}"),
-                        None => sound_str.clone(),
-                    };
+                    let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
                     let n_float = event.n_as_float();
                     let n_floor = n_float.floor() as usize;
                     let blend = n_float.fract();
-                    let a = self.get_registry_sample(&effective_name, n_floor);
+                    let a = self.get_registry_sample(effective_name, n_floor);
                     let b = if blend > 0.0 {
-                        self.get_registry_sample(&effective_name, n_floor + 1)
+                        self.get_registry_sample(effective_name, n_floor + 1)
                     } else {
                         None
                     };
@@ -643,12 +642,9 @@ impl Engine {
         #[cfg(not(feature = "native"))]
         let loaded_sample = if let Some(ref sound_str) = event.sound {
             if sound_str.parse::<Source>().is_err() {
-                let effective_name = match &event.bank {
-                    Some(b) => format!("{sound_str}_{b}"),
-                    None => sound_str.clone(),
-                };
+                let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
                 let n = event.n_as_index();
-                self.get_or_load_sample(&effective_name, n)
+                self.get_or_load_sample(effective_name, n)
             } else {
                 None
             }
@@ -973,7 +969,10 @@ impl Engine {
             };
 
             let diff = self.tick - t;
-            let event = self.schedule.pop_front().unwrap();
+            let event = match self.schedule.pop_front() {
+                Some(e) => e,
+                None => return,
+            };
 
             if diff < tolerance {
                 self.process_event(&event);
@@ -1172,10 +1171,13 @@ impl Engine {
 
         #[cfg(feature = "native")]
         {
+            // SAFETY: orbit_rec_bus is pre-allocated in constructor to block_size capacity.
+            // This debug_assert catches mismatches during development without panicking in release.
             let needed = MAX_ORBITS * samples * CHANNELS;
-            if self.orbit_rec_bus.len() < needed {
-                self.orbit_rec_bus.resize(needed, 0.0);
-            }
+            debug_assert!(
+                self.orbit_rec_bus.len() >= needed,
+                "orbit_rec_bus too small: {} < {needed}", self.orbit_rec_bus.len()
+            );
         }
 
         // Pre-block: count voices per orbit for gain compensation (item 1)
@@ -1257,10 +1259,10 @@ impl Engine {
                 .store(self.time.to_bits(), Ordering::Relaxed);
         }
 
-        if self.output.len() < output.len() {
-            self.output.resize(output.len(), 0.0);
-        }
-        self.output[..output.len()].copy_from_slice(output);
+        // SAFETY: output is pre-allocated in constructor to block_size capacity.
+        // If output grew (e.g. dynamic block size), just copy what fits.
+        let copy_len = output.len().min(self.output.len());
+        self.output[..copy_len].copy_from_slice(&output[..copy_len]);
     }
 
     pub fn dsp(&mut self) {

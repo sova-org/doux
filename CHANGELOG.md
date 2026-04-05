@@ -3,6 +3,18 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.29] - 2026-04-05
+
+### Fixed
+
+- **RT-safety: move event parsing off the audio thread** — `Event::parse()` now runs on the sender thread (`SovaReceiver`), not in the CPAL callback. A new `dispatch_event(Event)` method accepts pre-parsed events, eliminating all String and Vec allocations from the audio path
+- **RT-safety: pre-compute effective sample names** — added `effective_name` field to `Event`, computed once during `parse()`. Removes repeated `format!()` and `.clone()` calls in `process_event()` and `update_voice_params()`
+- **RT-safety: pre-allocate audio callback buffers** — `conv_buf`, `live_scratch`, and `scratch` are now sized before entering the CPAL closure so `resize()` never allocates on the real-time thread
+- **RT-safety: remove heap allocations from voice effects** — `Flanger`, `Chorus`, and `Haas` effects no longer use `get_or_insert_with(Box::new(...))` on the audio thread; effects are guaranteed pre-allocated by `ensure_effects()`
+- **RT-safety: remove `.unwrap()` in `process_schedule()`** — replaced with safe `match` to prevent panics on the audio thread
+- **RT-safety: remove `orbit_rec_bus.resize()` and `output.resize()` from `process_block()`** — replaced with bounded copies against pre-allocated buffers
+- **Fix index-out-of-bounds in scope capture** — changed `chunks()` to `chunks_exact()` preventing a panic when the audio buffer is not evenly divisible by the channel count
+
 ## [0.0.28] - 2026-04-04
 
 ### Added

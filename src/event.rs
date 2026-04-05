@@ -200,6 +200,9 @@ pub struct Event {
 
     // Live input channel selection
     pub inchan: Option<usize>,
+
+    // Pre-computed effective sample name (sound + bank suffix)
+    pub effective_name: Option<String>,
 }
 
 impl Event {
@@ -413,6 +416,11 @@ impl Event {
                 _ => {}
             }
         }
+        event.effective_name = match (&event.sound, &event.bank) {
+            (Some(s), Some(b)) => Some(format!("{s}_{b}")),
+            (Some(s), None) => Some(s.clone()),
+            _ => None,
+        };
         event
     }
 }
