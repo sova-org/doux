@@ -130,6 +130,8 @@ pub struct Engine {
     voice_gain_lag: [Lag; MAX_ORBITS],
     voice_comp_targets: [f32; MAX_ORBITS],
     voice_seed: u32,
+    #[cfg(feature = "native")]
+    load_gate: bool,
 }
 
 impl Engine {
@@ -212,6 +214,7 @@ impl Engine {
             input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
             voice_seed: 123456789,
+            load_gate: false,
         }
     }
 
@@ -258,6 +261,7 @@ impl Engine {
             input_channels: 2,
             voice_comp_targets: [1.0; MAX_ORBITS],
             voice_seed: 123456789,
+            load_gate: false,
         }
     }
 
@@ -493,6 +497,10 @@ impl Engine {
     }
 
     pub fn play(&mut self, params: VoiceParams) -> Option<usize> {
+        #[cfg(feature = "native")]
+        if self.load_gate {
+            return None;
+        }
         if self.active_voices >= self.max_voices {
             return None;
         }
@@ -550,6 +558,11 @@ impl Engine {
                 (v, false)
             } else {
                 // Voice index out of range - allocate new
+                #[cfg(feature = "native")]
+                if self.load_gate || self.active_voices >= self.max_voices {
+                    return None;
+                }
+                #[cfg(not(feature = "native"))]
                 if self.active_voices >= self.max_voices {
                     return None;
                 }
@@ -559,6 +572,11 @@ impl Engine {
             }
         } else {
             // No voice specified - allocate new
+            #[cfg(feature = "native")]
+            if self.load_gate || self.active_voices >= self.max_voices {
+                return None;
+            }
+            #[cfg(not(feature = "native"))]
             if self.active_voices >= self.max_voices {
                 return None;
             }
@@ -1257,6 +1275,36 @@ impl Engine {
             self.metrics
                 .time_bits
                 .store(self.time.to_bits(), Ordering::Relaxed);
+
+            let instant = self.metrics.load.instant_load();
+            let smoothed = self.metrics.load.get_load();
+            self.load_gate = smoothed > 0.85;
+
+            if instant > 0.95 && self.active_voices > 1 {
+                // Phase 1: hard-cut voices already in release (least audible)
+                for i in (0..self.active_voices).rev() {
+                    if self.voices[i].dahdsr.is_releasing() {
+                        self.voices[i].hard_cut();
+                    }
+                }
+                // Phase 2: force-release quietest voices
+                if self.active_voices > 4 {
+                    let shed_count = (self.active_voices / 4).max(1);
+                    for _ in 0..shed_count {
+                        if self.active_voices <= 2 { break; }
+                        let mut min_idx = 0;
+                        let mut min_val = f32::MAX;
+                        for i in 0..self.active_voices {
+                            let val = self.voices[i].dahdsr.current_val;
+                            if val < min_val {
+                                min_val = val;
+                                min_idx = i;
+                            }
+                        }
+                        self.voices[min_idx].hard_cut();
+                    }
+                }
+            }
         }
 
         // SAFETY: output is pre-allocated in constructor to block_size capacity.

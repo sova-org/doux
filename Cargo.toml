@@ -50,7 +50,7 @@ cpal = { version = "0.17", optional = true, features = ["jack"] }
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 strip = "symbols"
 
 [profile.release-with-debug]

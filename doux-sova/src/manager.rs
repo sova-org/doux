@@ -450,7 +450,8 @@ impl DouxManager {
         let mut input_consumer = input_consumer;
         // Pre-allocate to cover typical max buffer sizes so resize() in
         // the RT callback is a len-only change, not a heap allocation.
-        let max_scratch = 4096 * input_channels.max(1);
+        let max_buffer_samples: usize = 8192;
+        let max_scratch = max_buffer_samples * input_channels.max(1);
         let mut live_scratch = vec![0.0f32; max_scratch];
         let sample_rate = self.sample_rate;
         let output_channels = self.actual_channels;
@@ -461,41 +462,50 @@ impl DouxManager {
 
         macro_rules! build_output {
             ($T:ty) => {{
-                // Pre-allocate conversion buffer so resize() in the RT callback
-                // is a len-only change, not a heap allocation.
-                let mut conv_buf: Vec<f32> = vec![0.0f32; 4096 * output_channels];
+                // Pre-allocate conversion buffer large enough that the RT callback
+                // never needs to call the allocator. 8192 covers all common configs.
+                let mut conv_buf: Vec<f32> = vec![0.0f32; max_buffer_samples * output_channels];
+                let mut panicked = false;
                 output_device.build_output_stream(
                     &stream_config,
                     move |data: &mut [$T], _| {
-                        conv_buf.resize(data.len(), 0.0f32);
+                        // A panic inside a cpal callback (called from C/ALSA) is UB.
+                        // Wrap everything in catch_unwind; on panic output silence.
+                        if panicked {
+                            for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                            return;
+                        }
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        // Clamp to pre-allocated size: never allocate on the RT thread.
+                        let usable = (data.len()).min(conv_buf.len());
+                        let conv = &mut conv_buf[..usable];
 
-                        while let Ok(cmd) = cmd_rx.try_recv() {
-                            match cmd {
-                                AudioCmd::DispatchEvent(event) => { engine.dispatch_event(event); }
-                                AudioCmd::Hush => engine.hush(),
-                                AudioCmd::Panic => engine.panic(),
-                                // NOTE: allocates, but only on explicit user command
-                                AudioCmd::SetSampleIndex(index) => {
-                                    engine.sample_index = index;
-                                }
-                                // NOTE: allocates, but only on explicit user command
-                                AudioCmd::ExtendSampleIndex(entries) => {
-                                    engine.sample_index.extend(entries);
-                                }
-                                #[cfg(feature = "soundfont")]
-                                // NOTE: allocates, but only on explicit user command
-                                AudioCmd::InstallSoundfont { bank, samples } => {
-                                    engine.sample_registry.insert_batch(samples);
-                                    engine.gm_bank = Some(bank);
-                                }
+                        let mut cmd_budget = 64;
+                        while cmd_budget > 0 {
+                            match cmd_rx.try_recv() {
+                                Ok(cmd) => match cmd {
+                                    AudioCmd::DispatchEvent(event) => { engine.dispatch_event(event); }
+                                    AudioCmd::Hush => engine.hush(),
+                                    AudioCmd::Panic => engine.panic(),
+                                    AudioCmd::SetSampleIndex(index) => {
+                                        engine.sample_index = index;
+                                    }
+                                    AudioCmd::ExtendSampleIndex(entries) => {
+                                        engine.sample_index.extend(entries);
+                                    }
+                                    #[cfg(feature = "soundfont")]
+                                    AudioCmd::InstallSoundfont { bank, samples } => {
+                                        engine.sample_registry.insert_batch(samples);
+                                        engine.gm_bank = Some(bank);
+                                    }
+                                },
+                                Err(_) => break,
                             }
+                            cmd_budget -= 1;
                         }
 
-                        let buffer_samples = conv_buf.len() / output_channels;
-                        let raw_len = buffer_samples * input_channels.max(1);
-                        if live_scratch.len() < raw_len {
-                            live_scratch.resize(raw_len, 0.0);
-                        }
+                        let buffer_samples = usable / output_channels;
+                        let raw_len = (buffer_samples * input_channels.max(1)).min(live_scratch.len());
                         if input_channels == 0 {
                             live_scratch[..raw_len].fill(0.0);
                         } else {
@@ -510,27 +520,27 @@ impl DouxManager {
 
                         let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
                         engine.metrics.load.set_buffer_time(buffer_time_ns);
-                        engine.process_block(&mut conv_buf, &[], &live_scratch[..raw_len]);
+                        engine.process_block(conv, &[], &live_scratch[..raw_len]);
 
                         let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
                         if prev_gain != target_gain {
-                            let num_samples = conv_buf.len();
+                            let num_samples = conv.len();
                             let step = (target_gain - prev_gain) / num_samples as f32;
                             let mut g = prev_gain;
-                            for sample in conv_buf.iter_mut() {
+                            for sample in conv.iter_mut() {
                                 g += step;
                                 *sample *= g;
                             }
                             prev_gain = target_gain;
                         } else if target_gain != 1.0 {
-                            for sample in conv_buf.iter_mut() {
+                            for sample in conv.iter_mut() {
                                 *sample *= target_gain;
                             }
                         }
 
-                        peaks_clone.push(&conv_buf, output_channels);
+                        peaks_clone.push(conv, output_channels);
 
-                        for chunk in conv_buf.chunks_exact(output_channels) {
+                        for chunk in conv.chunks_exact(output_channels) {
                             if output_channels >= 2 {
                                 scope_clone.push_stereo(chunk[0], chunk[1]);
                             } else {
@@ -538,8 +548,14 @@ impl DouxManager {
                             }
                         }
 
-                        for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
+                        for (out, &src) in data.iter_mut().zip(conv.iter()) {
                             *out = <$T as FromSample<f32>>::from_sample_(src);
+                        }
+                        })); // end catch_unwind
+                        if result.is_err() {
+                            panicked = true;
+                            eprintln!("[doux] PANIC in audio callback — outputting silence");
+                            for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
                         }
                     },
                     move |err| match err {

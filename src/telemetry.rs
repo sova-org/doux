@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
 const LOAD_SCALE: f32 = 1_000_000.0; // fixed-point for atomic float storage
-const DEFAULT_SMOOTHING: f32 = 0.9;
+const DEFAULT_SMOOTHING: f32 = 0.6;
 
 /// Measures DSP load as ratio of processing time to buffer time.
 ///
@@ -12,6 +12,7 @@ const DEFAULT_SMOOTHING: f32 = 0.9;
 pub struct ProcessLoadMeasurer {
     buffer_time_ns: AtomicU64,
     load_fixed: AtomicU32,
+    last_instant_fixed: AtomicU32,
     smoothing: f32,
 }
 
@@ -27,6 +28,7 @@ impl ProcessLoadMeasurer {
         Self {
             buffer_time_ns: AtomicU64::new(0),
             load_fixed: AtomicU32::new(0),
+            last_instant_fixed: AtomicU32::new(0),
             smoothing: smoothing.clamp(0.0, 0.99),
         }
     }
@@ -50,6 +52,9 @@ impl ProcessLoadMeasurer {
         }
 
         let instant_load = (elapsed_ns as f64 / buffer_ns as f64).min(2.0) as f32;
+        self.last_instant_fixed
+            .store((instant_load * LOAD_SCALE) as u32, Ordering::Relaxed);
+
         let old_fixed = self.load_fixed.load(Ordering::Relaxed);
         let old_load = old_fixed as f32 / LOAD_SCALE;
         let new_load = self.smoothing * old_load + (1.0 - self.smoothing) * instant_load;
@@ -62,8 +67,13 @@ impl ProcessLoadMeasurer {
         self.load_fixed.load(Ordering::Relaxed) as f32 / LOAD_SCALE
     }
 
+    pub fn instant_load(&self) -> f32 {
+        self.last_instant_fixed.load(Ordering::Relaxed) as f32 / LOAD_SCALE
+    }
+
     pub fn reset(&self) {
         self.load_fixed.store(0, Ordering::Relaxed);
+        self.last_instant_fixed.store(0, Ordering::Relaxed);
     }
 }
 

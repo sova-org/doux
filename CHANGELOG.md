@@ -3,6 +3,26 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.30] - 2026-04-06
+
+### Added
+
+- **Load shedding** — when DSP load exceeds 95%, the engine hard-cuts voices in release phase first, then force-releases the quietest voices. A load gate (smoothed > 85%) prevents new voice allocation until load recovers
+- **Instant load metric** — `ProcessLoadMeasurer` now exposes per-callback instantaneous load alongside the smoothed value
+
+### Changed
+
+- **Effects always pre-allocated** — `flanger`, `chorus`, and `haas` are allocated at voice init instead of lazily on first use. `ensure_effects()` is now a no-op, removing all conditional heap allocation from the audio path
+- **Panic safety in audio callback** — the CPAL output callback is wrapped in `catch_unwind`; on panic it latches to silence instead of unwinding through C/ALSA
+- **Command drain budget** — audio callback processes at most 64 commands per buffer to bound worst-case latency
+- **Larger pre-allocation headroom** — scratch and conversion buffers sized to 8192 samples (was 4096)
+- **Faster load smoothing** — smoothing factor lowered from 0.9 to 0.6 for quicker response to load spikes
+- **Release profile uses `panic = "unwind"`** — required for `catch_unwind` in the audio callback
+
+### Fixed
+
+- **Voice reset no longer drops effect allocations** — `reset()` reinitializes effects in-place instead of setting them to `None`, preventing re-allocation on reuse
+
 ## [0.0.29] - 2026-04-05
 
 ### Fixed

@@ -125,13 +125,13 @@ impl Default for Voice {
             stretch: StretchState::default(),
             web_sample: None,
             phaser: [Phaser::default(); CHANNELS],
-            flanger: None,
+            flanger: Some(Box::new([Flanger::default(); CHANNELS])),
             smear: [Smear::default(); CHANNELS],
-            chorus: None,
+            chorus: Some(Box::new(Chorus::default())),
             coarse: [Coarse::default(); CHANNELS],
             eq: [Eq::default(); CHANNELS],
             tilt: [Tilt::default(); CHANNELS],
-            haas: None,
+            haas: Some(Box::new(Haas::default())),
             ladder_lp: [LadderFilter::default(); CHANNELS],
             ladder_hp: [LadderFilter::default(); CHANNELS],
             ladder_bp: [LadderFilter::default(); CHANNELS],
@@ -240,13 +240,13 @@ impl Voice {
         { self.stretch = StretchState::default(); }
         self.web_sample = None;
         self.phaser = [Phaser::default(); CHANNELS];
-        self.flanger = None;
+        if let Some(ref mut f) = self.flanger { **f = [Flanger::default(); CHANNELS]; }
         self.smear = [Smear::default(); CHANNELS];
-        self.chorus = None;
+        if let Some(ref mut c) = self.chorus { **c = Chorus::default(); }
         self.coarse = [Coarse::default(); CHANNELS];
         self.eq = [Eq::default(); CHANNELS];
         self.tilt = [Tilt::default(); CHANNELS];
-        self.haas = None;
+        if let Some(ref mut h) = self.haas { **h = Haas::default(); }
         self.ladder_lp = [LadderFilter::default(); CHANNELS];
         self.ladder_hp = [LadderFilter::default(); CHANNELS];
         self.ladder_bp = [LadderFilter::default(); CHANNELS];
@@ -262,19 +262,8 @@ impl Voice {
         self.drum_svf = SvfState::default();
     }
 
-    /// Pre-allocate effect buffers based on current params.
-    /// Call after setting params, before the audio loop runs.
-    pub fn ensure_effects(&mut self) {
-        if self.params.chorus > 0.0 && self.chorus.is_none() {
-            self.chorus = Some(Box::new(Chorus::default()));
-        }
-        if self.params.flanger > 0.0 && self.flanger.is_none() {
-            self.flanger = Some(Box::new([Flanger::default(); CHANNELS]));
-        }
-        if self.params.haas > 0.0 && self.haas.is_none() {
-            self.haas = Some(Box::new(Haas::default()));
-        }
-    }
+    /// No-op: effects are pre-allocated at init.
+    pub fn ensure_effects(&mut self) {}
 
     #[inline]
     pub(super) fn rand(&mut self) -> f32 {
