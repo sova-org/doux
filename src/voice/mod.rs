@@ -25,6 +25,30 @@ use crate::sampling::{FileSource, SampleInfo};
 use crate::types::CHANNELS;
 
 pub const MAX_PARAM_MODS: usize = 15;
+pub(crate) const MAX_ADDITIVE_PARTIALS: usize = 32;
+
+#[derive(Clone, Copy)]
+pub(crate) struct AdditiveCache {
+    pub ratios: [f32; MAX_ADDITIVE_PARTIALS],
+    pub amps: [f32; MAX_ADDITIVE_PARTIALS],
+    pub norm_prefix: [f32; MAX_ADDITIVE_PARTIALS],
+    pub active_count: u8,
+    pub tail_weight: f32,
+    pub valid: bool,
+}
+
+impl Default for AdditiveCache {
+    fn default() -> Self {
+        Self {
+            ratios: [0.0; MAX_ADDITIVE_PARTIALS],
+            amps: [0.0; MAX_ADDITIVE_PARTIALS],
+            norm_prefix: [0.0; MAX_ADDITIVE_PARTIALS],
+            active_count: 0,
+            tail_weight: 0.0,
+            valid: false,
+        }
+    }
+}
 
 pub struct Voice {
     pub params: VoiceParams,
@@ -81,6 +105,10 @@ pub struct Voice {
     pub ch: [f32; CHANNELS],
     pub nch: usize,
     pub spread_side: f32,
+    pub spread_cache_value: f32,
+    pub spread_detune_ratios: [f32; 3],
+    pub(crate) additive_cache: AdditiveCache,
+    pub(crate) shape_active: bool,
     pub sr: f32,
     pub seed: u32,
 
@@ -142,6 +170,10 @@ impl Default for Voice {
             ch: [0.0; CHANNELS],
             nch: 1,
             spread_side: 0.0,
+            spread_cache_value: f32::NAN,
+            spread_detune_ratios: [1.0; 3],
+            additive_cache: AdditiveCache::default(),
+            shape_active: false,
             sr,
             seed: 123456789,
             drum_svf: SvfState::default(),
@@ -198,6 +230,10 @@ impl Clone for Voice {
             ch: self.ch,
             nch: self.nch,
             spread_side: self.spread_side,
+            spread_cache_value: self.spread_cache_value,
+            spread_detune_ratios: self.spread_detune_ratios,
+            additive_cache: self.additive_cache,
+            shape_active: self.shape_active,
             sr: self.sr,
             seed: self.seed,
             drum_svf: self.drum_svf,
@@ -257,6 +293,10 @@ impl Voice {
         self.ch = [0.0; CHANNELS];
         self.nch = 1;
         self.spread_side = 0.0;
+        self.spread_cache_value = f32::NAN;
+        self.spread_detune_ratios = [1.0; 3];
+        self.additive_cache = AdditiveCache::default();
+        self.shape_active = false;
         self.sr = 44100.0;
         self.seed = 123456789;
         self.drum_svf = SvfState::default();
@@ -274,6 +314,29 @@ impl Voice {
     #[inline]
     pub(super) fn white(&mut self) -> f32 {
         self.rand() * 2.0 - 1.0
+    }
+
+    #[inline]
+    pub(crate) fn spread_detune_ratios(&mut self) -> &[f32; 3] {
+        if self.spread_cache_value != self.params.spread {
+            for (i, ratio) in self.spread_detune_ratios.iter_mut().enumerate() {
+                let detune_cents = ((i + 1) * (i + 1)) as f32 * self.params.spread;
+                *ratio = exp2f(detune_cents / 1200.0);
+            }
+            self.spread_cache_value = self.params.spread;
+        }
+        &self.spread_detune_ratios
+    }
+
+    #[inline]
+    pub(crate) fn sync_source_state(&mut self) {
+        self.shape_active = self.params.shape.is_active();
+        self.invalidate_additive_cache();
+    }
+
+    #[inline]
+    fn invalidate_additive_cache(&mut self) {
+        self.additive_cache.valid = false;
     }
 
     pub fn set_mod(&mut self, id: ParamId, chain: ModChain) {
@@ -399,12 +462,27 @@ impl Voice {
             ParamId::Pw => self.params.pw = val,
             ParamId::Wave => self.params.wave = val,
             ParamId::Sub => self.params.sub = val,
-            ParamId::Harmonics => self.params.harmonics = val,
-            ParamId::Timbre => self.params.timbre = val,
-            ParamId::Morph => self.params.morph = val,
+            ParamId::Harmonics => {
+                self.params.harmonics = val;
+                self.invalidate_additive_cache();
+            }
+            ParamId::Timbre => {
+                self.params.timbre = val;
+                self.invalidate_additive_cache();
+            }
+            ParamId::Morph => {
+                self.params.morph = val;
+                self.invalidate_additive_cache();
+            }
             ParamId::Scan => self.params.scan = val,
-            ParamId::Mirror => self.params.shape.mirror = val,
-            ParamId::Partials => self.params.partials = val,
+            ParamId::Mirror => {
+                self.params.shape.mirror = val;
+                self.shape_active = self.params.shape.is_active();
+            }
+            ParamId::Partials => {
+                self.params.partials = val;
+                self.invalidate_additive_cache();
+            }
             ParamId::Lpf => self.params.lpf = Some(val),
             ParamId::Lpq => self.params.lpq = val,
             ParamId::Hpf => self.params.hpf = Some(val),
@@ -561,15 +639,7 @@ impl Voice {
         }
     }
 
-    #[cfg(feature = "native")]
-    pub fn process(
-        &mut self,
-        isr: f32,
-        web_pcm: &[f32],
-        sample_idx: usize,
-        live_input: &[f32],
-        input_channels: usize,
-    ) -> bool {
+    pub(crate) fn prepare_frame(&mut self, isr: f32) -> Option<(f32, f32)> {
         if !self.triggered {
             self.trigger_envelopes();
             self.triggered = true;
@@ -585,17 +655,32 @@ impl Voice {
             self.params.release,
         );
         if self.dahdsr.is_off() {
-            return false;
+            return None;
         }
 
         if self.param_mod_count > 0 {
             self.apply_mods(isr);
         }
-        let freq = self.compute_freq(isr);
+
+        Some((env, self.compute_freq(isr)))
+    }
+
+    #[cfg(feature = "native")]
+    pub fn process(
+        &mut self,
+        isr: f32,
+        web_pcm: &[f32],
+        sample_idx: usize,
+        live_input: &[f32],
+        input_channels: usize,
+    ) -> bool {
+        let Some((env, freq)) = self.prepare_frame(isr) else {
+            return false;
+        };
+
         if !self.run_source(freq, isr, web_pcm, sample_idx, live_input, input_channels) {
             return false;
         }
-
         self.apply_filters_and_effects(env, isr);
         true
     }
@@ -611,28 +696,10 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> bool {
-        if !self.triggered {
-            self.trigger_envelopes();
-            self.triggered = true;
-        }
-
-        let env = self.dahdsr.update(
-            isr,
-            self.params.envdelay,
-            self.params.attack,
-            self.params.hold,
-            self.params.decay,
-            self.params.sustain,
-            self.params.release,
-        );
-        if self.dahdsr.is_off() {
+        let Some((env, freq)) = self.prepare_frame(isr) else {
             return false;
-        }
+        };
 
-        if self.param_mod_count > 0 {
-            self.apply_mods(isr);
-        }
-        let freq = self.compute_freq(isr);
         if !self.run_source(freq, isr, pool, samples, web_pcm, sample_idx, live_input, input_channels) {
             return false;
         }
@@ -642,7 +709,7 @@ impl Voice {
     }
 
     #[inline]
-    fn apply_filters_and_effects(&mut self, env: f32, isr: f32) {
+    pub(crate) fn apply_filters_and_effects(&mut self, env: f32, isr: f32) {
         let nch = self.nch;
 
         // Update filter cutoffs
@@ -848,5 +915,51 @@ impl Voice {
         }
 
         self.time += isr;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn additive_cache_invalidates_on_reset() {
+        let mut voice = Voice::default();
+        voice.params.timbre = 0.7;
+        voice.additive_cache.valid = true;
+        voice.shape_active = true;
+
+        voice.reset();
+
+        assert!(!voice.additive_cache.valid);
+        assert!(!voice.shape_active);
+    }
+
+    #[test]
+    fn additive_cache_invalidates_for_additive_params_only() {
+        let mut voice = Voice::default();
+        voice.additive_cache.valid = true;
+
+        voice.write_param(ParamId::Gain, 0.8);
+        assert!(voice.additive_cache.valid);
+
+        voice.write_param(ParamId::Timbre, 0.7);
+        assert!(!voice.additive_cache.valid);
+
+        voice.additive_cache.valid = true;
+        voice.write_param(ParamId::Partials, 12.0);
+        assert!(!voice.additive_cache.valid);
+    }
+
+    #[test]
+    fn sync_source_state_refreshes_shape_activity() {
+        let mut voice = Voice::default();
+        voice.params.shape.size = 8;
+        voice.sync_source_state();
+        assert!(voice.shape_active);
+
+        voice.params.shape = crate::dsp::PhaseShape::default();
+        voice.sync_source_state();
+        assert!(!voice.shape_active);
     }
 }

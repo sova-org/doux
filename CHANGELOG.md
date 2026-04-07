@@ -3,6 +3,19 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.31] - No planned release date
+
+### Added
+
+- **Native benchmarking tools** — added a dev-only `doux-bench` binary, a shared offline runner, and a checked-in benchmark corpus for repeatable native engine measurements
+- **Internal hotspot profiling** — added optional native phase profiling plus regression coverage for the benchmark and perf-analysis workflow
+
+### Changed
+
+- **Offline render path reuse** — `doux-render`, `doux-bench`, and `cargo bench` now share the same native offline stepping path
+- **Cheaper additive and spread rendering** — additive voices now cache partial data per voice instead of rebuilding it every sample, substantially reducing the cost of additive stress cases
+- **Lower orbit-routing overhead** — orbit FX params are now collected once per block instead of being rewritten in the per-sample inner loop
+
 ## [0.0.30] - 2026-04-06
 
 ### Added

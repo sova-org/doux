@@ -3,11 +3,9 @@
 //! Renders audio synthesis to a WAV file instead of real-time playback.
 
 use clap::Parser;
-use doux::sampling::{decode_sample_file, scan_samples_dir};
-use doux::Engine;
+use doux::offline::{apply_setup_commands, create_engine, render_to_buffer, OfflineEngineConfig};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "doux-render")]
@@ -45,42 +43,19 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let sr = args.sample_rate as f32;
-    let channels = args.channels as usize;
+    let config = OfflineEngineConfig {
+        sample_rate: args.sample_rate as f32,
+        channels: args.channels as usize,
+        max_voices: args.max_voices,
+        block_size: 512,
+    };
 
-    let render_block_size = 512;
-    let mut engine = Engine::new_with_channels(sr, channels, args.max_voices, render_block_size);
-
-    if let Some(ref dir) = args.samples {
-        let index = scan_samples_dir(dir);
-        for entry in &index {
-            match decode_sample_file(&entry.path, sr) {
-                Ok(data) => {
-                    engine
-                        .sample_registry
-                        .insert(entry.name.clone(), Arc::new(data));
-                }
-                Err(e) => {
-                    eprintln!("Failed to load {}: {e}", entry.name);
-                }
-            }
-        }
-        engine.sample_index = index;
-
-        #[cfg(feature = "soundfont")]
-        engine.load_soundfont_from_dir(dir);
-    }
-
-    for cmd in &args.eval {
-        engine.evaluate(cmd);
-    }
-
-    let total_samples = (sr * args.duration) as usize;
-    let mut output = vec![0.0f32; total_samples * channels];
-
-    for chunk in output.chunks_mut(engine.block_size * channels) {
-        engine.process_block(chunk, &[], &[]);
-    }
+    let mut engine = create_engine(config, args.samples.as_deref())
+        .unwrap_or_else(|err| panic!("{err}"));
+    apply_setup_commands(&mut engine, &args.eval);
+    let output = render_to_buffer(&mut engine, args.duration)
+        .output
+        .expect("offline render should capture output");
 
     let spec = WavSpec {
         channels: args.channels,

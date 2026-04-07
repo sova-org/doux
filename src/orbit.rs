@@ -123,7 +123,6 @@ impl Orbit {
         self.verb_send = [0.0; CHANNELS];
         self.comb_send = [0.0; CHANNELS];
         self.fb_send = [0.0; CHANNELS];
-        self.fb_level = 0.0;
     }
 
     pub fn add_delay_send(&mut self, ch: usize, value: f32) {

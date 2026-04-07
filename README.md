@@ -54,6 +54,26 @@ Doux-render renders audio synthesis to a WAV file instead of real-time playback.
 | `--channels` | | Number of output channels | 2 |
 | `--max-voices` | | Maximum polyphony | 64 |
 
+### Performance workflow
+
+Use the native benchmark tool for repeatable engine measurements:
+
+```bash
+cargo run --release --bin doux-bench -- suite
+cargo run --release --features profiling --bin doux-bench -- case voice_stress --breakdown
+cargo bench
+```
+
+`doux-bench` runs a checked-in workload corpus and reports wall time, realtime factor,
+`ns/sample`, and `ns/block`. With the `profiling` feature enabled it also prints
+aggregate engine phase timings for schedule processing, sample upgrades, voice
+source generation, voice FX, orbit FX, final mix, recorder capture, and total block time.
+
+Supported sampled-profiler workflows:
+
+- macOS: run `doux-bench case <name>` under Instruments Time Profiler
+- Linux: run `perf record --call-graph dwarf ./target/release/doux-bench case <name>` and inspect the capture with your flamegraph workflow
+
 ## Linux Audio Setup
 
 On Linux, doux supports both JACK and ALSA backends. For systems using PipeWire (default on most modern distributions), the JACK backend via `pipewire-jack` provides the best compatibility.

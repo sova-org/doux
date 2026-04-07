@@ -7,9 +7,20 @@ use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
 use crate::sampling::SampleInfo;
 use crate::types::{Source, SubWave, CHANNELS};
 
-use super::Voice;
+use super::{Voice, MAX_ADDITIVE_PARTIALS};
 
 const INV_MIDDLE_C: f32 = 1.0 / 261.626;
+
+#[inline]
+fn wrap_phase(phase: f32) -> f32 {
+    if phase >= 1.0 {
+        phase - 1.0
+    } else if phase < 0.0 {
+        phase + 1.0
+    } else {
+        phase
+    }
+}
 
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
@@ -19,46 +30,6 @@ const LOG2_TABLE: [f32; 32] = [
     4.087_463, 4.169_925, 4.247_928, 4.321_928, 4.392_317, 4.459_432, 4.523_562, 4.584_963,
     4.643_856, 4.700_44, 4.754_888, 4.807_355, 4.857_981, 4.906_89, 4.954_196, 5.0,
 ];
-
-#[inline]
-fn additive_at(phase: f32, dt: f32, timbre: f32, morph: f32, harmonics: f32, partials: f32) -> f32 {
-    let tilt_exp = 3.0 * (1.0 - timbre);
-    let stretch = harmonics * harmonics * 0.01;
-    let max_n = partials.clamp(1.0, 32.0);
-    let max_n_floor = max_n.floor() as u32;
-    let max_n_ceil = max_n.ceil() as u32;
-    let fract = max_n.fract();
-
-    let phase_tau = phase * TAU;
-    let gains = if morph < 0.5 {
-        [morph * 2.0, 1.0] // [even, odd]
-    } else {
-        [1.0, (1.0 - morph) * 2.0]
-    };
-
-    let mut sum = 0.0_f32;
-    let mut norm = 0.0_f32;
-
-    for i in 1..=max_n_ceil {
-        let fi = i as f32;
-        let ratio = fi * (1.0 + stretch * (fi - 1.0));
-        if dt * ratio >= 0.5 {
-            break;
-        }
-
-        let mut amp = exp2f(-tilt_exp * LOG2_TABLE[i as usize - 1]);
-        amp *= gains[(i & 1) as usize];
-
-        if i > max_n_floor {
-            amp *= fract;
-        }
-
-        sum += sinf(phase_tau * ratio) * amp;
-        norm += amp;
-    }
-
-    if norm > 0.0 { sum / norm } else { 0.0 }
-}
 
 #[inline]
 fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
@@ -86,6 +57,83 @@ fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
 
 impl Voice {
     #[inline]
+    fn shape_phase(&self, phase: f32) -> f32 {
+        if self.shape_active {
+            self.params.shape.apply(phase)
+        } else {
+            phase
+        }
+    }
+
+    fn ensure_additive_cache(&mut self) {
+        if self.additive_cache.valid {
+            return;
+        }
+
+        let timbre = self.params.timbre;
+        let morph = self.params.morph;
+        let harmonics = self.params.harmonics;
+        let partials = self.params.partials;
+
+        let tilt_exp = 3.0 * (1.0 - timbre);
+        let stretch = harmonics * harmonics * 0.01;
+        let max_n = partials.clamp(1.0, MAX_ADDITIVE_PARTIALS as f32);
+        let max_n_floor = max_n.floor() as usize;
+        let max_n_ceil = max_n.ceil() as usize;
+        let tail_weight = max_n.fract();
+        let gains = if morph < 0.5 {
+            [morph * 2.0, 1.0]
+        } else {
+            [1.0, (1.0 - morph) * 2.0]
+        };
+
+        let mut norm = 0.0;
+        for i in 1..=max_n_ceil {
+            let fi = i as f32;
+            let ratio = fi * (1.0 + stretch * (fi - 1.0));
+            let mut amp = exp2f(-tilt_exp * LOG2_TABLE[i - 1]);
+            amp *= gains[i & 1];
+            if i > max_n_floor {
+                amp *= tail_weight;
+            }
+
+            let idx = i - 1;
+            self.additive_cache.ratios[idx] = ratio;
+            self.additive_cache.amps[idx] = amp;
+            norm += amp;
+            self.additive_cache.norm_prefix[idx] = norm;
+        }
+
+        self.additive_cache.active_count = max_n_ceil as u8;
+        self.additive_cache.tail_weight = tail_weight;
+        self.additive_cache.valid = true;
+    }
+
+    #[inline]
+    fn additive_at_cached(&self, phase: f32, dt: f32) -> f32 {
+        let phase_tau = phase * TAU;
+        let count = self.additive_cache.active_count as usize;
+        let mut sum = 0.0_f32;
+        let mut used = 0usize;
+
+        for idx in 0..count {
+            let ratio = self.additive_cache.ratios[idx];
+            if dt * ratio >= 0.5 {
+                break;
+            }
+
+            sum += sinf(phase_tau * ratio) * self.additive_cache.amps[idx];
+            used = idx + 1;
+        }
+
+        if used > 0 {
+            sum / self.additive_cache.norm_prefix[used - 1]
+        } else {
+            0.0
+        }
+    }
+
+    #[inline]
     pub(super) fn osc_at(&self, phase: f32, dt: f32) -> f32 {
         match self.params.sound {
             Source::Tri => Phasor::tri_at(phase, &self.params.shape),
@@ -95,8 +143,8 @@ impl Voice {
             Source::Pulse => Phasor::pulse_at(phase, dt, self.params.pw, &self.params.shape),
             Source::Pulze => Phasor::pulze_at(phase, self.params.pw, &self.params.shape),
             Source::Add => {
-                let shaped = self.params.shape.apply(phase);
-                additive_at(shaped, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials)
+                let shaped = self.shape_phase(phase);
+                self.additive_at_cached(shaped, dt)
             }
             Source::Osc => osc_morph_at(phase, dt, self.params.wave, &self.params.shape),
             _ => 0.0,
@@ -104,7 +152,7 @@ impl Voice {
     }
 
     #[cfg(feature = "native")]
-    pub(super) fn run_source(
+    pub(crate) fn run_source(
         &mut self,
         freq: f32,
         isr: f32,
@@ -274,7 +322,7 @@ impl Voice {
     }
 
     #[cfg(not(feature = "native"))]
-    pub(super) fn run_source(
+    pub(crate) fn run_source(
         &mut self,
         freq: f32,
         isr: f32,
@@ -366,31 +414,35 @@ impl Voice {
     }
 
     fn run_spread(&mut self, freq: f32, isr: f32) {
+        if self.params.sound == Source::Add {
+            self.ensure_additive_cache();
+        }
+
         let mut left = 0.0;
         let mut right = 0.0;
         const PAN: [f32; 3] = [0.3, 0.6, 0.9];
+        let ratios = *self.spread_detune_ratios();
 
         let dt_c = freq * isr;
         let phase_c = self.spread_phasors[3].phase;
         let center = self.osc_at(phase_c, dt_c);
-        self.spread_phasors[3].phase = (phase_c + dt_c).fract();
+        self.spread_phasors[3].phase = wrap_phase(phase_c + dt_c);
         left += center;
         right += center;
 
         for i in 1..=3 {
-            let detune_cents = (i * i) as f32 * self.params.spread;
-            let ratio_up = exp2f(detune_cents / 1200.0);
+            let ratio_up = ratios[i - 1];
             let ratio_down = 1.0 / ratio_up;
 
             let dt_up = freq * ratio_up * isr;
             let phase_up = self.spread_phasors[3 + i].phase;
             let voice_up = self.osc_at(phase_up, dt_up);
-            self.spread_phasors[3 + i].phase = (phase_up + dt_up).fract();
+            self.spread_phasors[3 + i].phase = wrap_phase(phase_up + dt_up);
 
             let dt_down = freq * ratio_down * isr;
             let phase_down = self.spread_phasors[3 - i].phase;
             let voice_down = self.osc_at(phase_down, dt_down);
-            self.spread_phasors[3 - i].phase = (phase_down + dt_down).fract();
+            self.spread_phasors[3 - i].phase = wrap_phase(phase_down + dt_down);
 
             let pan = PAN[i - 1];
             left += voice_down * (0.5 + pan * 0.5) + voice_up * (0.5 - pan * 0.5);
@@ -433,13 +485,10 @@ impl Voice {
                     * 0.5
             }
             Source::Add => {
+                self.ensure_additive_cache();
                 let dt = freq * isr;
-                let phase = if self.params.shape.is_active() {
-                    self.params.shape.apply(self.phasor.phase)
-                } else {
-                    self.phasor.phase
-                };
-                let s = additive_at(phase, dt, self.params.timbre, self.params.morph, self.params.harmonics, self.params.partials);
+                let phase = self.shape_phase(self.phasor.phase);
+                let s = self.additive_at_cached(phase, dt);
                 self.phasor.update(freq, isr);
                 s * 0.5
             }
@@ -478,11 +527,7 @@ impl Voice {
 
             let num_cycles = (frame_count / cycle_len).floor().max(1.0);
 
-            let phase = if self.params.shape.is_active() {
-                self.params.shape.apply(self.phasor.phase)
-            } else {
-                self.phasor.phase
-            };
+            let phase = self.shape_phase(self.phasor.phase);
 
             let scan_pos = scan * (num_cycles - 1.0);
             let cycle_a = scan_pos.floor() as usize;
@@ -529,11 +574,7 @@ impl Voice {
 
                 let num_cycles = (frame_count / cycle_len).floor().max(1.0);
 
-                let phase = if self.params.shape.is_active() {
-                    self.params.shape.apply(self.phasor.phase)
-                } else {
-                    self.phasor.phase
-                };
+                let phase = self.shape_phase(self.phasor.phase);
 
                 let scan_pos = scan * (num_cycles - 1.0);
                 let cycle_a = scan_pos.floor() as usize;
@@ -576,11 +617,7 @@ impl Voice {
 
             let num_cycles = (frame_count / cycle_len).floor().max(1.0);
 
-            let phase = if self.params.shape.is_active() {
-                self.params.shape.apply(self.phasor.phase)
-            } else {
-                self.phasor.phase
-            };
+            let phase = self.shape_phase(self.phasor.phase);
 
             let scan_pos = scan * (num_cycles - 1.0);
             let cycle_a = scan_pos.floor() as usize;
@@ -626,4 +663,47 @@ fn read_interpolated(
     let s0 = pool.get(i0).copied().unwrap_or(0.0);
     let s1 = pool.get(i1).copied().unwrap_or(0.0);
     s0 + frac * (s1 - s0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::voice::modulation::ParamId;
+
+    #[test]
+    fn additive_cache_builds_expected_partial_table() {
+        let mut voice = Voice::default();
+        voice.params.sound = Source::Add;
+        voice.params.timbre = 0.35;
+        voice.params.morph = 0.2;
+        voice.params.harmonics = 0.7;
+        voice.params.partials = 4.5;
+        voice.sync_source_state();
+
+        voice.ensure_additive_cache();
+
+        assert!(voice.additive_cache.valid);
+        assert_eq!(voice.additive_cache.active_count, 5);
+        assert!((voice.additive_cache.tail_weight - 0.5).abs() < 1e-6);
+        assert!(voice.additive_cache.ratios[0] > 0.0);
+        assert!(voice.additive_cache.norm_prefix[4] > voice.additive_cache.norm_prefix[3]);
+    }
+
+    #[test]
+    fn additive_cache_rebuilds_after_additive_param_change() {
+        let mut voice = Voice::default();
+        voice.params.sound = Source::Add;
+        voice.params.partials = 4.0;
+        voice.sync_source_state();
+        voice.ensure_additive_cache();
+        let old_last_norm = voice.additive_cache.norm_prefix[3];
+
+        voice.write_param(ParamId::Partials, 6.0);
+        assert!(!voice.additive_cache.valid);
+
+        voice.ensure_additive_cache();
+        assert!(voice.additive_cache.valid);
+        assert_eq!(voice.additive_cache.active_count, 6);
+        assert!(voice.additive_cache.norm_prefix[5] > old_last_norm);
+    }
 }

@@ -3,7 +3,7 @@
 //! Each drum generates a shaped waveform with internal timbral dynamics.
 //! The engine's existing DAHDSR controls overall amplitude.
 
-use std::f32::consts::TAU;
+use std::f32::consts::{LOG2_E, TAU};
 
 use crate::dsp::{exp2f, sinf, SvfMode};
 use crate::types::Source;
@@ -35,6 +35,17 @@ fn drum_osc(phase: f32, waveform: f32) -> f32 {
     }
 }
 
+#[inline]
+fn wrap_phase(phase: f32) -> f32 {
+    if phase >= 1.0 {
+        phase - 1.0
+    } else if phase < 0.0 {
+        phase + 1.0
+    } else {
+        phase
+    }
+}
+
 impl Voice {
     #[inline]
     pub(super) fn run_drum(&mut self, freq: f32, isr: f32) {
@@ -55,12 +66,12 @@ impl Voice {
     fn drum_kick(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 4.0;
         let rate = 20.0 + self.params.harmonics * 80.0;
-        let pitch_env = (-self.time * rate).exp();
+        let pitch_env = exp2f(-self.time * rate * LOG2_E);
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
         let sample = drum_osc(phase, self.params.wave);
-        self.phasor.phase = (phase + actual_freq * isr).fract();
+        self.phasor.phase = wrap_phase(phase + actual_freq * isr);
 
         let drive = self.params.timbre * 4.0;
         if drive > 0.0 {
@@ -74,12 +85,12 @@ impl Voice {
     #[inline]
     fn drum_snare(&mut self, freq: f32, isr: f32) -> f32 {
         let rate = 40.0 + self.params.harmonics * 60.0;
-        let pitch_env = (-self.time * rate).exp();
+        let pitch_env = exp2f(-self.time * rate * LOG2_E);
         let actual_freq = freq * exp2f(1.5 * pitch_env);
 
         let phase = self.phasor.phase;
         let body = drum_osc(phase, self.params.wave);
-        self.phasor.phase = (phase + actual_freq * isr).fract();
+        self.phasor.phase = wrap_phase(phase + actual_freq * isr);
 
         let noise = self.white();
         let brightness = 2000.0 + self.params.harmonics * 6000.0;
@@ -98,10 +109,10 @@ impl Voice {
 
         let p1 = &mut self.spread_phasors[0];
         let m1 = sinf((p1.phase + mod_depth * m2) * TAU);
-        p1.phase = (p1.phase + 2.0 * freq * isr).fract();
+        p1.phase = wrap_phase(p1.phase + 2.0 * freq * isr);
 
         let m0 = sinf((self.phasor.phase + mod_depth * m1) * TAU);
-        self.phasor.phase = (self.phasor.phase + freq * isr).fract();
+        self.phasor.phase = wrap_phase(self.phasor.phase + freq * isr);
 
         let tone = 800.0 + self.params.harmonics * 17200.0;
         let q = 0.05 + self.params.timbre * 0.9;
@@ -113,12 +124,12 @@ impl Voice {
     fn drum_tom(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 1.5;
         let rate = 15.0 + self.params.harmonics * 40.0;
-        let pitch_env = (-self.time * rate).exp();
+        let pitch_env = exp2f(-self.time * rate * LOG2_E);
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
         let body = drum_osc(phase, self.params.wave);
-        self.phasor.phase = (phase + actual_freq * isr).fract();
+        self.phasor.phase = wrap_phase(phase + actual_freq * isr);
 
         let noise = self.white();
         let mix = self.params.timbre * 0.3;
@@ -128,12 +139,12 @@ impl Voice {
     #[inline]
     fn drum_rim(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 2.0;
-        let pitch_env = (-self.time * 200.0).exp();
+        let pitch_env = exp2f(-self.time * 200.0 * LOG2_E);
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
         let body = drum_osc(phase, self.params.wave);
-        self.phasor.phase = (phase + actual_freq * isr).fract();
+        self.phasor.phase = wrap_phase(phase + actual_freq * isr);
 
         let noise = self.white();
         let brightness = 3000.0 + self.params.harmonics * 8000.0;
@@ -151,11 +162,11 @@ impl Voice {
 
         let p0 = &mut self.spread_phasors[0];
         let sq0 = if p0.phase < 0.5 { 1.0 } else { -1.0 };
-        p0.phase = (p0.phase + freq * isr).fract();
+        p0.phase = wrap_phase(p0.phase + freq * isr);
 
         let p1 = &mut self.spread_phasors[1];
         let sq1 = if p1.phase < 0.5 { 1.0 } else { -1.0 };
-        p1.phase = (p1.phase + freq2 * isr).fract();
+        p1.phase = wrap_phase(p1.phase + freq2 * isr);
 
         let mixed = (sq0 + sq1) * 0.5;
 
@@ -179,7 +190,7 @@ impl Voice {
             let cym_freq = freq * r;
             let p = &mut self.spread_phasors[i];
             let pulse = if p.phase < 0.5 { 1.0 } else { -1.0 };
-            p.phase = (p.phase + cym_freq * isr).fract();
+            p.phase = wrap_phase(p.phase + cym_freq * isr);
             metallic += pulse;
         }
         metallic /= 6.0;
