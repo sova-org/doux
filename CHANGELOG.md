@@ -3,7 +3,7 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.0.31] - No planned release date
+## [0.0.31] - 2026-04-09
 
 ### Added
 
@@ -15,6 +15,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Offline render path reuse** — `doux-render`, `doux-bench`, and `cargo bench` now share the same native offline stepping path
 - **Cheaper additive and spread rendering** — additive voices now cache partial data per voice instead of rebuilding it every sample, substantially reducing the cost of additive stress cases
 - **Lower orbit-routing overhead** — orbit FX params are now collected once per block instead of being rewritten in the per-sample inner loop
+- **CLI functions return `Result`** — `resolve_output_config`, `build_audio_streams`, `osc::run`, and `osc::run_recoverable` now return errors instead of panicking on missing devices, bad configs, or port conflicts
+- **CLI audio callback panic safety** — `build_output!` in `cli_common.rs` now uses `catch_unwind`, matching the Sova integration path
+
+### Fixed
+
+- **Command channel survives device reconnection** — `reconnect_streams()` no longer creates a new `cmd_tx`/`cmd_rx` pair. The channel is created once in `start()` and reused across reconnections, so the `SovaReceiver` and `EngineWorker` keep working after a device loss/recovery cycle
+- **Failed reconnection no longer disables retry** — `device_lost` flag is only cleared after a successful `build_streams()`; previously a failed reconnection cleared the flag and silently gave up
 
 ## [0.0.30] - 2026-04-06
 

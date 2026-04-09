@@ -200,7 +200,7 @@ fn print_help() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let host_selection: HostSelection = args.host.parse().unwrap_or_else(|e| panic!("{e}"));
+    let host_selection: HostSelection = args.host.parse().map_err(|e: String| e)?;
 
     if args.diagnose {
         print_hosts();
@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let host = get_host(host_selection).unwrap_or_else(|e| panic!("{e}"));
+    let host = get_host(host_selection)?;
 
     if args.list_devices {
         print_devices(&host);
@@ -221,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.output.as_deref(),
         args.channels,
         args.buffer_size,
-    );
+    )?;
 
     println!("doux-repl ({})", host.id().name());
     if let Some(buf) = args.buffer_size {
@@ -268,7 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         device_lost: &device_lost,
     };
 
-    let mut streams = build_audio_streams(&stream_params, engine, cmd_rx);
+    let mut streams = build_audio_streams(&stream_params, engine, cmd_rx)?;
 
     let mut rl = rustyline::Editor::new()?;
     rl.set_helper(Some(DouxHighlighter));
@@ -300,8 +300,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
             cmd_tx = new_tx;
 
-            streams = build_audio_streams(&stream_params, engine, new_rx);
-            eprintln!("Audio device reconnected");
+            match build_audio_streams(&stream_params, engine, new_rx) {
+                Ok(s) => {
+                    streams = s;
+                    eprintln!("Audio device reconnected");
+                }
+                Err(e) => {
+                    eprintln!("{RED}[error]{RESET} Failed to reconnect: {e}");
+                    return Err(e.into());
+                }
+            }
         }
         match rl.readline("doux> ") {
             Ok(line) => {

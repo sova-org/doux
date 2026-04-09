@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use doux::audio::cpal;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Host, Stream, SupportedStreamConfig};
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
 
@@ -87,7 +87,11 @@ impl Default for AudioEngineState {
 pub struct DouxManager {
     pending_engine: Option<Engine>,
     metrics: Arc<EngineMetrics>,
+    /// Persistent command channel: created once in `start()`, reused across
+    /// `reconnect_streams()` so the `SovaReceiver` and `EngineWorker` never
+    /// lose their connection to the audio callback.
     cmd_tx: Option<Sender<AudioCmd>>,
+    cmd_rx: Option<Arc<Receiver<AudioCmd>>>,
     config: DouxConfig,
     host_selection: HostSelection,
     sample_rate: f32,
@@ -261,6 +265,7 @@ impl DouxManager {
             pending_engine: Some(engine),
             metrics,
             cmd_tx: None,
+            cmd_rx: None,
             config,
             host_selection,
             sample_rate,
@@ -294,14 +299,18 @@ impl DouxManager {
         &mut self,
         initial_sync_time: SyncTime,
     ) -> Result<AudioEngineProxy, DouxError> {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let proxy = AudioEngineProxy::new(tx);
+        let (proxy_tx, proxy_rx) = crossbeam_channel::unbounded();
+        let proxy = AudioEngineProxy::new(proxy_tx);
+
+        // Create the persistent cmd channel that survives reconnections.
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+        self.cmd_tx = Some(cmd_tx.clone());
+        self.cmd_rx = Some(Arc::new(cmd_rx));
 
         self.build_streams()?;
 
-        let cmd_tx = self.cmd_tx.as_ref().expect("build_streams sets cmd_tx");
         let time_converter = TimeConverter::new(initial_sync_time);
-        let receiver = SovaReceiver::new(cmd_tx.clone(), rx, time_converter, self.sample_rate as f64);
+        let receiver = SovaReceiver::new(cmd_tx, proxy_rx, time_converter, self.sample_rate as f64);
         let handle = std::thread::spawn(move || receiver.run());
         self.receiver_handle = Some(handle);
 
@@ -440,7 +449,8 @@ impl DouxManager {
         let peaks = Arc::new(PeakCapture::new(self.actual_channels));
         let peaks_clone = Arc::clone(&peaks);
 
-        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+        let cmd_rx = Arc::clone(self.cmd_rx.as_ref().expect("cmd_rx must be set before build_streams"));
+        let cmd_tx = self.cmd_tx.as_ref().expect("cmd_tx must be set before build_streams").clone();
 
         // Update sample rate and input channels on engine
         engine.sr = self.sample_rate;
@@ -594,13 +604,12 @@ impl DouxManager {
 
         self.output_stream = Some(output_stream);
         self.worker = Some(EngineWorker::spawn(
-            cmd_tx.clone(),
+            cmd_tx,
             Arc::clone(&self.registry),
             self.sample_rate,
         ));
         self.scope = Some(scope);
         self.peaks = Some(peaks);
-        self.cmd_tx = Some(cmd_tx);
 
         Ok(())
     }
@@ -614,8 +623,10 @@ impl DouxManager {
     }
 
     pub fn reconnect_streams(&mut self) -> Result<(), DouxError> {
-        self.device_lost.store(false, Ordering::Release);
-        // Drop old streams — this drops the audio callback and the engine with it
+        // Drop old streams — this drops the audio callback and the engine with it.
+        // The cmd channel is NOT dropped: the SovaReceiver keeps sending to the
+        // same cmd_tx, and build_streams() will wire the same cmd_rx into the
+        // new audio callback.
         self.output_stream = None;
         self.input_stream = None;
         self.scope = None;
@@ -623,7 +634,6 @@ impl DouxManager {
         if let Some(worker) = self.worker.take() {
             worker.join();
         }
-        self.cmd_tx = None;
 
         let host = get_host(self.host_selection.clone())?;
         let output_device = resolve_output_device(&host, &self.config)?;
@@ -651,7 +661,17 @@ impl DouxManager {
         spawn_preload(&engine.sample_index, sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
-        self.build_streams()
+        match self.build_streams() {
+            Ok(()) => {
+                self.device_lost.store(false, Ordering::Release);
+                Ok(())
+            }
+            Err(e) => {
+                // Keep device_lost true so the next iteration retries
+                self.device_lost.store(true, Ordering::Release);
+                Err(e)
+            }
+        }
     }
 
     pub fn stop(&mut self) {
@@ -662,7 +682,9 @@ impl DouxManager {
         if let Some(worker) = self.worker.take() {
             worker.join();
         }
+        // Drop the cmd channel so the SovaReceiver exits cleanly
         self.cmd_tx = None;
+        self.cmd_rx = None;
 
         if let Some(handle) = self.receiver_handle.take() {
             let _ = handle.join();

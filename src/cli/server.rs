@@ -70,7 +70,13 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let host_selection: HostSelection = args.host.parse().unwrap_or_else(|e| panic!("{e}"));
+    let host_selection: HostSelection = match args.host.parse() {
+        Ok(hs) => hs,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     if args.diagnose {
         print_hosts();
@@ -79,19 +85,31 @@ fn main() {
         return;
     }
 
-    let host = get_host(host_selection).unwrap_or_else(|e| panic!("{e}"));
+    let host = match get_host(host_selection) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     if args.list_devices {
         print_devices(&host);
         return;
     }
 
-    let oc = resolve_output_config(
+    let oc = match resolve_output_config(
         &host,
         args.output.as_deref(),
         args.channels,
         args.buffer_size,
-    );
+    ) {
+        Ok(oc) => oc,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     println!("Audio host: {}", host.id().name());
     if let Some(buf) = args.buffer_size {
@@ -161,9 +179,21 @@ fn main() {
     };
 
     loop {
-        let streams = build_audio_streams(&stream_params, engine, cmd_rx);
+        let streams = match build_audio_streams(&stream_params, engine, cmd_rx) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        };
 
-        let lost = doux::osc::run_recoverable(cmd_tx.clone(), args.port, &device_lost);
+        let lost = match doux::osc::run_recoverable(cmd_tx.clone(), args.port, &device_lost) {
+            Ok(lost) => lost,
+            Err(e) => {
+                eprintln!("Error binding OSC port {}: {e}", args.port);
+                std::process::exit(1);
+            }
+        };
 
         drop(streams);
 

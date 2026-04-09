@@ -35,13 +35,9 @@ const BUFFER_SIZE: usize = 4096;
 ///
 /// Binds to all interfaces (`0.0.0.0`) and blocks indefinitely, processing
 /// incoming messages. Intended to be spawned in a dedicated thread.
-///
-/// # Panics
-///
-/// Panics if the UDP socket cannot be bound (e.g., port already in use).
-pub fn run(tx: Sender<AudioCmd>, port: u16) {
+pub fn run(tx: Sender<AudioCmd>, port: u16) -> std::io::Result<()> {
     let addr = format!("0.0.0.0:{port}");
-    let socket = UdpSocket::bind(&addr).expect("failed to bind OSC socket");
+    let socket = UdpSocket::bind(&addr)?;
 
     let mut buf = [0u8; BUFFER_SIZE];
 
@@ -62,19 +58,21 @@ pub fn run(tx: Sender<AudioCmd>, port: u16) {
 /// Like `run`, but returns when `device_lost` is set.
 ///
 /// Uses a 500ms socket timeout so the loop periodically checks the flag.
-/// Returns `true` if it exited due to device loss, `false` otherwise.
-pub fn run_recoverable(tx: Sender<AudioCmd>, port: u16, device_lost: &AtomicBool) -> bool {
+/// Returns `Ok(true)` if it exited due to device loss, `Ok(false)` otherwise.
+pub fn run_recoverable(
+    tx: Sender<AudioCmd>,
+    port: u16,
+    device_lost: &AtomicBool,
+) -> std::io::Result<bool> {
     let addr = format!("0.0.0.0:{port}");
-    let socket = UdpSocket::bind(&addr).expect("failed to bind OSC socket");
-    socket
-        .set_read_timeout(Some(Duration::from_millis(500)))
-        .expect("failed to set socket timeout");
+    let socket = UdpSocket::bind(&addr)?;
+    socket.set_read_timeout(Some(Duration::from_millis(500)))?;
 
     let mut buf = [0u8; BUFFER_SIZE];
 
     loop {
         if device_lost.load(Ordering::Acquire) {
-            return true;
+            return Ok(true);
         }
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {

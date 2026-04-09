@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::audio::{find_device, host_controls_buffer_size, list_hosts, max_output_channels};
+use crate::error::DouxError;
 use crate::{AudioCmd, Engine};
 
 const INPUT_BUFFER_SIZE: usize = 8192;
@@ -23,14 +24,16 @@ pub fn resolve_output_config(
     output_spec: Option<&str>,
     requested_channels: u16,
     buffer_size: Option<u32>,
-) -> OutputConfig {
+) -> Result<OutputConfig, DouxError> {
     let device = match output_spec {
         Some(spec) => host
             .output_devices()
             .ok()
             .and_then(|d| find_device(d, spec))
-            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
-        None => host.default_output_device().expect("no output device"),
+            .ok_or_else(|| DouxError::DeviceNotFound(spec.to_string()))?,
+        None => host
+            .default_output_device()
+            .ok_or(DouxError::NoDefaultDevice)?,
     };
 
     let max_ch = max_output_channels(&device);
@@ -42,7 +45,9 @@ pub fn resolve_output_config(
         );
     }
 
-    let default_config = device.default_output_config().expect("no output config");
+    let default_config = device
+        .default_output_config()
+        .map_err(|e| DouxError::DeviceConfigError(e.to_string()))?;
     let sample_rate = default_config.sample_rate() as f32;
 
     let buf_size = match buffer_size {
@@ -55,7 +60,7 @@ pub fn resolve_output_config(
     };
 
     let sample_format = default_config.sample_format();
-    OutputConfig {
+    Ok(OutputConfig {
         stream_config: cpal::StreamConfig {
             channels: output_channels as u16,
             sample_rate: default_config.sample_rate(),
@@ -64,7 +69,7 @@ pub fn resolve_output_config(
         output_channels,
         sample_rate,
         sample_format,
-    }
+    })
 }
 
 pub fn print_devices(host: &cpal::Host) {
@@ -139,7 +144,7 @@ pub fn build_audio_streams(
     params: &StreamParams,
     mut engine: Engine,
     cmd_rx: Receiver<AudioCmd>,
-) -> AudioStreams {
+) -> Result<AudioStreams, DouxError> {
     let input_device = match params.input_spec {
         Some(spec) => params
             .host
@@ -212,11 +217,11 @@ pub fn build_audio_streams(
             .output_devices()
             .ok()
             .and_then(|d| find_device(d, spec))
-            .unwrap_or_else(|| panic!("output device '{spec}' not found")),
+            .ok_or_else(|| DouxError::DeviceNotFound(spec.to_string()))?,
         None => params
             .host
             .default_output_device()
-            .expect("no output device"),
+            .ok_or(DouxError::NoDefaultDevice)?,
     };
 
     let flag = Arc::clone(params.device_lost);
@@ -229,9 +234,17 @@ pub fn build_audio_streams(
     macro_rules! build_output {
         ($T:ty) => {{
             let mut conv_buf: Vec<f32> = Vec::new();
+            let mut panicked = false;
             device.build_output_stream(
                 &params.config.stream_config,
                 move |data: &mut [$T], _| {
+                    // A panic inside a cpal callback (called from C/ALSA) is UB.
+                    // Wrap in catch_unwind; on panic output silence.
+                    if panicked {
+                        for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                        return;
+                    }
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     conv_buf.resize(data.len(), 0.0f32);
 
                     while let Ok(cmd) = cmd_rx.try_recv() {
@@ -257,6 +270,12 @@ pub fn build_audio_streams(
                     for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
                         *out = <$T as FromSample<f32>>::from_sample_(src);
                     }
+                    })); // end catch_unwind
+                    if result.is_err() {
+                        panicked = true;
+                        eprintln!("[doux] PANIC in audio callback — outputting silence");
+                        for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                    }
                 },
                 move |err| match err {
                     cpal::StreamError::DeviceNotAvailable
@@ -280,11 +299,17 @@ pub fn build_audio_streams(
         cpal::SampleFormat::F32 => build_output!(f32),
         cpal::SampleFormat::I32 => build_output!(i32),
         cpal::SampleFormat::I16 => build_output!(i16),
-        format => panic!("unsupported output sample format: {format:?}"),
+        format => {
+            return Err(DouxError::StreamCreationFailed(
+                format!("unsupported output sample format: {format:?}"),
+            ));
+        }
     }
-    .unwrap();
+    .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
 
-    output_stream.play().unwrap();
+    output_stream
+        .play()
+        .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
 
     println!(
         "Output: {} @ {}Hz, {}ch",
@@ -296,10 +321,10 @@ pub fn build_audio_streams(
         ch,
     );
 
-    AudioStreams {
+    Ok(AudioStreams {
         output: output_stream,
         input: input_stream,
-    }
+    })
 }
 
 pub fn recreate_engine(
