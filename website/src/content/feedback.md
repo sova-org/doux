@@ -10,7 +10,7 @@ order: 202
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-Orbit feedback delay. Sends voice signal to the orbit bus where it is re-injected with controllable delay time and damping.
+Orbit feedback delay. Sends voice signal to the orbit bus where it is re-injected with controllable delay time, damping, and cross-channel blend.
 
 <CommandEntry name="feedback" type="number" min={0} max={1} default={0} mod>
 
@@ -39,6 +39,16 @@ High-frequency damping in the feedback path. Higher values roll off treble on ea
 <CodeEditor code={`/sound/pulze/freq/100/feedback/1.0/fbtime/8/fbdamp/0.5/decay/0.1`} rows={2} />
 
 <CodeEditor code={`/sound/pulse/freq/150/feedback/0.8/fbtime/50/fbdamp/0.8/decay/0.5`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="fbcross" type="number" min={0} max={1} default={0}>
+
+Cross-channel blend in the feedback loop. 0 = self-feedback (each channel loops into itself), 1 = pure ping-pong (left's loop reads right's tail and vice versa). Intermediate values smear stereo.
+
+<CodeEditor code={`/sound/saw/freq/100/feedback/0.75/fbtime/280/fbcross/1.0/decay/0.5`} rows={2} />
+
+<CodeEditor code={`/sound/pulse/freq/120/feedback/0.7/fbtime/180/fbdamp/0.3/fbcross/0.5/decay/0.5`} rows={2} />
 
 </CommandEntry>
 

@@ -310,6 +310,8 @@ pub struct VoiceParams {
     pub fbtime: f32,
     /// Feedback delay damping (overrides orbit default).
     pub fbdamp: f32,
+    /// Feedback cross-channel blend (0 = self, 1 = ping-pong).
+    pub fbcross: f32,
     /// Feedback LFO rate in Hz.
     pub fblfo: f32,
     /// Feedback LFO depth (0.0 to 1.0).
@@ -443,6 +445,7 @@ impl Default for VoiceParams {
             feedback: 0.0,
             fbtime: 10.0,
             fbdamp: 0.0,
+            fbcross: 0.0,
             fblfo: 0.0,
             fblfodepth: 0.5,
             fblfoshape: LfoShape::Sine,

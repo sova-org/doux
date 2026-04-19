@@ -1040,7 +1040,9 @@ impl Engine {
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
         copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
         copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
-        copy_opt!(event, v.params, feedback, fbtime, fbdamp, fblfo, fblfodepth, fblfoshape);
+        copy_opt!(
+            event, v.params, feedback, fbtime, fbdamp, fbcross, fblfo, fblfodepth, fblfoshape
+        );
         copy_opt!(event, v.params, comp, compattack, comprelease, comporbit);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
@@ -1126,6 +1128,7 @@ impl Engine {
                 state.fb_level = voice.params.feedback;
                 state.params.fb_time = voice.params.fbtime;
                 state.params.fb_damp = voice.params.fbdamp;
+                state.params.fb_cross = voice.params.fbcross;
                 state.params.fb_lfo = voice.params.fblfo;
                 state.params.fb_lfo_depth = voice.params.fblfodepth;
                 state.params.fb_lfo_shape = voice.params.fblfoshape;
@@ -1171,6 +1174,7 @@ impl Engine {
             if state.has_feedback {
                 orbit.params.fb_time = state.params.fb_time;
                 orbit.params.fb_damp = state.params.fb_damp;
+                orbit.params.fb_cross = state.params.fb_cross;
                 orbit.params.fb_lfo = state.params.fb_lfo;
                 orbit.params.fb_lfo_depth = state.params.fb_lfo_depth;
                 orbit.params.fb_lfo_shape = state.params.fb_lfo_shape;

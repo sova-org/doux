@@ -27,6 +27,7 @@ pub struct EffectParams {
     pub comb_damp: f32,
     pub fb_time: f32,
     pub fb_damp: f32,
+    pub fb_cross: f32,
     pub fb_lfo: f32,
     pub fb_lfo_depth: f32,
     pub fb_lfo_shape: LfoShape,
@@ -59,6 +60,7 @@ impl Default for EffectParams {
             comb_damp: 0.1,
             fb_time: 10.0,
             fb_damp: 0.0,
+            fb_cross: 0.0,
             fb_lfo: 0.0,
             fb_lfo_depth: 0.5,
             fb_lfo_shape: LfoShape::Sine,
@@ -81,7 +83,7 @@ pub struct Orbit {
     pub comb: [Comb; CHANNELS],
     pub comb_send: [f32; CHANNELS],
     pub comb_out: [f32; CHANNELS],
-    pub fb: [Feedback; CHANNELS],
+    pub fb: Feedback,
     pub fb_phasor: Phasor,
     pub fb_send: [f32; CHANNELS],
     pub fb_level: f32,
@@ -105,7 +107,7 @@ impl Orbit {
             comb: [Comb::default(); CHANNELS],
             comb_send: [0.0; CHANNELS],
             comb_out: [0.0; CHANNELS],
-            fb: [Feedback::default(); CHANNELS],
+            fb: Feedback::default(),
             fb_phasor: Phasor::default(),
             fb_send: [0.0; CHANNELS],
             fb_level: 0.0,
@@ -220,15 +222,14 @@ impl Orbit {
         } else {
             p.fb_time
         };
-        for channel in 0..CHANNELS {
-            self.fb_out[channel] = self.fb[channel].process(
-                self.fb_send[channel],
-                self.fb_level,
-                fb_time,
-                p.fb_damp,
-                self.sr,
-            );
-        }
+        self.fb_out = self.fb.process(
+            self.fb_send,
+            self.fb_level,
+            fb_time,
+            p.fb_damp,
+            p.fb_cross,
+            self.sr,
+        );
 
         let energy = self.delay_out[0].abs()
             + self.delay_out[1].abs()
@@ -275,9 +276,11 @@ mod tests {
         orbit.params.fb_damp = 0.0;
         orbit.fb_level = 0.5;
 
-        orbit.clear_sends();
-        orbit.add_fb_send(0, 1.0);
-        orbit.process();
+        for _ in 0..3 {
+            orbit.clear_sends();
+            orbit.add_fb_send(0, 1.0);
+            orbit.process();
+        }
 
         assert!(orbit.fb_out[0] > 0.0);
         assert_eq!(orbit.fb_out[1], 0.0);
