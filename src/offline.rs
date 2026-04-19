@@ -72,17 +72,11 @@ where
     }
 }
 
-pub fn render_to_buffer(
-    engine: &mut Engine,
-    duration_seconds: f32,
-) -> OfflinePass {
+pub fn render_to_buffer(engine: &mut Engine, duration_seconds: f32) -> OfflinePass {
     run_engine(engine, duration_seconds, true)
 }
 
-pub fn run_without_capture(
-    engine: &mut Engine,
-    duration_seconds: f32,
-) -> OfflinePass {
+pub fn run_without_capture(engine: &mut Engine, duration_seconds: f32) -> OfflinePass {
     run_engine(engine, duration_seconds, false)
 }
 

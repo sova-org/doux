@@ -81,7 +81,10 @@ fn run(
                                 });
                             }
                             Err(e) => {
-                                eprintln!("[doux] failed to load soundfont {}: {e}", sf2_path.display());
+                                eprintln!(
+                                    "[doux] failed to load soundfont {}: {e}",
+                                    sf2_path.display()
+                                );
                             }
                         }
                         break;
@@ -92,11 +95,7 @@ fn run(
     }
 }
 
-fn spawn_preload(
-    index: &[SampleEntry],
-    target_sr: f32,
-    registry: &Arc<SampleRegistry>,
-) {
+fn spawn_preload(index: &[SampleEntry], target_sr: f32, registry: &Arc<SampleRegistry>) {
     if index.is_empty() {
         return;
     }

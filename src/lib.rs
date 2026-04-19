@@ -35,22 +35,22 @@ pub enum AudioCmd {
     Panic,
 }
 
-use dsp::{fast_tanh_f32, init_envelope};
-use event::Event;
+use dsp::init_envelope;
 use effects::Lag;
+use event::Event;
 
-use types::ModuleInfo;
 use orbit::Orbit;
+use types::ModuleInfo;
 
 /// All modules in the engine: sources, effects, filters, modulation.
 pub fn all_modules() -> Vec<&'static ModuleInfo> {
-    let mut modules: Vec<&'static ModuleInfo> = Source::all()
-        .iter()
-        .map(|s| &s.info().module)
-        .collect();
+    let mut modules: Vec<&'static ModuleInfo> =
+        Source::all().iter().map(|s| &s.info().module).collect();
     modules.extend_from_slice(effects::ALL_MODULES);
     modules
 }
+#[cfg(feature = "native")]
+use recorder::Recorder;
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
 use sampling::SampleEntry;
@@ -58,8 +58,6 @@ use sampling::SampleEntry;
 pub use sampling::SampleLoader;
 #[cfg(feature = "native")]
 pub use sampling::{SampleData, SampleRegistry};
-#[cfg(feature = "native")]
-use recorder::Recorder;
 #[cfg(not(feature = "native"))]
 use sampling::{SampleInfo, SamplePool};
 use schedule::Schedule;
@@ -69,13 +67,13 @@ use std::sync::Arc;
 pub use telemetry::EngineMetrics;
 #[cfg(feature = "native")]
 use telemetry::ProfilePhase;
-use types::{Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
-#[cfg(not(feature = "native"))]
-use types::WASM_BLOCK_SIZE;
 #[cfg(feature = "native")]
 use types::DEFAULT_NATIVE_BLOCK_SIZE;
-use voice::{Voice, VoiceParams, modulation};
+#[cfg(not(feature = "native"))]
+use types::WASM_BLOCK_SIZE;
+use types::{Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
 use voice::modulation::ParamId;
+use voice::{modulation, Voice, VoiceParams};
 
 #[cfg(feature = "soundfont")]
 struct GmResolved {
@@ -205,11 +203,21 @@ impl Engine {
 
     #[cfg(feature = "native")]
     pub fn new(sample_rate: f32) -> Self {
-        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES, DEFAULT_NATIVE_BLOCK_SIZE)
+        Self::new_with_channels(
+            sample_rate,
+            CHANNELS,
+            DEFAULT_MAX_VOICES,
+            DEFAULT_NATIVE_BLOCK_SIZE,
+        )
     }
 
     #[cfg(feature = "native")]
-    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize, block_size: usize) -> Self {
+    pub fn new_with_channels(
+        sample_rate: f32,
+        output_channels: usize,
+        max_voices: usize,
+        block_size: usize,
+    ) -> Self {
         dsp::fft::init_twiddles();
 
         let registry = Arc::new(SampleRegistry::new());
@@ -385,7 +393,11 @@ impl Engine {
     fn resolve_gm(&self, event: &Event) -> Option<GmResolved> {
         let sound_str = event.sound.as_ref()?;
         let program_str = sound_str.strip_prefix("gm")?;
-        let program_str = if program_str.is_empty() { "0" } else { program_str };
+        let program_str = if program_str.is_empty() {
+            "0"
+        } else {
+            program_str
+        };
 
         let note = event
             .freq
@@ -512,7 +524,11 @@ impl Engine {
         let name = event.sound.as_deref();
         let orbit = event.orbit;
 
-        if self.recorder.toggle(name, overdub, orbit, &self.sample_registry).is_some() {
+        if self
+            .recorder
+            .toggle(name, overdub, orbit, &self.sample_registry)
+            .is_some()
+        {
             if let Some((name, data)) = self.recorder.finalize() {
                 let key = format!("{name}/0");
                 self.sample_registry.insert(key.clone(), data);
@@ -522,7 +538,6 @@ impl Engine {
                         path: std::path::PathBuf::new(),
                     });
                 }
-
             }
         }
     }
@@ -684,10 +699,10 @@ impl Engine {
         // Resolve GM soundfont zone (before borrowing voice)
         #[cfg(feature = "soundfont")]
         let gm_resolved: Option<GmResolved> = if parsed_source == Some(Source::Gm) {
-                self.resolve_gm(event)
-            } else {
-                None
-            };
+            self.resolve_gm(event)
+        } else {
+            None
+        };
 
         #[cfg(not(feature = "native"))]
         let loaded_sample = if let Some(ref sound_str) = event.sound {
@@ -802,8 +817,8 @@ impl Engine {
         #[cfg(feature = "native")]
         if let Some((sample_name, sample_data)) = registry_sample_data {
             // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
-            let has_scan = event.scan.is_some()
-                || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+            let has_scan =
+                event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
             v.params.sound = if has_scan {
                 Source::Wavetable
             } else {
@@ -846,8 +861,8 @@ impl Engine {
             if let Some(info) = self.samples.get(sample_idx) {
                 use sampling::FileSource;
                 // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
-                let has_scan = event.scan.is_some()
-                    || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+                let has_scan =
+                    event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
                 v.params.sound = if has_scan {
                     Source::Wavetable
                 } else {
@@ -878,8 +893,8 @@ impl Engine {
             use sampling::WebSampleSource;
             let (begin, end) = event.resolve_range();
             // Use Wavetable mode if scan param present (static or modulated), otherwise WebSample
-            let has_scan = event.scan.is_some()
-                || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
+            let has_scan =
+                event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
             v.params.sound = if has_scan {
                 Source::Wavetable
             } else {
@@ -1131,9 +1146,10 @@ impl Engine {
                 self.process_event(&event);
             } else {
                 #[cfg(feature = "native")]
-                self.metrics.dropped_events.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.metrics
+                    .dropped_events
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-
         }
     }
 
@@ -1169,8 +1185,13 @@ impl Engine {
         let mut voice_fx_ns = 0u64;
 
         let mut voice_comp = [0.0f32; MAX_ORBITS];
-        for (vc, (lag, &target)) in voice_comp.iter_mut()
-            .zip(self.voice_gain_lag.iter_mut().zip(self.voice_comp_targets.iter()))
+        for (vc, (lag, &target)) in voice_comp
+            .iter_mut()
+            .zip(
+                self.voice_gain_lag
+                    .iter_mut()
+                    .zip(self.voice_comp_targets.iter()),
+            )
             .take(num_orbits)
         {
             *vc = lag.update(target, 0.005, self.sr);
@@ -1205,12 +1226,21 @@ impl Engine {
             };
             #[cfg(all(feature = "native", not(feature = "profiling")))]
             #[cfg(feature = "native")]
-            let alive = self.voices[i].process(isr, web_pcm, sample_idx, live_input, self.input_channels);
+            let alive =
+                self.voices[i].process(isr, web_pcm, sample_idx, live_input, self.input_channels);
             #[cfg(not(feature = "native"))]
             let alive = {
                 let pool = self.sample_pool.data.as_slice();
                 let samples = self.samples.as_slice();
-                self.voices[i].process(isr, pool, samples, web_pcm, sample_idx, live_input, self.input_channels)
+                self.voices[i].process(
+                    isr,
+                    pool,
+                    samples,
+                    web_pcm,
+                    sample_idx,
+                    live_input,
+                    self.input_channels,
+                )
             };
             if !alive {
                 self.free_voice(i);
@@ -1316,10 +1346,6 @@ impl Engine {
             }
         }
 
-        for c in 0..self.output_channels {
-            output[base_idx + c] = fast_tanh_f32(output[base_idx + c]);
-        }
-
         #[cfg(all(feature = "native", feature = "profiling"))]
         {
             let profiler = &self.metrics.profiler;
@@ -1346,7 +1372,8 @@ impl Engine {
             let needed = MAX_ORBITS * samples * CHANNELS;
             debug_assert!(
                 self.orbit_rec_bus.len() >= needed,
-                "orbit_rec_bus too small: {} < {needed}", self.orbit_rec_bus.len()
+                "orbit_rec_bus too small: {} < {needed}",
+                self.orbit_rec_bus.len()
             );
         }
 
@@ -1356,7 +1383,9 @@ impl Engine {
         for i in 0..self.active_voices {
             voices_per_orbit[self.voices[i].params.orbit % num_orbits] += 1;
         }
-        for (target, &count) in self.voice_comp_targets.iter_mut()
+        for (target, &count) in self
+            .voice_comp_targets
+            .iter_mut()
             .zip(voices_per_orbit.iter())
             .take(num_orbits)
         {
@@ -1431,9 +1460,14 @@ impl Engine {
             let n = samples * CHANNELS;
             if let Some(oi) = self.recorder.target_orbit() {
                 let start_idx = oi * samples * CHANNELS;
-                self.recorder.capture_block(&self.orbit_rec_bus[start_idx..start_idx + n], samples, CHANNELS);
+                self.recorder.capture_block(
+                    &self.orbit_rec_bus[start_idx..start_idx + n],
+                    samples,
+                    CHANNELS,
+                );
             } else {
-                self.recorder.capture_block(output, samples, self.output_channels);
+                self.recorder
+                    .capture_block(output, samples, self.output_channels);
             }
             #[cfg(feature = "profiling")]
             self.metrics.profiler.record_phase(
@@ -1479,7 +1513,9 @@ impl Engine {
                 if self.active_voices > 4 {
                     let shed_count = (self.active_voices / 4).max(1);
                     for _ in 0..shed_count {
-                        if self.active_voices <= 2 { break; }
+                        if self.active_voices <= 2 {
+                            break;
+                        }
                         let mut min_idx = 0;
                         let mut min_val = f32::MAX;
                         for i in 0..self.active_voices {
@@ -1537,25 +1573,26 @@ mod tests {
     use super::*;
 
     fn test_voice(freq: f32, orbit: usize, delay: f32, delay_time: f32, comp: f32) -> VoiceParams {
-        let mut params = VoiceParams::default();
-        params.sound = Source::Sine;
-        params.freq = freq;
-        params.gain = 0.3;
-        params.postgain = 0.8;
-        params.gate = 1.0;
-        params.attack = 0.0;
-        params.decay = 0.0;
-        params.sustain = 1.0;
-        params.release = 0.05;
-        params.orbit = orbit;
-        params.delay = delay;
-        params.delaytime = delay_time;
-        params.delayfeedback = 0.25 + delay_time;
-        params.comp = comp;
-        params.compattack = 0.01 + delay_time * 0.1;
-        params.comprelease = 0.1 + delay_time * 0.2;
-        params.comporbit = orbit;
-        params
+        VoiceParams {
+            sound: Source::Sine,
+            freq,
+            gain: 0.3,
+            postgain: 0.8,
+            gate: 1.0,
+            attack: 0.0,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.05,
+            orbit,
+            delay,
+            delaytime: delay_time,
+            delayfeedback: 0.25 + delay_time,
+            comp,
+            compattack: 0.01 + delay_time * 0.1,
+            comprelease: 0.1 + delay_time * 0.2,
+            comporbit: orbit,
+            ..VoiceParams::default()
+        }
     }
 
     #[test]

@@ -188,7 +188,11 @@ impl Dahdsr {
                 self.current_val = lerp(0.0, self.start_val, 0.0, 0.0);
                 // During delay, fade from retrigger value toward 0
                 if self.start_val > 0.0 {
-                    let t = if delay > 0.0 { self.phase_time / delay } else { 1.0 };
+                    let t = if delay > 0.0 {
+                        self.phase_time / delay
+                    } else {
+                        1.0
+                    };
                     self.current_val = lerp(t, self.start_val, 0.0, 0.0);
                 } else {
                     self.current_val = 0.0;
@@ -201,7 +205,12 @@ impl Dahdsr {
                 if self.check_gate() {
                     return self.current_val;
                 }
-                let val = lerp(self.phase_time / attack, self.start_val, 1.0, self.attack_curve);
+                let val = lerp(
+                    self.phase_time / attack,
+                    self.start_val,
+                    1.0,
+                    self.attack_curve,
+                );
                 if val > 0.9999 {
                     self.state = DahdsrState::Hold;
                     self.phase_time = 0.0;
@@ -251,7 +260,12 @@ impl Dahdsr {
             }
             DahdsrState::Release => {
                 self.phase_time += isr;
-                let val = lerp(self.phase_time / release, self.start_val, 0.0, -self.decay_curve);
+                let val = lerp(
+                    self.phase_time / release,
+                    self.start_val,
+                    0.0,
+                    -self.decay_curve,
+                );
                 if val < 0.0001 {
                     self.state = DahdsrState::Off;
                     self.current_val = 0.0;
@@ -301,8 +315,13 @@ pub fn init_envelope(
     sus: Option<f32>,
     rel: Option<f32>,
 ) -> EnvelopeParams {
-    if env.is_none() && dly.is_none() && att.is_none() && hld.is_none()
-        && dec.is_none() && sus.is_none() && rel.is_none()
+    if env.is_none()
+        && dly.is_none()
+        && att.is_none()
+        && hld.is_none()
+        && dec.is_none()
+        && sus.is_none()
+        && rel.is_none()
     {
         return EnvelopeParams {
             env: 1.0,
@@ -488,10 +507,7 @@ mod tests {
         }
 
         // Should still be sustaining, not released
-        assert!(
-            !env.is_off(),
-            "gate=0 should mean infinite sustain"
-        );
+        assert!(!env.is_off(), "gate=0 should mean infinite sustain");
         assert!(
             matches!(env.state, DahdsrState::Sustain),
             "Should be in Sustain state"

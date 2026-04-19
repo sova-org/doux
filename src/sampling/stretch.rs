@@ -496,10 +496,7 @@ mod tests {
                 }
                 step(&mut st, &data, stretch, 1.0);
             }
-            assert!(
-                st.is_done(),
-                "should have terminated at stretch={stretch}"
-            );
+            assert!(st.is_done(), "should have terminated at stretch={stretch}");
         }
     }
 

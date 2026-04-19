@@ -17,16 +17,37 @@
 //! Left and right taps use opposite modulation polarity for stereo width.
 
 use crate::dsp::{DelayLine, Phasor};
-use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "chorus",
     description: "3-voice modulated delay with stereo spread",
     group: ModuleGroup::Effect,
     params: &[
-        ParamInfo { name: "chorus", aliases: &["chorusrate"], description: "LFO rate in Hz (0 = bypass)", default: "0.0", min: 0.0, max: 100.0 },
-        ParamInfo { name: "chorusdepth", aliases: &[], description: "modulation intensity", default: "0.5", min: 0.0, max: 1.0 },
-        ParamInfo { name: "chorusdelay", aliases: &[], description: "base delay time in ms", default: "25.0", min: 0.0, max: 100.0 },
+        ParamInfo {
+            name: "chorus",
+            aliases: &["chorusrate"],
+            description: "LFO rate in Hz (0 = bypass)",
+            default: "0.0",
+            min: 0.0,
+            max: 100.0,
+        },
+        ParamInfo {
+            name: "chorusdepth",
+            aliases: &[],
+            description: "modulation intensity",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0,
+        },
+        ParamInfo {
+            name: "chorusdelay",
+            aliases: &[],
+            description: "base delay time in ms",
+            default: "25.0",
+            min: 0.0,
+            max: 100.0,
+        },
     ],
 };
 

@@ -50,7 +50,11 @@ pub fn fft(re: &mut [f32], im: &mut [f32], inverse: bool) {
         let half = len >> 1;
         let stride = if use_table { TWIDDLE_N / len } else { 0 };
         let angle_step = if !use_table {
-            if inverse { TAU / len as f32 } else { -TAU / len as f32 }
+            if inverse {
+                TAU / len as f32
+            } else {
+                -TAU / len as f32
+            }
         } else {
             0.0
         };
@@ -98,22 +102,24 @@ mod tests {
         let n = 1024;
         let mut re = vec![0.0f32; n];
         let mut im = vec![0.0f32; n];
-        for i in 0..n {
-            re[i] = (TAU * 3.0 * i as f32 / n as f32).sin();
+        for (i, sample) in re.iter_mut().enumerate() {
+            *sample = (TAU * 3.0 * i as f32 / n as f32).sin();
         }
         let original: Vec<f32> = re.clone();
 
         fft(&mut re, &mut im, false);
         fft(&mut re, &mut im, true);
 
-        for i in 0..n {
+        for (i, ((&real, &imag), &expected)) in
+            re.iter().zip(im.iter()).zip(original.iter()).enumerate()
+        {
             assert!(
-                (re[i] - original[i]).abs() < 1e-4,
+                (real - expected).abs() < 1e-4,
                 "mismatch at {i}: {} vs {}",
-                re[i],
-                original[i]
+                real,
+                expected
             );
-            assert!(im[i].abs() < 1e-4, "imaginary not zero at {i}: {}", im[i]);
+            assert!(imag.abs() < 1e-4, "imaginary not zero at {i}: {imag}");
         }
     }
 
@@ -124,8 +130,8 @@ mod tests {
         let mut im = vec![0.0f32; n];
         fft(&mut re, &mut im, false);
         assert!((re[0] - n as f32).abs() < 1e-3);
-        for k in 1..n {
-            assert!(re[k].abs() < 1e-3, "bin {k} not zero: {}", re[k]);
+        for (k, &bin) in re.iter().enumerate().skip(1) {
+            assert!(bin.abs() < 1e-3, "bin {k} not zero: {bin}");
         }
     }
 }

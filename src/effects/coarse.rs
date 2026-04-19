@@ -13,15 +13,20 @@
 //! Output: [a, a, a, a, e, e, e, e, ...]
 //! ```
 
-use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "coarse",
     description: "Sample rate reduction (decimation)",
     group: ModuleGroup::Effect,
-    params: &[
-        ParamInfo { name: "coarse", aliases: &[], description: "decimation factor (1 = bypass)", default: "0.0", min: 0.0, max: 128.0 },
-    ],
+    params: &[ParamInfo {
+        name: "coarse",
+        aliases: &[],
+        description: "decimation factor (1 = bypass)",
+        default: "0.0",
+        min: 0.0,
+        max: 128.0,
+    }],
 };
 
 /// Sample-and-hold decimator for lo-fi effects.

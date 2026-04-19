@@ -4,16 +4,37 @@
 //! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
 
 use crate::dsp::{DelayLine, Phasor};
-use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "flanger",
     description: "LFO-modulated short delay with feedback",
     group: ModuleGroup::Effect,
     params: &[
-        ParamInfo { name: "flanger", aliases: &["flangerrate"], description: "LFO rate in Hz (0 = bypass)", default: "0.0", min: 0.0, max: 100.0 },
-        ParamInfo { name: "flangerdepth", aliases: &[], description: "modulation depth", default: "0.5", min: 0.0, max: 1.0 },
-        ParamInfo { name: "flangerfeedback", aliases: &[], description: "feedback amount", default: "0.5", min: 0.0, max: 0.95 },
+        ParamInfo {
+            name: "flanger",
+            aliases: &["flangerrate"],
+            description: "LFO rate in Hz (0 = bypass)",
+            default: "0.0",
+            min: 0.0,
+            max: 100.0,
+        },
+        ParamInfo {
+            name: "flangerdepth",
+            aliases: &[],
+            description: "modulation depth",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0,
+        },
+        ParamInfo {
+            name: "flangerfeedback",
+            aliases: &[],
+            description: "feedback amount",
+            default: "0.5",
+            min: 0.0,
+            max: 0.95,
+        },
     ],
 };
 

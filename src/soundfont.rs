@@ -180,89 +180,130 @@ pub fn resolve_gm_program(s: &str) -> Option<(u16, u16)> {
 pub fn gm_preset_docs() -> Vec<GmPresetDoc> {
     // Group aliases by (program, bank)
     let entries: &[(&str, u16, u16)] = &[
-        ("piano", 0, 0), ("grandpiano", 0, 0),
+        ("piano", 0, 0),
+        ("grandpiano", 0, 0),
         ("brightpiano", 1, 0),
-        ("epiano", 4, 0), ("electricpiano", 4, 0), ("rhodes", 4, 0),
+        ("epiano", 4, 0),
+        ("electricpiano", 4, 0),
+        ("rhodes", 4, 0),
         ("harpsichord", 6, 0),
-        ("clavinet", 7, 0), ("clav", 7, 0),
+        ("clavinet", 7, 0),
+        ("clav", 7, 0),
         ("celesta", 8, 0),
-        ("glockenspiel", 9, 0), ("glock", 9, 0),
+        ("glockenspiel", 9, 0),
+        ("glock", 9, 0),
         ("musicbox", 10, 0),
-        ("vibraphone", 11, 0), ("vibes", 11, 0),
+        ("vibraphone", 11, 0),
+        ("vibes", 11, 0),
         ("marimba", 12, 0),
-        ("xylophone", 13, 0), ("xylo", 13, 0),
-        ("bells", 14, 0), ("tubularbells", 14, 0),
+        ("xylophone", 13, 0),
+        ("xylo", 13, 0),
+        ("bells", 14, 0),
+        ("tubularbells", 14, 0),
         ("organ", 16, 0),
         ("churchorgan", 19, 0),
         ("accordion", 21, 0),
         ("harmonica", 22, 0),
-        ("guitar", 24, 0), ("nylon", 24, 0), ("nylonguitar", 24, 0),
-        ("steelguitar", 25, 0), ("steel", 25, 0),
+        ("guitar", 24, 0),
+        ("nylon", 24, 0),
+        ("nylonguitar", 24, 0),
+        ("steelguitar", 25, 0),
+        ("steel", 25, 0),
         ("jazzguitar", 26, 0),
-        ("cleangt", 27, 0), ("clean", 27, 0),
-        ("overdrive", 29, 0), ("overdriven", 29, 0),
-        ("distgt", 30, 0), ("distortionguitar", 30, 0),
-        ("bass", 33, 0), ("fingerbass", 33, 0),
+        ("cleangt", 27, 0),
+        ("clean", 27, 0),
+        ("overdrive", 29, 0),
+        ("overdriven", 29, 0),
+        ("distgt", 30, 0),
+        ("distortionguitar", 30, 0),
+        ("bass", 33, 0),
+        ("fingerbass", 33, 0),
         ("pickbass", 34, 0),
         ("fretless", 35, 0),
-        ("slapbass", 36, 0), ("slap", 36, 0),
+        ("slapbass", 36, 0),
+        ("slap", 36, 0),
         ("synthbass", 38, 0),
         ("violin", 40, 0),
         ("viola", 41, 0),
         ("cello", 42, 0),
         ("contrabass", 43, 0),
-        ("pizzicato", 45, 0), ("pizz", 45, 0),
+        ("pizzicato", 45, 0),
+        ("pizz", 45, 0),
         ("harp", 46, 0),
         ("timpani", 47, 0),
-        ("strings", 48, 0), ("ensemble", 48, 0),
+        ("strings", 48, 0),
+        ("ensemble", 48, 0),
         ("slowstrings", 49, 0),
         ("choir", 52, 0),
         ("trumpet", 56, 0),
         ("trombone", 57, 0),
         ("tuba", 58, 0),
-        ("horn", 60, 0), ("frenchhorn", 60, 0),
+        ("horn", 60, 0),
+        ("frenchhorn", 60, 0),
         ("brass", 61, 0),
         ("sopranosax", 64, 0),
-        ("altosax", 65, 0), ("alto", 65, 0),
-        ("tenorsax", 66, 0), ("tenor", 66, 0),
-        ("barisax", 67, 0), ("bari", 67, 0),
+        ("altosax", 65, 0),
+        ("alto", 65, 0),
+        ("tenorsax", 66, 0),
+        ("tenor", 66, 0),
+        ("barisax", 67, 0),
+        ("bari", 67, 0),
         ("oboe", 68, 0),
         ("bassoon", 70, 0),
         ("clarinet", 71, 0),
         ("piccolo", 72, 0),
         ("flute", 73, 0),
         ("recorder", 74, 0),
-        ("panflute", 75, 0), ("pan", 75, 0),
+        ("panflute", 75, 0),
+        ("pan", 75, 0),
         ("whistle", 79, 0),
         ("ocarina", 80, 0),
-        ("lead", 81, 0), ("squarelead", 81, 0),
-        ("sawlead", 82, 0), ("sawsynth", 82, 0),
-        ("pad", 89, 0), ("newage", 89, 0),
-        ("warmpad", 90, 0), ("warm", 90, 0),
+        ("lead", 81, 0),
+        ("squarelead", 81, 0),
+        ("sawlead", 82, 0),
+        ("sawsynth", 82, 0),
+        ("pad", 89, 0),
+        ("newage", 89, 0),
+        ("warmpad", 90, 0),
+        ("warm", 90, 0),
         ("polysynth", 91, 0),
         ("sitar", 104, 0),
         ("banjo", 105, 0),
         ("kalimba", 108, 0),
         ("steeldrum", 114, 0),
-        ("drums", 0, 128), ("drum", 0, 128), ("percussion", 0, 128),
+        ("drums", 0, 128),
+        ("drum", 0, 128),
+        ("percussion", 0, 128),
     ];
 
     // Group by (program, bank) to find canonical name + aliases
-    let mut grouped: std::collections::BTreeMap<(u16, u16), Vec<&str>> = std::collections::BTreeMap::new();
+    let mut grouped: std::collections::BTreeMap<(u16, u16), Vec<&str>> =
+        std::collections::BTreeMap::new();
     for &(name, program, bank) in entries {
         grouped.entry((program, bank)).or_default().push(name);
     }
 
-    grouped.into_iter().map(|((program, bank), names)| {
-        let canonical = format!("gm{}", names[0]);
-        let aliases: Vec<String> = names[1..].iter().map(|a| format!("gm{a}")).collect();
-        let family = gm_family(program, bank);
-        GmPresetDoc { name: canonical, aliases, program, bank, family }
-    }).collect()
+    grouped
+        .into_iter()
+        .map(|((program, bank), names)| {
+            let canonical = format!("gm{}", names[0]);
+            let aliases: Vec<String> = names[1..].iter().map(|a| format!("gm{a}")).collect();
+            let family = gm_family(program, bank);
+            GmPresetDoc {
+                name: canonical,
+                aliases,
+                program,
+                bank,
+                family,
+            }
+        })
+        .collect()
 }
 
 fn gm_family(program: u16, bank: u16) -> &'static str {
-    if bank == 128 { return "Percussion"; }
+    if bank == 128 {
+        return "Percussion";
+    }
     match program {
         0..=7 => "Piano",
         8..=15 => "Chromatic Percussion",
@@ -314,8 +355,12 @@ fn gen_u16(zone: &soundfont::Zone, ty: GeneratorType) -> Option<u16> {
 
 /// SF2 sustain centibels to linear level: 10^(-cb/200)
 fn centibels_to_linear(cb: i16) -> f32 {
-    if cb >= 1000 { return 0.0; }
-    if cb <= 0 { return 1.0; }
+    if cb >= 1000 {
+        return 0.0;
+    }
+    if cb <= 0 {
+        return 1.0;
+    }
     10.0_f32.powf(-cb as f32 / 200.0)
 }
 
@@ -328,15 +373,14 @@ fn timecents_to_secs(tc: i16) -> f32 {
     }
 }
 
-pub fn load_sf2(path: &Path, target_sr: f32) -> Result<(Vec<(String, SampleData)>, GmBank), String> {
-    let mut file =
-        std::fs::File::open(path).map_err(|e| format!("Failed to open SF2: {e}"))?;
+pub fn load_sf2(
+    path: &Path,
+    target_sr: f32,
+) -> Result<(Vec<(String, SampleData)>, GmBank), String> {
+    let mut file = std::fs::File::open(path).map_err(|e| format!("Failed to open SF2: {e}"))?;
     let sf2 = SoundFont2::load(&mut file).map_err(|e| format!("Failed to parse SF2: {e}"))?;
 
-    let smpl = sf2
-        .sample_data
-        .smpl
-        .ok_or("SF2 has no sample data")?;
+    let smpl = sf2.sample_data.smpl.ok_or("SF2 has no sample data")?;
 
     file.seek(SeekFrom::Start(smpl.offset))
         .map_err(|e| format!("Failed to seek to sample data: {e}"))?;
@@ -400,12 +444,13 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
         let bank = preset.header.bank;
 
         // Detect global zone (first zone with no instrument reference)
-        let (preset_global, preset_zones) =
-            if !preset.zones.is_empty() && gen_u16(&preset.zones[0], GeneratorType::Instrument).is_none() {
-                (Some(&preset.zones[0]), &preset.zones[1..])
-            } else {
-                (None, preset.zones.as_slice())
-            };
+        let (preset_global, preset_zones) = if !preset.zones.is_empty()
+            && gen_u16(&preset.zones[0], GeneratorType::Instrument).is_none()
+        {
+            (Some(&preset.zones[0]), &preset.zones[1..])
+        } else {
+            (None, preset.zones.as_slice())
+        };
 
         for pzone in preset_zones {
             let inst_idx = match gen_u16(pzone, GeneratorType::Instrument) {
@@ -421,12 +466,13 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
             let p_vel = gen_range(pzone, GeneratorType::VelRange).unwrap_or((0, 127));
 
             // Detect instrument global zone
-            let (inst_global, inst_zones) =
-                if !instrument.zones.is_empty() && gen_u16(&instrument.zones[0], GeneratorType::SampleID).is_none() {
-                    (Some(&instrument.zones[0]), &instrument.zones[1..])
-                } else {
-                    (None, instrument.zones.as_slice())
-                };
+            let (inst_global, inst_zones) = if !instrument.zones.is_empty()
+                && gen_u16(&instrument.zones[0], GeneratorType::SampleID).is_none()
+            {
+                (Some(&instrument.zones[0]), &instrument.zones[1..])
+            } else {
+                (None, instrument.zones.as_slice())
+            };
 
             for izone in inst_zones {
                 let sample_idx = match gen_u16(izone, GeneratorType::SampleID) {
@@ -454,8 +500,7 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                 // SF2 spec Section 9.4: instrument-level generators use fallback
                 // (zone → global), preset-level generators are additive offsets.
                 let inst_val = |ty: GeneratorType| -> Option<i16> {
-                    gen_i16(izone, ty)
-                        .or_else(|| inst_global.and_then(|z| gen_i16(z, ty)))
+                    gen_i16(izone, ty).or_else(|| inst_global.and_then(|z| gen_i16(z, ty)))
                 };
                 let preset_offset = |ty: GeneratorType| -> i16 {
                     gen_i16(pzone, ty)
@@ -472,9 +517,9 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                     .map(|k| k as u8)
                     .unwrap_or(hdr.origpitch);
                 let coarse_tune = get(GeneratorType::CoarseTune, 0);
-                let fine_tune = get(GeneratorType::FineTune, 0)
-                    + hdr.pitchadj as i16;
-                let root_freq = midi2freq(root_key as f32 + coarse_tune as f32 + fine_tune as f32 / 100.0);
+                let fine_tune = get(GeneratorType::FineTune, 0) + hdr.pitchadj as i16;
+                let root_freq =
+                    midi2freq(root_key as f32 + coarse_tune as f32 + fine_tune as f32 / 100.0);
 
                 // Loop points (adjusted for sample start offset and resampling)
                 let ratio = sample_ratios.get(sample_idx).copied().unwrap_or(1.0);

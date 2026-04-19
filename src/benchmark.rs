@@ -1,6 +1,8 @@
 //! Native benchmark case corpus and offline runner.
 
-use crate::offline::{apply_setup_commands, create_engine, run_without_capture, OfflineEngineConfig};
+use crate::offline::{
+    apply_setup_commands, create_engine, run_without_capture, OfflineEngineConfig,
+};
 use crate::telemetry::{PhaseSummary, ProfilingSnapshot};
 use serde::Serialize;
 use std::path::Path;
@@ -254,9 +256,7 @@ const BENCHMARK_CASES: [BenchmarkCase; 10] = [
 ];
 
 fn baseline_sine_commands() -> Vec<String> {
-    vec![
-        "/time/0.000/sound/sine/note/60/gain/0.25/gate/1.4/release/0.1".to_string(),
-    ]
+    vec!["/time/0.000/sound/sine/note/60/gain/0.25/gate/1.4/release/0.1".to_string()]
 }
 
 fn oscillator_stack_commands() -> Vec<String> {
@@ -264,9 +264,24 @@ fn oscillator_stack_commands() -> Vec<String> {
     let pattern = [
         (0.00, "tri", 48, "/gain/0.18/spread/8/gate/0.9/release/0.1"),
         (0.18, "saw", 55, "/gain/0.16/sub/0.35/gate/0.8/release/0.1"),
-        (0.36, "pulse", 60, "/pw/0.22/gain/0.14/width/1.2/gate/0.7/release/0.1"),
-        (0.54, "osc", 67, "/wave/0.72/gain/0.15/spread/5/gate/0.8/release/0.1"),
-        (0.72, "pulze", 72, "/pw/0.35/gain/0.10/haas/7/gate/0.6/release/0.1"),
+        (
+            0.36,
+            "pulse",
+            60,
+            "/pw/0.22/gain/0.14/width/1.2/gate/0.7/release/0.1",
+        ),
+        (
+            0.54,
+            "osc",
+            67,
+            "/wave/0.72/gain/0.15/spread/5/gate/0.8/release/0.1",
+        ),
+        (
+            0.72,
+            "pulze",
+            72,
+            "/pw/0.35/gain/0.10/haas/7/gate/0.6/release/0.1",
+        ),
         (0.90, "sine", 79, "/gain/0.12/gate/0.55/release/0.08"),
     ];
 

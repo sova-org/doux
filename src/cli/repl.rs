@@ -322,10 +322,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = cmd_tx.send(AudioCmd::Evaluate("/doux/reset".into()));
                     }
                     ".voices" | ".v" => {
-                        println!(
-                            "{}",
-                            metrics.active_voices.load(Ordering::Relaxed)
-                        );
+                        println!("{}", metrics.active_voices.load(Ordering::Relaxed));
                     }
                     ".time" | ".t" => {
                         let t = f64::from_bits(metrics.time_bits.load(Ordering::Relaxed));

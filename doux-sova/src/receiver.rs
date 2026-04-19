@@ -2,8 +2,8 @@ use crossbeam_channel::{Receiver, Sender};
 use doux::event::Event;
 use sova_core::protocol::audio_engine_proxy::AudioEnginePayload;
 
-use crate::manager::AudioCmd;
 use crate::convert::payload_to_command;
+use crate::manager::AudioCmd;
 use crate::time::TimeConverter;
 
 pub struct SovaReceiver {

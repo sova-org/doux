@@ -486,6 +486,9 @@ mod tests {
         let t_high = format!("time/{}", 5.0000001 / SR as f64);
         let e_low = Event::parse(&t_low, SR);
         let e_high = Event::parse(&t_high, SR);
-        assert_ne!(e_low.tick, e_high.tick, "floor should keep boundary times on distinct ticks");
+        assert_ne!(
+            e_low.tick, e_high.tick,
+            "floor should keep boundary times on distinct ticks"
+        );
     }
 }

@@ -357,17 +357,21 @@ mod tests {
 
     #[test]
     fn profiling_snapshot_merges_totals() {
-        let mut a = ProfilingSnapshot::default();
-        a.total_samples = 100;
-        a.total_blocks = 4;
+        let mut a = ProfilingSnapshot {
+            total_samples: 100,
+            total_blocks: 4,
+            ..ProfilingSnapshot::default()
+        };
         a.phases[ProfilePhase::VoiceSource.index()] = PhaseProfile {
             total_ns: 2_000,
             calls: 10,
         };
 
-        let mut b = ProfilingSnapshot::default();
-        b.total_samples = 50;
-        b.total_blocks = 2;
+        let mut b = ProfilingSnapshot {
+            total_samples: 50,
+            total_blocks: 2,
+            ..ProfilingSnapshot::default()
+        };
         b.phases[ProfilePhase::VoiceSource.index()] = PhaseProfile {
             total_ns: 500,
             calls: 4,
@@ -388,8 +392,10 @@ mod tests {
 
     #[test]
     fn summaries_sort_by_total_time() {
-        let mut snapshot = ProfilingSnapshot::default();
-        snapshot.total_samples = 100;
+        let mut snapshot = ProfilingSnapshot {
+            total_samples: 100,
+            ..ProfilingSnapshot::default()
+        };
         snapshot.phases[ProfilePhase::BlockTotal.index()] = PhaseProfile {
             total_ns: 10_000,
             calls: 1,
@@ -412,8 +418,10 @@ mod tests {
 
     #[test]
     fn summaries_compute_percent_and_ns_per_sample() {
-        let mut snapshot = ProfilingSnapshot::default();
-        snapshot.total_samples = 200;
+        let mut snapshot = ProfilingSnapshot {
+            total_samples: 200,
+            ..ProfilingSnapshot::default()
+        };
         snapshot.phases[ProfilePhase::BlockTotal.index()] = PhaseProfile {
             total_ns: 20_000,
             calls: 2,

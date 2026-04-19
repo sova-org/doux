@@ -21,7 +21,7 @@
 //! extracting and manipulating exponent/mantissa fields directly. Trigonometric
 //! functions use minimax polynomial approximations.
 
-use std::f32::consts::{LOG2_10, PI};
+use std::f32::consts::{LN_2, LOG2_10, PI};
 
 /// Bit position of the exponent field in IEEE 754 single precision.
 const F32_EXP_SHIFT: i32 = 23;
@@ -62,7 +62,7 @@ pub fn exp2f(x: f32) -> f32 {
     let f = x - xf;
     let exp_bits = ((127 + xf as i32) as u32) << 23;
     let ystep = f32::from_bits(exp_bits);
-    ystep * (1.0 + f * (0.693_147_2 + f * (0.240_226_5 + f * (0.055_504_1 + f * 0.009_618_1))))
+    ystep * (1.0 + f * (LN_2 + f * (0.240_226_5 + f * (0.055_504_1 + f * 0.009_618_1))))
 }
 
 /// Fast power function: `x^y`.
@@ -147,7 +147,7 @@ pub fn sinf(x: f32) -> f32 {
     let x = 4.0 * (x * (0.5 / PI) - (x * (0.5 / PI) + 0.75).floor() + 0.25).abs() - 1.0;
     let x = x * (PI / 2.0);
     let x2 = x * x;
-    x * (0.999_979_38 + x2 * (-0.166_498_13 + x2 * 0.007_997_90))
+    x * (0.999_979_4 + x2 * (-0.166_498_13 + x2 * 0.007_997_90))
 }
 
 /// Fast cosine approximation.
@@ -214,7 +214,11 @@ pub fn atan2f(y: f32, x: f32) -> f32 {
 
     let r = if ax < ay { FRAC_PI_2 - r } else { r };
     let r = if x < 0.0 { PI - r } else { r };
-    if y < 0.0 { -r } else { r }
+    if y < 0.0 {
+        -r
+    } else {
+        r
+    }
 }
 
 /// Fast tangent approximation via `sinf(x) / cosf(x)`.
@@ -279,7 +283,10 @@ mod tests {
             let fast = fast_tanh(x);
             let std = x.tanh();
             let err = (fast - std).abs();
-            assert!(err < 0.03, "fast_tanh({x}) = {fast} vs std {std}, err={err}");
+            assert!(
+                err < 0.03,
+                "fast_tanh({x}) = {fast} vs std {std}, err={err}"
+            );
         }
     }
 }

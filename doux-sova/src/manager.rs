@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use doux::audio::cpal;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Host, Stream, SupportedStreamConfig};
 use crossbeam_channel::{Receiver, Sender};
+use doux::audio::cpal;
 use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
 
@@ -109,9 +109,7 @@ pub struct DouxManager {
 
 fn parse_host_selection(host: Option<&str>) -> Result<HostSelection, DouxError> {
     match host {
-        Some(s) => s
-            .parse::<HostSelection>()
-            .map_err(DouxError::HostNotFound),
+        Some(s) => s.parse::<HostSelection>().map_err(DouxError::HostNotFound),
         None => Ok(HostSelection::default()),
     }
 }
@@ -220,8 +218,10 @@ fn spawn_preload(
     if index.is_empty() {
         return;
     }
-    let entries: Vec<(String, std::path::PathBuf)> =
-        index.iter().map(|e| (e.name.clone(), e.path.clone())).collect();
+    let entries: Vec<(String, std::path::PathBuf)> = index
+        .iter()
+        .map(|e| (e.name.clone(), e.path.clone()))
+        .collect();
     let registry = Arc::clone(registry);
     std::thread::Builder::new()
         .name("sample-preload".into())
@@ -249,9 +249,17 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
-        let block_size = config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
-        let mut engine =
-            Engine::new_with_metrics(sample_rate, actual_channels, config.max_voices, Arc::clone(&metrics), block_size);
+        let block_size = config
+            .buffer_size
+            .map(|b| b as usize)
+            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
+        let mut engine = Engine::new_with_metrics(
+            sample_rate,
+            actual_channels,
+            config.max_voices,
+            Arc::clone(&metrics),
+            block_size,
+        );
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
@@ -295,10 +303,7 @@ impl DouxManager {
         f32::from_bits(self.master_gain.load(Ordering::Relaxed))
     }
 
-    pub fn start(
-        &mut self,
-        initial_sync_time: SyncTime,
-    ) -> Result<AudioEngineProxy, DouxError> {
+    pub fn start(&mut self, initial_sync_time: SyncTime) -> Result<AudioEngineProxy, DouxError> {
         let (proxy_tx, proxy_rx) = crossbeam_channel::unbounded();
         let proxy = AudioEngineProxy::new(proxy_tx);
 
@@ -449,8 +454,16 @@ impl DouxManager {
         let peaks = Arc::new(PeakCapture::new(self.actual_channels));
         let peaks_clone = Arc::clone(&peaks);
 
-        let cmd_rx = Arc::clone(self.cmd_rx.as_ref().expect("cmd_rx must be set before build_streams"));
-        let cmd_tx = self.cmd_tx.as_ref().expect("cmd_tx must be set before build_streams").clone();
+        let cmd_rx = Arc::clone(
+            self.cmd_rx
+                .as_ref()
+                .expect("cmd_rx must be set before build_streams"),
+        );
+        let cmd_tx = self
+            .cmd_tx
+            .as_ref()
+            .expect("cmd_tx must be set before build_streams")
+            .clone();
 
         // Update sample rate and input channels on engine
         engine.sr = self.sample_rate;
@@ -482,90 +495,100 @@ impl DouxManager {
                         // A panic inside a cpal callback (called from C/ALSA) is UB.
                         // Wrap everything in catch_unwind; on panic output silence.
                         if panicked {
-                            for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                            for s in data.iter_mut() {
+                                *s = <$T as FromSample<f32>>::from_sample_(0.0);
+                            }
                             return;
                         }
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        // Clamp to pre-allocated size: never allocate on the RT thread.
-                        let usable = (data.len()).min(conv_buf.len());
-                        let conv = &mut conv_buf[..usable];
+                            // Clamp to pre-allocated size: never allocate on the RT thread.
+                            let usable = (data.len()).min(conv_buf.len());
+                            let conv = &mut conv_buf[..usable];
 
-                        let mut cmd_budget = 64;
-                        while cmd_budget > 0 {
-                            match cmd_rx.try_recv() {
-                                Ok(cmd) => match cmd {
-                                    AudioCmd::DispatchEvent(event) => { engine.dispatch_event(event); }
-                                    AudioCmd::Hush => engine.hush(),
-                                    AudioCmd::Panic => engine.panic(),
-                                    AudioCmd::SetSampleIndex(index) => {
-                                        engine.sample_index = index;
-                                    }
-                                    AudioCmd::ExtendSampleIndex(entries) => {
-                                        engine.sample_index.extend(entries);
-                                    }
-                                    #[cfg(feature = "soundfont")]
-                                    AudioCmd::InstallSoundfont { bank, samples } => {
-                                        engine.sample_registry.insert_batch(samples);
-                                        engine.gm_bank = Some(bank);
-                                    }
-                                },
-                                Err(_) => break,
+                            let mut cmd_budget = 64;
+                            while cmd_budget > 0 {
+                                match cmd_rx.try_recv() {
+                                    Ok(cmd) => match cmd {
+                                        AudioCmd::DispatchEvent(event) => {
+                                            engine.dispatch_event(event);
+                                        }
+                                        AudioCmd::Hush => engine.hush(),
+                                        AudioCmd::Panic => engine.panic(),
+                                        AudioCmd::SetSampleIndex(index) => {
+                                            engine.sample_index = index;
+                                        }
+                                        AudioCmd::ExtendSampleIndex(entries) => {
+                                            engine.sample_index.extend(entries);
+                                        }
+                                        #[cfg(feature = "soundfont")]
+                                        AudioCmd::InstallSoundfont { bank, samples } => {
+                                            engine.sample_registry.insert_batch(samples);
+                                            engine.gm_bank = Some(bank);
+                                        }
+                                    },
+                                    Err(_) => break,
+                                }
+                                cmd_budget -= 1;
                             }
-                            cmd_budget -= 1;
-                        }
 
-                        let buffer_samples = usable / output_channels;
-                        let raw_len = (buffer_samples * input_channels.max(1)).min(live_scratch.len());
-                        if input_channels == 0 {
-                            live_scratch[..raw_len].fill(0.0);
-                        } else {
-                            for sample in &mut live_scratch[..raw_len] {
-                                *sample = input_consumer.try_pop().unwrap_or(0.0);
-                            }
-                        }
-                        let excess = input_consumer.occupied_len().saturating_sub(input_buffer_size / 2);
-                        for _ in 0..excess {
-                            input_consumer.try_pop();
-                        }
-
-                        let buffer_time_ns = (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
-                        engine.metrics.load.set_buffer_time(buffer_time_ns);
-                        engine.process_block(conv, &[], &live_scratch[..raw_len]);
-
-                        let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
-                        if prev_gain != target_gain {
-                            let num_samples = conv.len();
-                            let step = (target_gain - prev_gain) / num_samples as f32;
-                            let mut g = prev_gain;
-                            for sample in conv.iter_mut() {
-                                g += step;
-                                *sample *= g;
-                            }
-                            prev_gain = target_gain;
-                        } else if target_gain != 1.0 {
-                            for sample in conv.iter_mut() {
-                                *sample *= target_gain;
-                            }
-                        }
-
-                        peaks_clone.push(conv, output_channels);
-
-                        for chunk in conv.chunks_exact(output_channels) {
-                            if output_channels >= 2 {
-                                scope_clone.push_stereo(chunk[0], chunk[1]);
+                            let buffer_samples = usable / output_channels;
+                            let raw_len =
+                                (buffer_samples * input_channels.max(1)).min(live_scratch.len());
+                            if input_channels == 0 {
+                                live_scratch[..raw_len].fill(0.0);
                             } else {
-                                scope_clone.push_mono(chunk[0]);
+                                for sample in &mut live_scratch[..raw_len] {
+                                    *sample = input_consumer.try_pop().unwrap_or(0.0);
+                                }
                             }
-                        }
+                            let excess = input_consumer
+                                .occupied_len()
+                                .saturating_sub(input_buffer_size / 2);
+                            for _ in 0..excess {
+                                input_consumer.try_pop();
+                            }
 
-                        for (out, &src) in data.iter_mut().zip(conv.iter()) {
-                            *out = <$T as FromSample<f32>>::from_sample_(src);
-                        }
+                            let buffer_time_ns =
+                                (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
+                            engine.metrics.load.set_buffer_time(buffer_time_ns);
+                            engine.process_block(conv, &[], &live_scratch[..raw_len]);
+
+                            let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
+                            if prev_gain != target_gain {
+                                let num_samples = conv.len();
+                                let step = (target_gain - prev_gain) / num_samples as f32;
+                                let mut g = prev_gain;
+                                for sample in conv.iter_mut() {
+                                    g += step;
+                                    *sample *= g;
+                                }
+                                prev_gain = target_gain;
+                            } else if target_gain != 1.0 {
+                                for sample in conv.iter_mut() {
+                                    *sample *= target_gain;
+                                }
+                            }
+
+                            peaks_clone.push(conv, output_channels);
+
+                            for chunk in conv.chunks_exact(output_channels) {
+                                if output_channels >= 2 {
+                                    scope_clone.push_stereo(chunk[0], chunk[1]);
+                                } else {
+                                    scope_clone.push_mono(chunk[0]);
+                                }
+                            }
+
+                            for (out, &src) in data.iter_mut().zip(conv.iter()) {
+                                *out = <$T as FromSample<f32>>::from_sample_(src);
+                            }
                         })); // end catch_unwind
                         if result.is_err() {
                             panicked = true;
                             eprintln!("[doux] PANIC in audio callback — outputting silence");
-                            for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                            for s in data.iter_mut() {
+                                *s = <$T as FromSample<f32>>::from_sample_(0.0);
+                            }
                         }
                     },
                     move |err| match err {
@@ -591,9 +614,9 @@ impl DouxManager {
             cpal::SampleFormat::I32 => build_output!(i32),
             cpal::SampleFormat::I16 => build_output!(i16),
             format => {
-                return Err(DouxError::StreamCreationFailed(
-                    format!("unsupported output sample format: {format:?}"),
-                ));
+                return Err(DouxError::StreamCreationFailed(format!(
+                    "unsupported output sample format: {format:?}"
+                )));
             }
         }
         .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
@@ -645,7 +668,11 @@ impl DouxManager {
 
         // Create fresh engine for the new audio callback
         self.metrics = Arc::new(EngineMetrics::default());
-        let block_size = self.config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
+        let block_size = self
+            .config
+            .buffer_size
+            .map(|b| b as usize)
+            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
         let mut engine = Engine::new_with_metrics(
             sample_rate,
             actual_channels,
@@ -706,7 +733,10 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
-        let block_size = config.buffer_size.map(|b| b as usize).unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
+        let block_size = config
+            .buffer_size
+            .map(|b| b as usize)
+            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
         let mut engine = Engine::new_with_metrics(
             sample_rate,
             actual_channels,
@@ -784,7 +814,9 @@ impl DouxManager {
 
     pub fn rescan_samples(&mut self) {
         if let Some(ref worker) = self.worker {
-            let _ = worker.tx.send(WorkerTask::RescanSamples(self.config.sample_paths.clone()));
+            let _ = worker
+                .tx
+                .send(WorkerTask::RescanSamples(self.config.sample_paths.clone()));
         }
     }
 
@@ -809,7 +841,9 @@ impl DouxManager {
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont_from_paths(&self, sample_paths: &[PathBuf]) {
         if let Some(ref worker) = self.worker {
-            let _ = worker.tx.send(WorkerTask::LoadSoundfont(sample_paths.to_vec()));
+            let _ = worker
+                .tx
+                .send(WorkerTask::LoadSoundfont(sample_paths.to_vec()));
         }
     }
 

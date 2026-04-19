@@ -25,10 +25,10 @@ fn wrap_phase(phase: f32) -> f32 {
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
 const LOG2_TABLE: [f32; 32] = [
-    0.0, 1.0, 1.584_963, 2.0, 2.321_928, 2.584_963, 2.807_355, 3.0,
-    3.169_925, 3.321_928, 3.459_432, 3.584_963, 3.700_44, 3.807_355, 3.906_89, 4.0,
-    4.087_463, 4.169_925, 4.247_928, 4.321_928, 4.392_317, 4.459_432, 4.523_562, 4.584_963,
-    4.643_856, 4.700_44, 4.754_888, 4.807_355, 4.857_981, 4.906_89, 4.954_196, 5.0,
+    0.0, 1.0, 1.584_963, 2.0, 2.321_928, 2.584_963, 2.807_355, 3.0, 3.169_925, 3.321_928,
+    3.459_432, 3.584_963, 3.700_44, 3.807_355, 3.906_89, 4.0, 4.087_463, 4.169_925, 4.247_928,
+    4.321_928, 4.392_317, 4.459_432, 4.523_562, 4.584_963, 4.643_856, 4.700_44, 4.754_888,
+    4.807_355, 4.857_981, 4.906_89, 4.954_196, 5.0,
 ];
 
 #[inline]
@@ -196,26 +196,36 @@ impl Voice {
                     match (&self.registry_sample, &self.registry_sample_b) {
                         (Some(a), Some(b)) if self.sample_blend > 0.0 => {
                             if self.stretch.needs_init() {
-                                self.stretch.reset(a.cursor_start(), a.cursor_end(), a.is_looping());
+                                self.stretch.reset(
+                                    a.cursor_start(),
+                                    a.cursor_end(),
+                                    a.is_looping(),
+                                );
                             }
-                            if self.stretch.is_done() { self.dahdsr.force_release(); }
+                            if self.stretch.is_done() {
+                                self.dahdsr.force_release();
+                            }
                             self.stretch.ensure_available(&a.data, stretch);
                             let blend = self.sample_blend;
                             for c in 0..CHANNELS {
                                 let sa = self.stretch.read(c);
                                 // Sample B reads from a fixed position (start of region)
-                                let sb = b.data.read_interpolated(
-                                    a.cursor_start() as f32, c,
-                                );
+                                let sb = b.data.read_interpolated(a.cursor_start() as f32, c);
                                 self.ch[c] = (sa + blend * (sb - sa)) * 0.7;
                             }
                             self.stretch.advance(pitch_ratio);
                         }
                         (Some(rs), _) => {
                             if self.stretch.needs_init() {
-                                self.stretch.reset(rs.cursor_start(), rs.cursor_end(), rs.is_looping());
+                                self.stretch.reset(
+                                    rs.cursor_start(),
+                                    rs.cursor_end(),
+                                    rs.is_looping(),
+                                );
                             }
-                            if self.stretch.is_done() { self.dahdsr.force_release(); }
+                            if self.stretch.is_done() {
+                                self.dahdsr.force_release();
+                            }
                             self.stretch.ensure_available(&rs.data, stretch);
                             for c in 0..CHANNELS {
                                 self.ch[c] = self.stretch.read(c) * 0.7;
@@ -242,8 +252,12 @@ impl Voice {
                         for c in 0..CHANNELS {
                             self.ch[c] = (a.read(c) + blend * (b.read(c) - a.read(c))) * 0.7;
                         }
-                        if !done_a { a.advance(speed); }
-                        if !done_b { b.advance(speed); }
+                        if !done_a {
+                            a.advance(speed);
+                        }
+                        if !done_b {
+                            b.advance(speed);
+                        }
                         self.nch = CHANNELS;
                         return true;
                     }
@@ -299,11 +313,20 @@ impl Voice {
                     self.nch = CHANNELS;
                     let base = sample_idx * nch;
                     self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
-                    self.ch[1] = live_input.get(base + 1.min(nch - 1)).copied().unwrap_or(0.0) * 0.7;
+                    self.ch[1] = live_input
+                        .get(base + 1.min(nch - 1))
+                        .copied()
+                        .unwrap_or(0.0)
+                        * 0.7;
                 }
             }
-            Source::Kick | Source::Snare | Source::Hat | Source::Tom
-            | Source::Rim | Source::Cowbell | Source::Cymbal => {
+            Source::Kick
+            | Source::Snare
+            | Source::Hat
+            | Source::Tom
+            | Source::Rim
+            | Source::Cowbell
+            | Source::Cymbal => {
                 self.nch = 1;
                 self.run_drum(freq, isr);
             }
@@ -391,11 +414,20 @@ impl Voice {
                     self.nch = CHANNELS;
                     let base = sample_idx * nch;
                     self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
-                    self.ch[1] = live_input.get(base + 1.min(nch - 1)).copied().unwrap_or(0.0) * 0.7;
+                    self.ch[1] = live_input
+                        .get(base + 1.min(nch - 1))
+                        .copied()
+                        .unwrap_or(0.0)
+                        * 0.7;
                 }
             }
-            Source::Kick | Source::Snare | Source::Hat | Source::Tom
-            | Source::Rim | Source::Cowbell | Source::Cymbal => {
+            Source::Kick
+            | Source::Snare
+            | Source::Hat
+            | Source::Tom
+            | Source::Rim
+            | Source::Cowbell
+            | Source::Cymbal => {
                 self.nch = 1;
                 self.run_drum(freq, isr);
             }

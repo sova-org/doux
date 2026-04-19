@@ -23,7 +23,11 @@ fn drum_osc(phase: f32, waveform: f32) -> f32 {
     if waveform >= 1.0 {
         return phase * 2.0 - 1.0;
     }
-    let tri = if phase < 0.5 { 4.0 * phase - 1.0 } else { 3.0 - 4.0 * phase };
+    let tri = if phase < 0.5 {
+        4.0 * phase - 1.0
+    } else {
+        3.0 - 4.0 * phase
+    };
     if waveform >= 0.5 {
         let t = (waveform - 0.5) * 2.0;
         let saw = phase * 2.0 - 1.0;

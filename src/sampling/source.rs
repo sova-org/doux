@@ -25,7 +25,14 @@ impl RegistrySample {
     pub fn new(name: String, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let root_freq = data.freq;
         let cursor = Cursor::new(data.frame_count, begin, end);
-        Self { name, data, root_freq, attenuation: 1.0, scale_tuning: 1.0, cursor }
+        Self {
+            name,
+            data,
+            root_freq,
+            attenuation: 1.0,
+            scale_tuning: 1.0,
+            cursor,
+        }
     }
 
     /// Returns true if this is a head preload (not fully decoded yet).

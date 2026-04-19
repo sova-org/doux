@@ -28,7 +28,8 @@ fn shared_offline_runner_matches_manual_render_loop() {
 
     let mut manual = create_engine(config, None).unwrap();
     apply_setup_commands(&mut manual, commands);
-    let mut expected = vec![0.0f32; seconds_to_samples(config.sample_rate, duration) * config.channels];
+    let mut expected =
+        vec![0.0f32; seconds_to_samples(config.sample_rate, duration) * config.channels];
     for chunk in expected.chunks_mut(config.block_size * config.channels) {
         manual.process_block(chunk, &[], &[]);
     }
@@ -47,7 +48,12 @@ fn shared_offline_runner_matches_manual_render_loop() {
 
 #[test]
 fn benchmark_case_runs_and_returns_metrics() {
-    let result = run_case(find_case("subtractive_pad").unwrap(), &short_overrides(), None).unwrap();
+    let result = run_case(
+        find_case("subtractive_pad").unwrap(),
+        &short_overrides(),
+        None,
+    )
+    .unwrap();
 
     assert_eq!(result.name, "subtractive_pad");
     assert!(result.samples > 0);

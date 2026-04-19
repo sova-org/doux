@@ -5,17 +5,45 @@
 //! causing higher harmonics to decay faster (Karplus-Strong style).
 
 use crate::dsp::DelayLine;
-use crate::types::{ModuleInfo, ModuleGroup, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "comb",
     description: "Feedback comb filter with damping (Karplus-Strong style)",
     group: ModuleGroup::Effect,
     params: &[
-        ParamInfo { name: "comb", aliases: &[], description: "send level", default: "0.0", min: 0.0, max: 1.0 },
-        ParamInfo { name: "combfreq", aliases: &[], description: "fundamental frequency in Hz", default: "220.0", min: 20.0, max: 20000.0 },
-        ParamInfo { name: "combfeedback", aliases: &[], description: "feedback amount", default: "0.9", min: -0.99, max: 0.99 },
-        ParamInfo { name: "combdamp", aliases: &[], description: "high-frequency damping", default: "0.1", min: 0.0, max: 1.0 },
+        ParamInfo {
+            name: "comb",
+            aliases: &[],
+            description: "send level",
+            default: "0.0",
+            min: 0.0,
+            max: 1.0,
+        },
+        ParamInfo {
+            name: "combfreq",
+            aliases: &[],
+            description: "fundamental frequency in Hz",
+            default: "220.0",
+            min: 20.0,
+            max: 20000.0,
+        },
+        ParamInfo {
+            name: "combfeedback",
+            aliases: &[],
+            description: "feedback amount",
+            default: "0.9",
+            min: -0.99,
+            max: 0.99,
+        },
+        ParamInfo {
+            name: "combdamp",
+            aliases: &[],
+            description: "high-frequency damping",
+            default: "0.1",
+            min: 0.0,
+            max: 1.0,
+        },
     ],
 };
 

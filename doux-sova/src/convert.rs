@@ -33,11 +33,9 @@ fn push_value(buf: &mut String, v: VariableValue) {
     match v {
         VariableValue::Integer(i) => write!(buf, "{i}").unwrap(),
         VariableValue::Float(f) => write!(buf, "{f}").unwrap(),
-        VariableValue::Decimal(d) => {
-            write!(buf, "{}", f64::from(d)).unwrap()
-        }
+        VariableValue::Decimal(d) => write!(buf, "{}", f64::from(d)).unwrap(),
         VariableValue::Str(s) => buf.push_str(&s),
         VariableValue::Bool(b) => buf.push(if b { '1' } else { '0' }),
-        _ => ()
+        _ => (),
     }
 }

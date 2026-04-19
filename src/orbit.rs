@@ -79,10 +79,10 @@ pub struct Orbit {
     pub vital: VitalVerb,
     pub verb_send: [f32; CHANNELS],
     pub verb_out: [f32; CHANNELS],
-    pub comb: Comb,
+    pub comb: [Comb; CHANNELS],
     pub comb_send: [f32; CHANNELS],
     pub comb_out: [f32; CHANNELS],
-    pub fb: Feedback,
+    pub fb: [Feedback; CHANNELS],
     pub fb_phasor: Phasor,
     pub fb_send: [f32; CHANNELS],
     pub fb_level: f32,
@@ -103,10 +103,10 @@ impl Orbit {
             vital: VitalVerb::new(sr),
             verb_send: [0.0; CHANNELS],
             verb_out: [0.0; CHANNELS],
-            comb: Comb::default(),
+            comb: [Comb::default(); CHANNELS],
             comb_send: [0.0; CHANNELS],
             comb_out: [0.0; CHANNELS],
-            fb: Feedback::default(),
+            fb: [Feedback::default(); CHANNELS],
             fb_phasor: Phasor::default(),
             fb_send: [0.0; CHANNELS],
             fb_level: 0.0,
@@ -196,21 +196,23 @@ impl Orbit {
                     p.verb_chorus,
                     p.verb_chorus_freq,
                 );
-                [out[0] * SPACE_GAIN_COMPENSATION, out[1] * SPACE_GAIN_COMPENSATION]
+                [
+                    out[0] * SPACE_GAIN_COMPENSATION,
+                    out[1] * SPACE_GAIN_COMPENSATION,
+                ]
             }
         };
 
-        let comb_input = (self.comb_send[0] + self.comb_send[1]) * 0.5;
-        let comb_out = self.comb.process(
-            comb_input,
-            p.comb_freq,
-            p.comb_feedback,
-            p.comb_damp,
-            self.sr,
-        );
-        self.comb_out = [comb_out, comb_out];
+        for channel in 0..CHANNELS {
+            self.comb_out[channel] = self.comb[channel].process(
+                self.comb_send[channel],
+                p.comb_freq,
+                p.comb_feedback,
+                p.comb_damp,
+                self.sr,
+            );
+        }
 
-        let fb_input = (self.fb_send[0] + self.fb_send[1]) * 0.5;
         let isr = 1.0 / self.sr;
         let fb_time = if p.fb_lfo > 0.0 {
             let lfo = self.fb_phasor.lfo(p.fb_lfo_shape, p.fb_lfo, isr);
@@ -218,8 +220,15 @@ impl Orbit {
         } else {
             p.fb_time
         };
-        let fb_out = self.fb.process(fb_input, self.fb_level, fb_time, p.fb_damp, self.sr);
-        self.fb_out = [fb_out, fb_out];
+        for channel in 0..CHANNELS {
+            self.fb_out[channel] = self.fb[channel].process(
+                self.fb_send[channel],
+                self.fb_level,
+                fb_time,
+                p.fb_damp,
+                self.sr,
+            );
+        }
 
         let energy = self.delay_out[0].abs()
             + self.delay_out[1].abs()
@@ -235,5 +244,42 @@ impl Orbit {
         } else {
             self.silent_samples = 0;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comb_send_stays_channel_local() {
+        let mut orbit = Orbit::new(100.0);
+        orbit.params.comb_freq = 50.0;
+        orbit.params.comb_feedback = 0.0;
+        orbit.params.comb_damp = 0.0;
+
+        for _ in 0..3 {
+            orbit.clear_sends();
+            orbit.add_comb_send(0, 1.0);
+            orbit.process();
+        }
+
+        assert!(orbit.comb_out[0] > 0.0);
+        assert_eq!(orbit.comb_out[1], 0.0);
+    }
+
+    #[test]
+    fn feedback_send_stays_channel_local() {
+        let mut orbit = Orbit::new(1_000.0);
+        orbit.params.fb_time = 1.0;
+        orbit.params.fb_damp = 0.0;
+        orbit.fb_level = 0.5;
+
+        orbit.clear_sends();
+        orbit.add_fb_send(0, 1.0);
+        orbit.process();
+
+        assert!(orbit.fb_out[0] > 0.0);
+        assert_eq!(orbit.fb_out[1], 0.0);
     }
 }

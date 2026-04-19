@@ -80,18 +80,54 @@ impl ModChain {
 
     pub fn map_values(self, f: impl Fn(f32) -> f32) -> Self {
         match self {
-            ModChain::Oscillate { min, max, freq, shape } => {
-                ModChain::Oscillate { min: f(min), max: f(max), freq, shape }
-            }
-            ModChain::Transition { start, target, freq, curve, looping } => {
-                ModChain::Transition { start: f(start), target: f(target), freq, curve, looping }
-            }
-            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
-                ModChain::Envelope { min: f(min), max: f(max), attack, decay, sustain, release }
-            }
-            ModChain::Slew { target, freq, curve } => {
-                ModChain::Slew { target: f(target), freq, curve }
-            }
+            ModChain::Oscillate {
+                min,
+                max,
+                freq,
+                shape,
+            } => ModChain::Oscillate {
+                min: f(min),
+                max: f(max),
+                freq,
+                shape,
+            },
+            ModChain::Transition {
+                start,
+                target,
+                freq,
+                curve,
+                looping,
+            } => ModChain::Transition {
+                start: f(start),
+                target: f(target),
+                freq,
+                curve,
+                looping,
+            },
+            ModChain::Envelope {
+                min,
+                max,
+                attack,
+                decay,
+                sustain,
+                release,
+            } => ModChain::Envelope {
+                min: f(min),
+                max: f(max),
+                attack,
+                decay,
+                sustain,
+                release,
+            },
+            ModChain::Slew {
+                target,
+                freq,
+                curve,
+            } => ModChain::Slew {
+                target: f(target),
+                freq,
+                curve,
+            },
         }
     }
 
@@ -108,7 +144,14 @@ impl ModChain {
         let decay: f32 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
         let sustain: f32 = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(1.0);
         let release: f32 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.005);
-        Some(ModChain::Envelope { min, max, attack, decay, sustain, release })
+        Some(ModChain::Envelope {
+            min,
+            max,
+            attack,
+            decay,
+            sustain,
+            release,
+        })
     }
 
     fn parse_oscillate(s: &str) -> Option<Self> {
@@ -132,7 +175,12 @@ impl ModChain {
         if period <= 0.0 {
             return None;
         }
-        Some(ModChain::Oscillate { min, max, freq: 1.0 / period, shape })
+        Some(ModChain::Oscillate {
+            min,
+            max,
+            freq: 1.0 / period,
+            shape,
+        })
     }
 
     fn parse_random(s: &str) -> Option<Self> {
@@ -154,7 +202,12 @@ impl ModChain {
         if period <= 0.0 {
             return None;
         }
-        Some(ModChain::Oscillate { min, max, freq: 1.0 / period, shape })
+        Some(ModChain::Oscillate {
+            min,
+            max,
+            freq: 1.0 / period,
+            shape,
+        })
     }
 
     fn parse_transition(s: &str) -> Option<Self> {
@@ -175,7 +228,13 @@ impl ModChain {
         if period <= 0.0 {
             return None;
         }
-        Some(ModChain::Transition { start, target, freq: 1.0 / period, curve, looping })
+        Some(ModChain::Transition {
+            start,
+            target,
+            freq: 1.0 / period,
+            curve,
+            looping,
+        })
     }
 
     fn parse_slew(s: &str) -> Option<Self> {
@@ -187,7 +246,11 @@ impl ModChain {
         if period <= 0.0 {
             return None;
         }
-        Some(ModChain::Slew { target, freq: 1.0 / period, curve })
+        Some(ModChain::Slew {
+            target,
+            freq: 1.0 / period,
+            curve,
+        })
     }
 }
 
@@ -328,7 +391,12 @@ pub struct ParamMod {
 impl Default for ParamMod {
     fn default() -> Self {
         Self {
-            chain: ModChain::Oscillate { min: 0.0, max: 0.0, freq: 0.0, shape: ModShape::Sine },
+            chain: ModChain::Oscillate {
+                min: 0.0,
+                max: 0.0,
+                freq: 0.0,
+                shape: ModShape::Sine,
+            },
             phase: 0.0,
             prev_rand: 0.0,
             next_rand: 0.0,
@@ -374,11 +442,22 @@ impl ParamMod {
 
     pub fn tick(&mut self, isr: f32) -> f32 {
         match self.chain {
-            ModChain::Oscillate { min, max, freq, shape } => {
+            ModChain::Oscillate {
+                min,
+                max,
+                freq,
+                shape,
+            } => {
                 self.phase += freq * isr;
                 self.tick_oscillate(min, max, shape)
             }
-            ModChain::Transition { start, target, freq, curve, looping } => {
+            ModChain::Transition {
+                start,
+                target,
+                freq,
+                curve,
+                looping,
+            } => {
                 self.phase += freq * isr;
                 if self.phase >= 1.0 {
                     if looping {
@@ -390,8 +469,17 @@ impl ParamMod {
                 }
                 interpolate(start, target, self.phase, curve)
             }
-            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
-                let env_val = self.envelope.update(isr, 0.0, attack, 0.0, decay, sustain, release);
+            ModChain::Envelope {
+                min,
+                max,
+                attack,
+                decay,
+                sustain,
+                release,
+            } => {
+                let env_val = self
+                    .envelope
+                    .update(isr, 0.0, attack, 0.0, decay, sustain, release);
                 min + (max - min) * env_val
             }
             ModChain::Slew { target, .. } => target,
@@ -413,7 +501,11 @@ impl ParamMod {
                 if self.phase >= 1.0 {
                     self.phase -= 1.0;
                 }
-                let t = if self.phase < 0.5 { self.phase * 2.0 } else { 2.0 - self.phase * 2.0 };
+                let t = if self.phase < 0.5 {
+                    self.phase * 2.0
+                } else {
+                    2.0 - self.phase * 2.0
+                };
                 min + t * range
             }
             ModShape::Saw => {
@@ -426,7 +518,11 @@ impl ParamMod {
                 if self.phase >= 1.0 {
                     self.phase -= 1.0;
                 }
-                if self.phase < 0.5 { min } else { max }
+                if self.phase < 0.5 {
+                    min
+                } else {
+                    max
+                }
             }
             ModShape::Rand => {
                 if self.phase >= 1.0 {
@@ -474,7 +570,12 @@ mod tests {
     fn parse_oscillate_sine() {
         let m = ModChain::parse("200~4000:2").unwrap();
         match m {
-            ModChain::Oscillate { min, max, freq, shape } => {
+            ModChain::Oscillate {
+                min,
+                max,
+                freq,
+                shape,
+            } => {
                 assert_eq!(min, 200.0);
                 assert_eq!(max, 4000.0);
                 assert_eq!(freq, 0.5);
@@ -515,7 +616,9 @@ mod tests {
     fn parse_random_hold() {
         let m = ModChain::parse("200?4000:0.5").unwrap();
         match m {
-            ModChain::Oscillate { min, max, shape, .. } => {
+            ModChain::Oscillate {
+                min, max, shape, ..
+            } => {
                 assert_eq!(min, 200.0);
                 assert_eq!(max, 4000.0);
                 assert_eq!(shape, ModShape::Hold);
@@ -558,7 +661,13 @@ mod tests {
     fn parse_transition_single() {
         let m = ModChain::parse("200>4000:2").unwrap();
         match m {
-            ModChain::Transition { start, target, freq, curve, looping } => {
+            ModChain::Transition {
+                start,
+                target,
+                freq,
+                curve,
+                looping,
+            } => {
                 assert_eq!(start, 200.0);
                 assert_eq!(target, 4000.0);
                 assert_eq!(freq, 0.5);
@@ -664,7 +773,11 @@ mod tests {
     fn parse_slew_linear() {
         let m = ModChain::parse(">4000:0.2").unwrap();
         match m {
-            ModChain::Slew { target, freq, curve } => {
+            ModChain::Slew {
+                target,
+                freq,
+                curve,
+            } => {
                 assert_eq!(target, 4000.0);
                 assert_eq!(freq, 5.0);
                 assert_eq!(curve, ModCurve::Linear);
@@ -677,7 +790,11 @@ mod tests {
     fn parse_slew_exponential() {
         let m = ModChain::parse(">800:0.5e").unwrap();
         match m {
-            ModChain::Slew { target, freq, curve } => {
+            ModChain::Slew {
+                target,
+                freq,
+                curve,
+            } => {
                 assert_eq!(target, 800.0);
                 assert_eq!(freq, 2.0);
                 assert_eq!(curve, ModCurve::Exponential);
@@ -697,7 +814,11 @@ mod tests {
 
     #[test]
     fn parse_slew_map_values() {
-        let m = ModChain::Slew { target: 100.0, freq: 5.0, curve: ModCurve::Linear };
+        let m = ModChain::Slew {
+            target: 100.0,
+            freq: 5.0,
+            curve: ModCurve::Linear,
+        };
         let mapped = m.map_values(|v| v * 2.0);
         match mapped {
             ModChain::Slew { target, freq, .. } => {
@@ -732,7 +853,14 @@ mod tests {
     fn parse_envelope_full() {
         let m = ModChain::parse("200^8000:0.01:0.1:0.5:0.3").unwrap();
         match m {
-            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+            ModChain::Envelope {
+                min,
+                max,
+                attack,
+                decay,
+                sustain,
+                release,
+            } => {
                 assert_eq!(min, 200.0);
                 assert_eq!(max, 8000.0);
                 assert_eq!(attack, 0.01);
@@ -748,7 +876,14 @@ mod tests {
     fn parse_envelope_attack_only() {
         let m = ModChain::parse("0^1:0.01").unwrap();
         match m {
-            ModChain::Envelope { min, max, attack, decay, sustain, release } => {
+            ModChain::Envelope {
+                min,
+                max,
+                attack,
+                decay,
+                sustain,
+                release,
+            } => {
                 assert_eq!(min, 0.0);
                 assert_eq!(max, 1.0);
                 assert_eq!(attack, 0.01);
@@ -764,7 +899,9 @@ mod tests {
     fn parse_envelope_min_max_only() {
         let m = ModChain::parse("200^8000").unwrap();
         match m {
-            ModChain::Envelope { min, max, attack, .. } => {
+            ModChain::Envelope {
+                min, max, attack, ..
+            } => {
                 assert_eq!(min, 200.0);
                 assert_eq!(max, 8000.0);
                 assert_eq!(attack, 0.003);
@@ -777,7 +914,9 @@ mod tests {
     fn parse_envelope_negative() {
         let m = ModChain::parse("-12^12:0.01:0.1:0.0:0.5").unwrap();
         match m {
-            ModChain::Envelope { min, max, sustain, .. } => {
+            ModChain::Envelope {
+                min, max, sustain, ..
+            } => {
                 assert_eq!(min, -12.0);
                 assert_eq!(max, 12.0);
                 assert_eq!(sustain, 0.0);
@@ -788,10 +927,19 @@ mod tests {
 
     #[test]
     fn envelope_map_values() {
-        let m = ModChain::Envelope { min: 100.0, max: 200.0, attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.3 };
+        let m = ModChain::Envelope {
+            min: 100.0,
+            max: 200.0,
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.5,
+            release: 0.3,
+        };
         let mapped = m.map_values(|v| v * 2.0);
         match mapped {
-            ModChain::Envelope { min, max, attack, .. } => {
+            ModChain::Envelope {
+                min, max, attack, ..
+            } => {
                 assert_eq!(min, 200.0);
                 assert_eq!(max, 400.0);
                 assert_eq!(attack, 0.01);

@@ -50,8 +50,8 @@ fn main() {
         block_size: 512,
     };
 
-    let mut engine = create_engine(config, args.samples.as_deref())
-        .unwrap_or_else(|err| panic!("{err}"));
+    let mut engine =
+        create_engine(config, args.samples.as_deref()).unwrap_or_else(|err| panic!("{err}"));
     apply_setup_commands(&mut engine, &args.eval);
     let output = render_to_buffer(&mut engine, args.duration)
         .output

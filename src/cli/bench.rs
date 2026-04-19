@@ -71,8 +71,7 @@ fn main() {
     };
 
     let result = match args.command {
-        Command::Suite => run_suite(&overrides, args.samples.as_deref())
-            .map(Output::Suite),
+        Command::Suite => run_suite(&overrides, args.samples.as_deref()).map(Output::Suite),
         Command::Case { name } => {
             let case = find_case(&name).ok_or_else(|| format!("unknown benchmark case '{name}'"));
             case.and_then(|case| run_case(case, &overrides, args.samples.as_deref()))
@@ -107,7 +106,9 @@ fn main() {
     }
 
     if args.breakdown && !cfg!(feature = "profiling") {
-        eprintln!("Breakdown requested, but this build does not have the 'profiling' feature enabled.");
+        eprintln!(
+            "Breakdown requested, but this build does not have the 'profiling' feature enabled."
+        );
     }
 }
 
@@ -135,11 +136,7 @@ fn print_result(result: &BenchmarkResult, show_breakdown: bool) {
         for phase in &result.breakdown {
             println!(
                 "  {:<18} {:>7.2}% total_ns={:<12} calls={:<8} ns/sample={:.2}",
-                phase.label,
-                phase.percent_total,
-                phase.total_ns,
-                phase.calls,
-                phase.ns_per_sample,
+                phase.label, phase.percent_total, phase.total_ns, phase.calls, phase.ns_per_sample,
             );
         }
     }

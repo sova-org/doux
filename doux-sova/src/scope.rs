@@ -81,9 +81,9 @@ impl ScopeCapture {
         buf.chunks(window)
             .take(num_peaks)
             .map(|chunk| {
-                chunk
-                    .iter()
-                    .fold((f32::MAX, f32::MIN), |(min, max), &s| (min.min(s), max.max(s)))
+                chunk.iter().fold((f32::MAX, f32::MIN), |(min, max), &s| {
+                    (min.min(s), max.max(s))
+                })
             })
             .collect()
     }

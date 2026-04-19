@@ -51,7 +51,9 @@ impl PeakCapture {
         // Zero the new write buffer before swapping
         let new_ptr = self.buffers[new as usize].as_ptr() as *mut f32;
         for i in 0..self.num_channels {
-            unsafe { *new_ptr.add(i) = 0.0; }
+            unsafe {
+                *new_ptr.add(i) = 0.0;
+            }
         }
         self.write_idx.store(new, Ordering::Release);
 

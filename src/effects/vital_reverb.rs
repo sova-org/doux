@@ -204,7 +204,8 @@ impl VitalVerb {
         let allpass_bufs = std::array::from_fn(|line| {
             let c = line / CONTAINER_SIZE;
             let l = line % CONTAINER_SIZE;
-            let len = ((ALLPASS_DELAYS[c][l] as f32 * max_size_mult * sr_ratio) as usize + 4).max(1);
+            let len =
+                ((ALLPASS_DELAYS[c][l] as f32 * max_size_mult * sr_ratio) as usize + 4).max(1);
             vec![0.0; next_pow2(len)]
         });
 
@@ -232,7 +233,7 @@ impl VitalVerb {
     pub fn process(
         &mut self,
         input: f32,
-        decay: f32,      // 0-1: reverb time
+        decay: f32,       // 0-1: reverb time
         damp: f32,        // 0-1: high-frequency damping (inverted for high_gain)
         predelay: f32,    // 0-1: pre-delay amount
         size: f32,        // 0-1: room size / diffusion
@@ -263,9 +264,14 @@ impl VitalVerb {
 
         // Recompute expensive derived values only when source params change.
         let c = &mut self.cached;
-        if c.decay != decay || c.damp != damp || c.size != size || c.lowgain != lowgain
-            || c.prelow != prelow || c.prehigh != prehigh
-            || c.lowcut != lowcut || c.highcut != highcut
+        if c.decay != decay
+            || c.damp != damp
+            || c.size != size
+            || c.lowgain != lowgain
+            || c.prelow != prelow
+            || c.prehigh != prehigh
+            || c.lowcut != lowcut
+            || c.highcut != highcut
         {
             let size_exp = -3.0 + size * 4.0;
             let size_mult = exp2f(size_exp);
@@ -318,12 +324,8 @@ impl VitalVerb {
 
         // --- Step 1: Write input to predelay, read back ---
         self.predelay_buf[wp & self.predelay_mask] = ftz(input, 1e-18);
-        let predelayed = lagrange_read(
-            &self.predelay_buf,
-            self.predelay_mask,
-            wp,
-            predelay_samples,
-        );
+        let predelayed =
+            lagrange_read(&self.predelay_buf, self.predelay_mask, wp, predelay_samples);
 
         // --- Step 2: Pre-filter (HP -> LP) and scale by 1/4 ---
         let hp_out = onepole_hp(&mut self.pre_hp_state, predelayed, prelow_coeff);
@@ -401,10 +403,8 @@ impl VitalVerb {
             .zip(self.shelf_high_state.iter_mut())
             .enumerate()
         {
-            matrix_out[line] =
-                low_shelf(lo_st, matrix_out[line], lowcut_coeff, low_gain_linear);
-            matrix_out[line] =
-                high_shelf(hi_st, matrix_out[line], highcut_coeff, high_gain_linear);
+            matrix_out[line] = low_shelf(lo_st, matrix_out[line], lowcut_coeff, low_gain_linear);
+            matrix_out[line] = high_shelf(hi_st, matrix_out[line], highcut_coeff, high_gain_linear);
         }
 
         // --- Step 8: Per-line T60 decay (cached coefficients) ---

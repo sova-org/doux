@@ -241,40 +241,46 @@ pub fn build_audio_streams(
                     // A panic inside a cpal callback (called from C/ALSA) is UB.
                     // Wrap in catch_unwind; on panic output silence.
                     if panicked {
-                        for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                        for s in data.iter_mut() {
+                            *s = <$T as FromSample<f32>>::from_sample_(0.0);
+                        }
                         return;
                     }
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    conv_buf.resize(data.len(), 0.0f32);
+                        conv_buf.resize(data.len(), 0.0f32);
 
-                    while let Ok(cmd) = cmd_rx.try_recv() {
-                        match cmd {
-                            AudioCmd::Evaluate(s) => { engine.evaluate(&s); }
-                            AudioCmd::Hush => engine.hush(),
-                            AudioCmd::Panic => engine.panic(),
+                        while let Ok(cmd) = cmd_rx.try_recv() {
+                            match cmd {
+                                AudioCmd::Evaluate(s) => {
+                                    engine.evaluate(&s);
+                                }
+                                AudioCmd::Hush => engine.hush(),
+                                AudioCmd::Panic => engine.panic(),
+                            }
                         }
-                    }
 
-                    let buffer_samples = conv_buf.len() / ch;
-                    let raw_len = buffer_samples * nch_in;
-                    if scratch.len() < raw_len {
-                        scratch.resize(raw_len, 0.0);
-                    }
-                    scratch[..raw_len].fill(0.0);
-                    input_consumer.pop_slice(&mut scratch[..raw_len]);
+                        let buffer_samples = conv_buf.len() / ch;
+                        let raw_len = buffer_samples * nch_in;
+                        if scratch.len() < raw_len {
+                            scratch.resize(raw_len, 0.0);
+                        }
+                        scratch[..raw_len].fill(0.0);
+                        input_consumer.pop_slice(&mut scratch[..raw_len]);
 
-                    let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
-                    engine.metrics.load.set_buffer_time(buffer_time_ns);
-                    engine.process_block(&mut conv_buf, &[], &scratch[..raw_len]);
+                        let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
+                        engine.metrics.load.set_buffer_time(buffer_time_ns);
+                        engine.process_block(&mut conv_buf, &[], &scratch[..raw_len]);
 
-                    for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
-                        *out = <$T as FromSample<f32>>::from_sample_(src);
-                    }
+                        for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
+                            *out = <$T as FromSample<f32>>::from_sample_(src);
+                        }
                     })); // end catch_unwind
                     if result.is_err() {
                         panicked = true;
                         eprintln!("[doux] PANIC in audio callback — outputting silence");
-                        for s in data.iter_mut() { *s = <$T as FromSample<f32>>::from_sample_(0.0); }
+                        for s in data.iter_mut() {
+                            *s = <$T as FromSample<f32>>::from_sample_(0.0);
+                        }
                     }
                 },
                 move |err| match err {
@@ -300,9 +306,9 @@ pub fn build_audio_streams(
         cpal::SampleFormat::I32 => build_output!(i32),
         cpal::SampleFormat::I16 => build_output!(i16),
         format => {
-            return Err(DouxError::StreamCreationFailed(
-                format!("unsupported output sample format: {format:?}"),
-            ));
+            return Err(DouxError::StreamCreationFailed(format!(
+                "unsupported output sample format: {format:?}"
+            )));
         }
     }
     .map_err(|e| DouxError::StreamCreationFailed(e.to_string()))?;
@@ -336,7 +342,8 @@ pub fn recreate_engine(
     sample_registry: &Arc<crate::sampling::SampleRegistry>,
     #[cfg(feature = "soundfont")] gm_bank: &Option<crate::soundfont::GmBank>,
 ) -> Engine {
-    let mut engine = Engine::new_with_channels(sample_rate, output_channels, max_voices, block_size);
+    let mut engine =
+        Engine::new_with_channels(sample_rate, output_channels, max_voices, block_size);
     engine.sample_index = sample_index.to_vec();
     engine.sample_registry = Arc::clone(sample_registry);
     #[cfg(feature = "soundfont")]

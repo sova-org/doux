@@ -3,6 +3,18 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.32] - 2026-04-19
+
+### Added
+
+### Changed
+
+- Removed always-on master saturation
+
+### Fixed
+
+- Preserved stereo in orbit comb and feedback sends
+
 ## [0.0.31] - 2026-04-09
 
 ### Added
