@@ -501,6 +501,34 @@ impl Voice {
     }
 
     fn run_single_osc(&mut self, freq: f32, isr: f32) {
+        let ratio = self.params.sync_ratio;
+        if ratio > 1.0 + 1e-4 {
+            let master_dt = freq * isr;
+            let prev = self.sync_phasor.phase;
+            self.sync_phasor.update(freq, isr);
+            if self.sync_phasor.phase < prev {
+                let wrap_frac = if master_dt > 0.0 {
+                    self.sync_phasor.phase / master_dt
+                } else {
+                    0.0
+                };
+                let slave_dt = master_dt * ratio;
+                let mut p = self.params.sync_phase + slave_dt * wrap_frac;
+                if p >= 1.0 {
+                    p -= p.floor();
+                }
+                if p < 0.0 {
+                    p += 1.0;
+                }
+                self.phasor.phase = p;
+            }
+            self.generate_main_osc(freq * ratio, isr);
+        } else {
+            self.generate_main_osc(freq, isr);
+        }
+    }
+
+    fn generate_main_osc(&mut self, freq: f32, isr: f32) {
         self.ch[0] = match self.params.sound {
             Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape) * 0.5,
             Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape) * 0.5,
@@ -737,5 +765,61 @@ mod tests {
         assert!(voice.additive_cache.valid);
         assert_eq!(voice.additive_cache.active_count, 6);
         assert!(voice.additive_cache.norm_prefix[5] > old_last_norm);
+    }
+
+    #[test]
+    fn hard_sync_resets_main_phase_on_master_wrap() {
+        let sr = 44_100.0_f32;
+        let isr = 1.0 / sr;
+        let freq = 100.0_f32;
+        let ratio = 3.0_f32;
+
+        let mut voice = Voice::default();
+        voice.params.sound = Source::Saw;
+        voice.params.sync_ratio = ratio;
+        voice.params.sync_phase = 0.0;
+
+        let samples_per_master_period = (sr / freq).ceil() as usize + 2;
+        let mut wrap_count = 0usize;
+        let mut prev_master = voice.sync_phasor.phase;
+        let mut phase_after_wrap = f32::NAN;
+
+        for _ in 0..samples_per_master_period {
+            voice.run_single_osc(freq, isr);
+            if voice.sync_phasor.phase < prev_master {
+                wrap_count += 1;
+                phase_after_wrap = voice.phasor.phase;
+            }
+            prev_master = voice.sync_phasor.phase;
+        }
+
+        assert_eq!(wrap_count, 1, "expected exactly one master wrap");
+        // Phase is captured after the sample's advance: slave was reset to
+        // (sync_phase + slave_dt * wrap_frac) and then advanced by slave_dt.
+        let slave_dt = freq * ratio * isr;
+        assert!(
+            phase_after_wrap >= 0.0 && phase_after_wrap < 2.0 * slave_dt,
+            "slave phase after sync should be within 2*slave_dt of 0, got {phase_after_wrap} (slave_dt={slave_dt})"
+        );
+    }
+
+    #[test]
+    fn hard_sync_ratio_one_is_no_op() {
+        let sr = 44_100.0_f32;
+        let isr = 1.0 / sr;
+        let freq = 220.0_f32;
+
+        let mut synced = Voice::default();
+        synced.params.sound = Source::Saw;
+        synced.params.sync_ratio = 1.0;
+
+        let mut plain = Voice::default();
+        plain.params.sound = Source::Saw;
+
+        for _ in 0..256 {
+            synced.run_single_osc(freq, isr);
+            plain.run_single_osc(freq, isr);
+            assert_eq!(synced.ch[0].to_bits(), plain.ch[0].to_bits());
+        }
     }
 }

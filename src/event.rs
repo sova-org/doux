@@ -50,6 +50,8 @@ pub struct Event {
     pub sub: Option<f32>,
     pub sub_oct: Option<u8>,
     pub sub_wave: Option<SubWave>,
+    pub sync_ratio: Option<f32>,
+    pub sync_phase: Option<f32>,
     pub scan: Option<f32>,
     pub wtlen: Option<u32>,
     // Web sample (WASM only - set by JavaScript)
@@ -309,6 +311,8 @@ impl Event {
                 "sub" => parse_param!(val, sub, ParamId::Sub),
                 "suboct" => event.sub_oct = Self::parse_u8(val),
                 "subwave" => event.sub_wave = val.parse().ok(),
+                "sync" => parse_param!(val, sync_ratio, ParamId::SyncRatio),
+                "syncphase" | "syncph" => parse_param!(val, sync_phase, ParamId::SyncPhase),
                 "scan" => parse_param!(val, scan, ParamId::Scan),
                 "wtlen" => event.wtlen = val.parse().ok(),
                 "file_pcm" => event.file_pcm = val.parse().ok(),

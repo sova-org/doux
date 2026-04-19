@@ -375,6 +375,8 @@ pub enum ParamId {
     EqHiFreq,
     Comp,
     Mirror,
+    SyncRatio,
+    SyncPhase,
 }
 
 #[derive(Clone, Copy)]

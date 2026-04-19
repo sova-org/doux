@@ -55,6 +55,7 @@ pub struct Voice {
     pub params: VoiceParams,
     pub phasor: Phasor,
     pub sub_phasor: Phasor,
+    pub sync_phasor: Phasor,
     pub spread_phasors: [Phasor; 7],
     pub dahdsr: Dahdsr,
     pub lp: [SvfState; CHANNELS],
@@ -124,6 +125,7 @@ impl Default for Voice {
             params: VoiceParams::default(),
             phasor: Phasor::default(),
             sub_phasor: Phasor::default(),
+            sync_phasor: Phasor::default(),
             spread_phasors: std::array::from_fn(|i| {
                 let mut p = Phasor::default();
                 p.phase = i as f32 / 7.0;
@@ -188,6 +190,7 @@ impl Clone for Voice {
             params: self.params,
             phasor: self.phasor,
             sub_phasor: self.sub_phasor,
+            sync_phasor: self.sync_phasor,
             spread_phasors: self.spread_phasors,
             dahdsr: self.dahdsr,
             lp: self.lp,
@@ -247,6 +250,7 @@ impl Voice {
         self.params = VoiceParams::default();
         self.phasor = Phasor::default();
         self.sub_phasor = Phasor::default();
+        self.sync_phasor = Phasor::default();
         for (i, p) in self.spread_phasors.iter_mut().enumerate() {
             *p = Phasor::default();
             p.phase = i as f32 / 7.0;
@@ -395,6 +399,8 @@ impl Voice {
             ParamId::Pw => self.params.pw,
             ParamId::Wave => self.params.wave,
             ParamId::Sub => self.params.sub,
+            ParamId::SyncRatio => self.params.sync_ratio,
+            ParamId::SyncPhase => self.params.sync_phase,
             ParamId::Harmonics => self.params.harmonics,
             ParamId::Timbre => self.params.timbre,
             ParamId::Morph => self.params.morph,
@@ -484,6 +490,8 @@ impl Voice {
             ParamId::Pw => self.params.pw = val,
             ParamId::Wave => self.params.wave = val,
             ParamId::Sub => self.params.sub = val,
+            ParamId::SyncRatio => self.params.sync_ratio = val,
+            ParamId::SyncPhase => self.params.sync_phase = val,
             ParamId::Harmonics => {
                 self.params.harmonics = val;
                 self.invalidate_additive_cache();

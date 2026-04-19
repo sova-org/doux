@@ -802,6 +802,12 @@ impl Engine {
         if let Some(sub_wave) = event.sub_wave {
             v.params.sub_wave = sub_wave;
         }
+        if let Some(sync_ratio) = event.sync_ratio {
+            v.params.sync_ratio = sync_ratio.clamp(0.0, 64.0);
+        }
+        if let Some(sync_phase) = event.sync_phase {
+            v.params.sync_phase = sync_phase.clamp(0.0, 1.0);
+        }
         if let Some(size) = event.size {
             v.params.shape.size = size.min(256);
         }

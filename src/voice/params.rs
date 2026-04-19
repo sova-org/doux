@@ -76,6 +76,11 @@ pub struct VoiceParams {
     pub sub_oct: u8,
     /// Sub oscillator waveform.
     pub sub_wave: SubWave,
+    /// Hard-sync ratio. Slave main phasor runs at `freq * sync_ratio` and is
+    /// reset each time a hidden master at `freq` wraps. `1.0` = off.
+    pub sync_ratio: f32,
+    /// Phase value (`0.0..1.0`) the slave resets TO on each sync event.
+    pub sync_phase: f32,
 
     // ─────────────────────────────────────────────────────────────────────
     // Amplitude Envelope (DAHDSR)
@@ -358,6 +363,8 @@ impl Default for VoiceParams {
             sub: 0.0,
             sub_oct: 1,
             sub_wave: SubWave::Tri,
+            sync_ratio: 1.0,
+            sync_phase: 0.0,
             envdelay: 0.0,
             attack: 0.003,
             hold: 0.0,

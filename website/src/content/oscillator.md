@@ -86,6 +86,28 @@ Waveform of the sub oscillator.
 
 </CommandEntry>
 
+## Hard Sync
+
+Classic analog hard sync. A hidden master oscillator runs at the note frequency and forces the main oscillator's phase to reset every time it wraps. Sweeping the ratio produces the characteristic sync sweep. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) as well as the `add` and `osc` sources.
+
+<CommandEntry name="sync" type="number" min={1} max={64} default={1} mod>
+
+Sync ratio. The main oscillator runs at `freq * sync` and is reset each time the hidden master at `freq` wraps. `1` disables sync (no effect). Modulate it for the classic sweep.
+
+<CodeEditor code={`/sound/saw/sync/3`} rows={2} />
+
+<CodeEditor code={`/sound/saw/sync/1~8:2/freq/110/decay/2/gate/3`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="syncphase" type="number" min={0} max={1} default={0} mod>
+
+Phase value the main oscillator resets to on each sync event. Non-zero values shift the reset point for additional timbral variation. Aliased as `syncph`.
+
+<CodeEditor code={`/sound/saw/sync/4/syncphase/.25`} rows={2} />
+
+</CommandEntry>
+
 ## Additive Partials
 
 <CommandEntry name="partials" type="number" min={1} max={32} default={32} mod>
