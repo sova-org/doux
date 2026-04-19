@@ -15,7 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- Preserved stereo in orbit comb and feedback sends
+- Preserved stereo in orbit comb, feedback, and reverb sends
+- Removed the temporary 10x Vital space reverb compensation and corrected the space reverb wet-path scaling
 - Removed hot-path heap allocation when scheduled sample events resolve or upgrade native registry samples
 
 ## [0.0.31] - 2026-04-09

@@ -6,7 +6,6 @@ const NUM_LINES: usize = NUM_CONTAINERS * CONTAINER_SIZE;
 const BASE_SR: f32 = 44100.0;
 const ALLPASS_COEFF: f32 = 0.6;
 const MAX_PREDELAY_SEC: f32 = 0.3;
-const SQRT2: f32 = std::f32::consts::SQRT_2;
 
 // Feedback delay lengths in samples at 44100Hz (per container, per line).
 const FEEDBACK_DELAYS: [[f32; CONTAINER_SIZE]; NUM_CONTAINERS] = [
@@ -150,13 +149,13 @@ impl CachedParams {
 
 #[derive(Clone)]
 pub struct VitalVerb {
-    // Pre-delay (stereo, but we process mono input).
-    predelay_buf: Vec<f32>,
+    // Pre-delay and pre-filter state stay channel-local.
+    predelay_buf: [Vec<f32>; 2],
     predelay_mask: usize,
 
     // Pre-filter state (HP + LP).
-    pre_hp_state: f32,
-    pre_lp_state: f32,
+    pre_hp_state: [f32; 2],
+    pre_lp_state: [f32; 2],
 
     // 16 feedback delay lines (modulated).
     delay_bufs: [Vec<f32>; NUM_LINES],
@@ -210,10 +209,10 @@ impl VitalVerb {
         });
 
         Self {
-            predelay_buf: vec![0.0; pd_size],
+            predelay_buf: std::array::from_fn(|_| vec![0.0; pd_size]),
             predelay_mask: pd_size - 1,
-            pre_hp_state: 0.0,
-            pre_lp_state: 0.0,
+            pre_hp_state: [0.0; 2],
+            pre_lp_state: [0.0; 2],
             delay_bufs,
             delay_masks,
             allpass_bufs,
@@ -232,7 +231,7 @@ impl VitalVerb {
     #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
-        input: f32,
+        input: [f32; 2],
         decay: f32,       // 0-1: reverb time
         damp: f32,        // 0-1: high-frequency damping (inverted for high_gain)
         predelay: f32,    // 0-1: pre-delay amount
@@ -323,18 +322,33 @@ impl VitalVerb {
         let lfo_inc = chorus_hz / sr;
 
         // --- Step 1: Write input to predelay, read back ---
-        self.predelay_buf[wp & self.predelay_mask] = ftz(input, 1e-18);
-        let predelayed =
-            lagrange_read(&self.predelay_buf, self.predelay_mask, wp, predelay_samples);
+        let mut predelayed = [0.0; 2];
+        for channel in 0..2 {
+            self.predelay_buf[channel][wp & self.predelay_mask] = ftz(input[channel], 1e-18);
+            predelayed[channel] = lagrange_read(
+                &self.predelay_buf[channel],
+                self.predelay_mask,
+                wp,
+                predelay_samples,
+            );
+        }
 
         // --- Step 2: Pre-filter (HP -> LP) and scale by 1/4 ---
-        let hp_out = onepole_hp(&mut self.pre_hp_state, predelayed, prelow_coeff);
-        let prefiltered = onepole_lp(&mut self.pre_lp_state, hp_out, prehigh_coeff) * 0.25;
+        let mut prefiltered = [0.0; 2];
+        for channel in 0..2 {
+            let hp_out = onepole_hp(
+                &mut self.pre_hp_state[channel],
+                predelayed[channel],
+                prelow_coeff,
+            );
+            prefiltered[channel] =
+                onepole_lp(&mut self.pre_lp_state[channel], hp_out, prehigh_coeff) * 0.25;
+        }
 
         // --- Step 3: Add pre-filtered input to feedback signals ---
         let mut x = [0.0f32; NUM_LINES];
-        for (xi, &fb) in x.iter_mut().zip(self.feedback.iter()) {
-            *xi = fb + prefiltered;
+        for (line, (xi, &fb)) in x.iter_mut().zip(self.feedback.iter()).enumerate() {
+            *xi = fb + prefiltered[line % 2];
         }
 
         // --- Step 4: Allpass comb filters ---
@@ -364,7 +378,6 @@ impl VitalVerb {
         // which simplifies to a specific mixing pattern.
 
         let global_sum: f32 = x.iter().sum();
-        let global_avg = global_sum / NUM_LINES as f32;
 
         let mut container_sums = [0.0f32; NUM_CONTAINERS];
         for c in 0..NUM_CONTAINERS {
@@ -372,17 +385,22 @@ impl VitalVerb {
                 container_sums[c] += x[c * CONTAINER_SIZE + l];
             }
         }
+        let mut lane_sums = [0.0f32; CONTAINER_SIZE];
+        for lane in 0..CONTAINER_SIZE {
+            for container in 0..NUM_CONTAINERS {
+                lane_sums[lane] += x[container * CONTAINER_SIZE + lane];
+            }
+        }
 
         let mut matrix_out = [0.0f32; NUM_LINES];
         for (line, (mo, &xi)) in matrix_out.iter_mut().zip(x.iter()).enumerate() {
-            let c = line / CONTAINER_SIZE;
-            let other_fb = global_avg - 0.5 * container_sums[c] / CONTAINER_SIZE as f32;
-            let adjacent_fb = -0.5 * container_sums[c] / CONTAINER_SIZE as f32;
-            *mo = xi + other_fb + adjacent_fb;
+            let container = line / CONTAINER_SIZE;
+            let lane = line % CONTAINER_SIZE;
+            *mo = xi + global_sum * 0.25 - lane_sums[lane] * 0.5 - container_sums[container] * 0.5;
         }
 
         // --- Step 6: Extract stereo output from post-matrix signals ---
-        // Sum to stereo with channel alternation, then swap and apply sqrt(2) gain.
+        // Faust merges alternating lines into stereo and then swaps channels.
         let mut left = 0.0f32;
         let mut right = 0.0f32;
         for (line, &mo) in matrix_out.iter().enumerate() {
@@ -392,9 +410,8 @@ impl VitalVerb {
                 right += mo;
             }
         }
-        // Scale (the Faust code uses 2/4 = 0.5 per channel, then sqrt(2) makeup).
-        left *= 0.5 * SQRT2 / NUM_LINES as f32 * CONTAINER_SIZE as f32;
-        right *= 0.5 * SQRT2 / NUM_LINES as f32 * CONTAINER_SIZE as f32;
+        left *= 0.5;
+        right *= 0.5;
 
         // --- Step 7: Shelf filters in feedback path ---
         for (line, (lo_st, hi_st)) in self
@@ -451,13 +468,15 @@ impl VitalVerb {
         self.write_pos = wp + 1;
 
         // Flush denormals.
-        [ftz(left, 1e-18), ftz(right, 1e-18)]
+        [ftz(right, 1e-18), ftz(left, 1e-18)]
     }
 
     pub fn clear(&mut self) {
-        self.predelay_buf.fill(0.0);
-        self.pre_hp_state = 0.0;
-        self.pre_lp_state = 0.0;
+        for buffer in &mut self.predelay_buf {
+            buffer.fill(0.0);
+        }
+        self.pre_hp_state = [0.0; 2];
+        self.pre_lp_state = [0.0; 2];
         for buf in &mut self.delay_bufs {
             buf.fill(0.0);
         }

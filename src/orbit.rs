@@ -4,7 +4,6 @@ use crate::types::{DelayType, LfoShape, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
 const SILENCE_HOLDOFF: u32 = 48000;
-const SPACE_GAIN_COMPENSATION: f32 = 10.0;
 
 #[derive(Clone, Copy)]
 pub struct EffectParams {
@@ -75,7 +74,7 @@ pub struct Orbit {
     pub delay: Delay,
     pub delay_send: [f32; CHANNELS],
     pub delay_out: [f32; CHANNELS],
-    pub verb: DattorroVerb,
+    pub verb: [DattorroVerb; CHANNELS],
     pub vital: VitalVerb,
     pub verb_send: [f32; CHANNELS],
     pub verb_out: [f32; CHANNELS],
@@ -99,7 +98,7 @@ impl Orbit {
             delay: Delay::new(),
             delay_send: [0.0; CHANNELS],
             delay_out: [0.0; CHANNELS],
-            verb: DattorroVerb::new(sr),
+            verb: std::array::from_fn(|_| DattorroVerb::new(sr)),
             vital: VitalVerb::new(sr),
             verb_send: [0.0; CHANNELS],
             verb_out: [0.0; CHANNELS],
@@ -172,35 +171,36 @@ impl Orbit {
             },
         );
 
-        let verb_input = (self.verb_send[0] + self.verb_send[1]) * 0.5;
         self.verb_out = match p.verb_type {
-            ReverbType::Plate => self.verb.process(
-                verb_input,
+            ReverbType::Plate => {
+                let mut out = [0.0; CHANNELS];
+                for channel in 0..CHANNELS {
+                    let wet = self.verb[channel].process(
+                        self.verb_send[channel],
+                        p.verb_decay,
+                        p.verb_damp,
+                        p.verb_predelay,
+                        p.verb_diff,
+                    );
+                    out[0] += wet[0];
+                    out[1] += wet[1];
+                }
+                out
+            }
+            ReverbType::Space => self.vital.process(
+                self.verb_send,
                 p.verb_decay,
                 p.verb_damp,
                 p.verb_predelay,
                 p.verb_diff,
+                p.verb_prelow,
+                p.verb_prehigh,
+                p.verb_lowcut,
+                p.verb_highcut,
+                p.verb_lowgain,
+                p.verb_chorus,
+                p.verb_chorus_freq,
             ),
-            ReverbType::Space => {
-                let out = self.vital.process(
-                    verb_input,
-                    p.verb_decay,
-                    p.verb_damp,
-                    p.verb_predelay,
-                    p.verb_diff,
-                    p.verb_prelow,
-                    p.verb_prehigh,
-                    p.verb_lowcut,
-                    p.verb_highcut,
-                    p.verb_lowgain,
-                    p.verb_chorus,
-                    p.verb_chorus_freq,
-                );
-                [
-                    out[0] * SPACE_GAIN_COMPENSATION,
-                    out[1] * SPACE_GAIN_COMPENSATION,
-                ]
-            }
         };
 
         for channel in 0..CHANNELS {
