@@ -140,7 +140,7 @@ fn main() {
                     Ok(data) => {
                         engine
                             .sample_registry
-                            .insert(entry.name.clone(), Arc::new(data));
+                            .insert(entry.name.as_ref().to_string(), Arc::new(data));
                     }
                     Err(e) => {
                         eprintln!("Failed to preload {}: {e}", entry.name);

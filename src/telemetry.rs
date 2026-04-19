@@ -138,6 +138,7 @@ struct PhaseCounters {
 }
 
 /// Optional aggregate hotspot profiler for native engine development.
+#[derive(Default)]
 pub struct EngineProfiler {
     #[cfg(feature = "profiling")]
     total_samples: AtomicU64,
@@ -145,19 +146,6 @@ pub struct EngineProfiler {
     total_blocks: AtomicU64,
     #[cfg(feature = "profiling")]
     phases: [PhaseCounters; PROFILE_PHASE_COUNT],
-}
-
-impl Default for EngineProfiler {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "profiling")]
-            total_samples: AtomicU64::new(0),
-            #[cfg(feature = "profiling")]
-            total_blocks: AtomicU64::new(0),
-            #[cfg(feature = "profiling")]
-            phases: std::array::from_fn(|_| PhaseCounters::default()),
-        }
-    }
 }
 
 impl EngineProfiler {

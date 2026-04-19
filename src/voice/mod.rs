@@ -26,6 +26,7 @@ use crate::types::CHANNELS;
 
 pub const MAX_PARAM_MODS: usize = 15;
 pub(crate) const MAX_ADDITIVE_PARTIALS: usize = 32;
+const VOICE_OUTPUT_TRIM: f32 = 0.5;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AdditiveCache {
@@ -984,6 +985,10 @@ impl Voice {
             let pan_pos = self.params.pan * PI / 2.0;
             self.ch[0] *= cosf(pan_pos);
             self.ch[1] *= sinf(pan_pos);
+        }
+
+        for c in 0..CHANNELS {
+            self.ch[c] *= VOICE_OUTPUT_TRIM;
         }
 
         self.time += isr;

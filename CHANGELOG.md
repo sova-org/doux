@@ -10,10 +10,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - Removed always-on master saturation
+- Removed voice-count gain compensation in favor of fixed per-voice trim plus linked output limiting and soft clipping
+- Switched native sample metadata on the callback path from owned `String`/`PathBuf` clones to shared `Arc<str>` / `Arc<PathBuf>` handles
 
 ### Fixed
 
 - Preserved stereo in orbit comb and feedback sends
+- Removed hot-path heap allocation when scheduled sample events resolve or upgrade native registry samples
 
 ## [0.0.31] - 2026-04-09
 

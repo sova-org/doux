@@ -15,9 +15,9 @@ use super::registry::SampleRegistry;
 /// Request to load a sample from disk.
 pub struct LoadRequest {
     /// Unique name for the sample (e.g., "kick/0").
-    pub name: String,
+    pub name: Arc<str>,
     /// Path to the audio file.
-    pub path: PathBuf,
+    pub path: Arc<PathBuf>,
     /// Target sample rate for resampling.
     pub target_sr: f32,
 }
@@ -52,7 +52,7 @@ impl SampleLoader {
     ///
     /// Returns `true` if the request was queued, `false` if the queue is full.
     /// Non-blocking: will not wait if the channel is at capacity.
-    pub fn request(&self, name: String, path: PathBuf, target_sr: f32) -> bool {
+    pub fn request(&self, name: Arc<str>, path: Arc<PathBuf>, target_sr: f32) -> bool {
         let Some(ref tx) = self.tx else {
             return false;
         };
@@ -83,23 +83,23 @@ impl Drop for SampleLoader {
 }
 
 fn loader_thread(rx: Receiver<LoadRequest>, registry: Arc<SampleRegistry>) {
-    let mut pending: HashSet<String> = HashSet::new();
+    let mut pending: HashSet<Arc<str>> = HashSet::new();
 
     for request in rx {
         if pending.contains(&request.name) {
             continue;
         }
-        if let Some(data) = registry.get(&request.name) {
+        if let Some(data) = registry.get(request.name.as_ref()) {
             if data.frame_count >= data.total_frames {
                 continue;
             }
         }
 
-        pending.insert(request.name.clone());
+        pending.insert(Arc::clone(&request.name));
 
-        match decode_sample_file(&request.path, request.target_sr) {
+        match decode_sample_file(request.path.as_ref(), request.target_sr) {
             Ok(data) => {
-                registry.insert(request.name.clone(), Arc::new(data));
+                registry.insert(request.name.as_ref().to_string(), Arc::new(data));
             }
             Err(e) => {
                 eprintln!("Failed to load sample {}: {e}", request.name);

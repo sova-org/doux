@@ -35,8 +35,7 @@ pub enum AudioCmd {
     Panic,
 }
 
-use dsp::init_envelope;
-use effects::Lag;
+use dsp::{fast_tanh_f32, init_envelope};
 use event::Event;
 
 use orbit::Orbit;
@@ -78,7 +77,6 @@ use voice::{modulation, Voice, VoiceParams};
 #[cfg(feature = "soundfont")]
 struct GmResolved {
     data: Arc<SampleData>,
-    name: String,
     root_freq: f32,
     loop_start: f32,
     loop_end: f32,
@@ -121,6 +119,71 @@ impl Default for OrbitBlockState {
     }
 }
 
+const MIX_BUS_TRIM: f32 = 0.9;
+const OUTPUT_LIMIT_THRESHOLD: f32 = 0.95;
+const OUTPUT_LIMIT_RELEASE_SECS: f32 = 0.05;
+const OUTPUT_SOFT_CLIP_THRESHOLD: f32 = 0.95;
+
+#[derive(Clone, Copy)]
+struct StereoOutputStage {
+    gain: f32,
+}
+
+impl Default for StereoOutputStage {
+    fn default() -> Self {
+        Self { gain: 1.0 }
+    }
+}
+
+impl StereoOutputStage {
+    fn process(&mut self, pair: &mut [f32], sr: f32) {
+        debug_assert_eq!(pair.len(), CHANNELS);
+
+        pair[0] *= MIX_BUS_TRIM;
+        pair[1] *= MIX_BUS_TRIM;
+
+        let peak = pair[0].abs().max(pair[1].abs());
+        let target_gain = if peak > OUTPUT_LIMIT_THRESHOLD {
+            OUTPUT_LIMIT_THRESHOLD / peak
+        } else {
+            1.0
+        };
+
+        if target_gain < self.gain {
+            self.gain = target_gain;
+        } else {
+            let release_coeff = 1.0 / (OUTPUT_LIMIT_RELEASE_SECS * sr).max(1.0);
+            self.gain += release_coeff * (target_gain - self.gain);
+        }
+
+        pair[0] = soft_clip_sample(pair[0] * self.gain);
+        pair[1] = soft_clip_sample(pair[1] * self.gain);
+    }
+}
+
+#[inline]
+fn soft_clip_sample(input: f32) -> f32 {
+    let magnitude = input.abs();
+    if magnitude <= OUTPUT_SOFT_CLIP_THRESHOLD {
+        return input;
+    }
+
+    let sign = input.signum();
+    let headroom = 1.0 - OUTPUT_SOFT_CLIP_THRESHOLD;
+    let drive = (magnitude - OUTPUT_SOFT_CLIP_THRESHOLD) / headroom;
+    let clipped = OUTPUT_SOFT_CLIP_THRESHOLD + fast_tanh_f32(drive) * headroom;
+    sign * clipped.min(1.0)
+}
+
+fn output_stage_count(output_channels: usize) -> usize {
+    debug_assert_eq!(
+        output_channels % CHANNELS,
+        0,
+        "output channels must be arranged as stereo pairs"
+    );
+    output_channels / CHANNELS
+}
+
 pub struct Engine {
     pub sr: f32,
     pub isr: f32,
@@ -156,8 +219,7 @@ pub struct Engine {
     #[cfg(feature = "soundfont")]
     pub gm_bank: Option<soundfont::GmBank>,
     pub input_channels: usize,
-    voice_gain_lag: [Lag; MAX_ORBITS],
-    voice_comp_targets: [f32; MAX_ORBITS],
+    output_stages: Vec<StereoOutputStage>,
     voice_seed: u32,
     #[cfg(feature = "native")]
     load_gate: bool,
@@ -194,9 +256,8 @@ impl Engine {
             sample_pool: SamplePool::new(),
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
-            voice_comp_targets: [1.0; MAX_ORBITS],
+            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
             voice_seed: 123456789,
         }
     }
@@ -249,9 +310,8 @@ impl Engine {
             metrics: Arc::new(EngineMetrics::default()),
             #[cfg(feature = "soundfont")]
             gm_bank: None,
-            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
-            voice_comp_targets: [1.0; MAX_ORBITS],
+            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -296,9 +356,8 @@ impl Engine {
             metrics,
             #[cfg(feature = "soundfont")]
             gm_bank: None,
-            voice_gain_lag: [Lag { s: 1.0 }; MAX_ORBITS],
             input_channels: 2,
-            voice_comp_targets: [1.0; MAX_ORBITS],
+            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -361,28 +420,28 @@ impl Engine {
 
     /// Get the sample name for a given base name and n index.
     #[cfg(feature = "native")]
-    fn get_sample_name(&self, name: &str, n: usize) -> Option<String> {
+    fn get_sample_name(&self, name: &str, n: usize) -> Option<Arc<str>> {
         let index_idx = self.find_sample_index(name, n)?;
-        Some(self.sample_index[index_idx].name.clone())
+        Some(Arc::clone(&self.sample_index[index_idx].name))
     }
 
     /// Try to get a sample from the registry, or request background loading.
     #[cfg(feature = "native")]
-    fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<(String, Arc<SampleData>)> {
+    fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<(Arc<str>, Arc<SampleData>)> {
         let sample_name = self.get_sample_name(name, n)?;
 
-        if let Some(data) = self.sample_registry.get(&sample_name) {
+        if let Some(data) = self.sample_registry.get(sample_name.as_ref()) {
             if data.frame_count < data.total_frames {
                 let index_idx = self.find_sample_index(name, n)?;
-                let path = self.sample_index[index_idx].path.clone();
+                let path = Arc::clone(&self.sample_index[index_idx].path);
                 self.sample_loader
-                    .request(sample_name.clone(), path, self.sr);
+                    .request(Arc::clone(&sample_name), path, self.sr);
             }
             return Some((sample_name, data));
         }
 
         let index_idx = self.find_sample_index(name, n)?;
-        let path = self.sample_index[index_idx].path.clone();
+        let path = Arc::clone(&self.sample_index[index_idx].path);
         self.sample_loader.request(sample_name, path, self.sr);
 
         None
@@ -410,7 +469,6 @@ impl Engine {
         let data = self.sample_registry.get(zone.sample_name)?;
         Some(GmResolved {
             data,
-            name: zone.sample_name.to_string(),
             root_freq: zone.root_freq,
             loop_start: zone.loop_start,
             loop_end: zone.loop_end,
@@ -448,7 +506,10 @@ impl Engine {
         self.dispatch_event(event)
     }
 
-    /// Dispatch a pre-parsed event. RT-safe (no parsing, no string allocation).
+    /// Dispatch a pre-parsed event.
+    ///
+    /// `play` events are RT-safe: sample note-on now reuses pre-owned metadata and
+    /// only clones `Arc` handles on the callback path. `rec` remains non-RT.
     pub fn dispatch_event(&mut self, event: Event) -> Option<usize> {
         let cmd = event.cmd.as_deref().unwrap_or("play");
 
@@ -532,10 +593,10 @@ impl Engine {
             if let Some((name, data)) = self.recorder.finalize() {
                 let key = format!("{name}/0");
                 self.sample_registry.insert(key.clone(), data);
-                if !self.sample_index.iter().any(|e| e.name == key) {
+                if !self.sample_index.iter().any(|e| e.name.as_ref() == key) {
                     self.sample_index.push(SampleEntry {
-                        name: key,
-                        path: std::path::PathBuf::new(),
+                        name: Arc::from(key),
+                        path: Arc::new(std::path::PathBuf::new()),
                     });
                 }
             }
@@ -775,7 +836,7 @@ impl Engine {
         // GM soundfont sample setup
         #[cfg(feature = "soundfont")]
         if let Some(gm) = gm_resolved {
-            let mut rs = RegistrySample::new(gm.name, gm.data, 0.0, 1.0);
+            let mut rs = RegistrySample::new(None, gm.data, 0.0, 1.0);
             rs.root_freq = gm.root_freq;
             rs.scale_tuning = gm.scale_tuning;
             if gm.looping {
@@ -826,9 +887,14 @@ impl Engine {
             };
             let (begin, end) = event.resolve_range();
             let frame_count = sample_data.total_frames;
-            v.registry_sample = Some(RegistrySample::new(sample_name, sample_data, begin, end));
+            v.registry_sample = Some(RegistrySample::new(
+                Some(sample_name),
+                sample_data,
+                begin,
+                end,
+            ));
             if let Some((name_b, data_b)) = registry_sample_data_b {
-                v.registry_sample_b = Some(RegistrySample::new(name_b, data_b, begin, end));
+                v.registry_sample_b = Some(RegistrySample::new(Some(name_b), data_b, begin, end));
                 v.sample_blend = sample_blend;
             } else {
                 v.registry_sample_b = None;
@@ -1184,19 +1250,6 @@ impl Engine {
         #[cfg(all(feature = "native", feature = "profiling"))]
         let mut voice_fx_ns = 0u64;
 
-        let mut voice_comp = [0.0f32; MAX_ORBITS];
-        for (vc, (lag, &target)) in voice_comp
-            .iter_mut()
-            .zip(
-                self.voice_gain_lag
-                    .iter_mut()
-                    .zip(self.voice_comp_targets.iter()),
-            )
-            .take(num_orbits)
-        {
-            *vc = lag.update(target, 0.005, self.sr);
-        }
-
         let mut orbit_dry = [[0.0f32; CHANNELS]; MAX_ORBITS];
         let mut i = 0;
         while i < self.active_voices {
@@ -1248,9 +1301,6 @@ impl Engine {
             }
 
             let orbit_idx = self.voices[i].params.orbit % num_orbits;
-
-            self.voices[i].ch[0] *= voice_comp[orbit_idx];
-            self.voices[i].ch[1] *= voice_comp[orbit_idx];
 
             orbit_dry[orbit_idx][0] += self.voices[i].ch[0];
             orbit_dry[orbit_idx][1] += self.voices[i].ch[1];
@@ -1346,6 +1396,11 @@ impl Engine {
             }
         }
 
+        for (pair_index, stage) in self.output_stages.iter_mut().enumerate().take(num_pairs) {
+            let pair_base = base_idx + pair_index * CHANNELS;
+            stage.process(&mut output[pair_base..pair_base + CHANNELS], self.sr);
+        }
+
         #[cfg(all(feature = "native", feature = "profiling"))]
         {
             let profiler = &self.metrics.profiler;
@@ -1377,25 +1432,6 @@ impl Engine {
             );
         }
 
-        // Pre-block: count voices per orbit for gain compensation (item 1)
-        let num_orbits = self.orbits.len();
-        let mut voices_per_orbit = [0u32; MAX_ORBITS];
-        for i in 0..self.active_voices {
-            voices_per_orbit[self.voices[i].params.orbit % num_orbits] += 1;
-        }
-        for (target, &count) in self
-            .voice_comp_targets
-            .iter_mut()
-            .zip(voices_per_orbit.iter())
-            .take(num_orbits)
-        {
-            *target = if count > 0 {
-                1.0 / (count as f32).cbrt()
-            } else {
-                1.0
-            };
-        }
-
         // Pre-block: upgrade registry samples (item 3)
         #[cfg(feature = "native")]
         {
@@ -1403,19 +1439,23 @@ impl Engine {
             let sample_upgrade_start = std::time::Instant::now();
             for i in 0..self.active_voices {
                 if let Some(ref mut rs) = self.voices[i].registry_sample {
-                    if rs.is_head() {
-                        if let Some(full) = self.sample_registry.get(&rs.name) {
-                            if full.frame_count >= full.total_frames {
-                                rs.upgrade(full);
+                    if let Some(sample_name) = rs.sample_name.as_deref() {
+                        if rs.is_head() {
+                            if let Some(full) = self.sample_registry.get(sample_name) {
+                                if full.frame_count >= full.total_frames {
+                                    rs.upgrade(full);
+                                }
                             }
                         }
                     }
                 }
                 if let Some(ref mut rs) = self.voices[i].registry_sample_b {
-                    if rs.is_head() {
-                        if let Some(full) = self.sample_registry.get(&rs.name) {
-                            if full.frame_count >= full.total_frames {
-                                rs.upgrade(full);
+                    if let Some(sample_name) = rs.sample_name.as_deref() {
+                        if rs.is_head() {
+                            if let Some(full) = self.sample_registry.get(sample_name) {
+                                if full.frame_count >= full.total_frames {
+                                    rs.upgrade(full);
+                                }
                             }
                         }
                     }
@@ -1572,6 +1612,14 @@ impl Engine {
 mod tests {
     use super::*;
 
+    fn render_delay_send(engine: &mut Engine, blocks: usize) -> [f32; CHANNELS] {
+        let mut output = [0.0; CHANNELS];
+        for _ in 0..blocks {
+            engine.process_block(&mut output, &[], &[]);
+        }
+        engine.orbits[0].delay_send
+    }
+
     fn test_voice(freq: f32, orbit: usize, delay: f32, delay_time: f32, comp: f32) -> VoiceParams {
         VoiceParams {
             sound: Source::Sine,
@@ -1611,29 +1659,75 @@ mod tests {
     }
 
     #[test]
-    fn block_rate_orbit_params_keep_send_sums() {
+    fn stereo_output_stage_keeps_signal_bounded() {
+        let mut stage = StereoOutputStage::default();
+        let mut pair = [2.0, -1.5];
+
+        stage.process(&mut pair, 48_000.0);
+
+        assert!(pair[0].abs() <= 1.0);
+        assert!(pair[1].abs() <= 1.0);
+    }
+
+    #[test]
+    fn stereo_output_stage_uses_linked_gain() {
+        let mut stage = StereoOutputStage::default();
+        let mut pair = [1.2, 0.6];
+
+        stage.process(&mut pair, 48_000.0);
+
+        assert!((pair[0] - 0.95).abs() < 1e-6);
+        assert!((pair[1] - 0.475).abs() < 1e-6);
+    }
+
+    #[test]
+    fn stereo_output_stage_release_recovers_toward_unity() {
+        let mut stage = StereoOutputStage::default();
+        let mut clipped = [2.0, 2.0];
+        stage.process(&mut clipped, 48_000.0);
+        let limited_gain = stage.gain;
+
+        let mut quiet = [0.1, 0.1];
+        for _ in 0..24_000 {
+            stage.process(&mut quiet, 48_000.0);
+        }
+
+        assert!(stage.gain > limited_gain);
+        assert!(stage.gain > 0.99);
+    }
+
+    #[test]
+    fn stereo_output_stages_are_independent() {
+        let mut stages = [StereoOutputStage::default(); 2];
+        let mut loud_pair = [2.0, 2.0];
+        let mut quiet_pair = [0.1, 0.1];
+
+        stages[0].process(&mut loud_pair, 48_000.0);
+        stages[1].process(&mut quiet_pair, 48_000.0);
+
+        assert!(stages[0].gain < 1.0);
+        assert_eq!(stages[1].gain, 1.0);
+    }
+
+    #[test]
+    fn block_rate_orbit_params_keep_send_sums_without_voice_compensation() {
+        let blocks = 512;
         let mut both = Engine::new(48_000.0);
         both.play(test_voice(220.0, 0, 0.2, 0.15, 0.0));
         both.play(test_voice(330.0, 0, 0.4, 0.35, 0.0));
-        let mut both_out = vec![0.0; 2];
-        both.process_block(&mut both_out, &[], &[]);
-        let both_send = both.orbits[0].delay_send;
+        let both_send = render_delay_send(&mut both, blocks);
         assert!((both.orbits[0].params.delay_time - 0.35).abs() < 1e-6);
 
         let mut first = Engine::new(48_000.0);
         first.play(test_voice(220.0, 0, 0.2, 0.15, 0.0));
-        let mut first_out = vec![0.0; 2];
-        first.process_block(&mut first_out, &[], &[]);
-        let first_send = first.orbits[0].delay_send;
+        let first_send = render_delay_send(&mut first, blocks);
 
         let mut second = Engine::new(48_000.0);
         second.play(test_voice(330.0, 0, 0.4, 0.35, 0.0));
-        let mut second_out = vec![0.0; 2];
-        second.process_block(&mut second_out, &[], &[]);
-        let second_send = second.orbits[0].delay_send;
+        let second_send = render_delay_send(&mut second, blocks);
 
         for c in 0..CHANNELS {
-            assert!((both_send[c] - (first_send[c] + second_send[c])).abs() < 1e-6);
+            assert!((both_send[c] - (first_send[c] + second_send[c])).abs() < 1e-5);
         }
     }
 }

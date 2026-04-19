@@ -12,7 +12,7 @@ use super::registry::SampleData;
 /// Holds an Arc to immutable sample data and a cursor for position tracking.
 /// Safe to clone and use across threads.
 pub struct RegistrySample {
-    pub name: String,
+    pub sample_name: Option<Arc<str>>,
     pub data: Arc<SampleData>,
     pub root_freq: f32,
     pub attenuation: f32,
@@ -22,11 +22,11 @@ pub struct RegistrySample {
 
 impl RegistrySample {
     /// Creates a new sample playback source.
-    pub fn new(name: String, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
+    pub fn new(sample_name: Option<Arc<str>>, data: Arc<SampleData>, begin: f32, end: f32) -> Self {
         let root_freq = data.freq;
         let cursor = Cursor::new(data.frame_count, begin, end);
         Self {
-            name,
+            sample_name,
             data,
             root_freq,
             attenuation: 1.0,
@@ -104,7 +104,7 @@ impl RegistrySample {
 impl Clone for RegistrySample {
     fn clone(&self) -> Self {
         Self {
-            name: self.name.clone(),
+            sample_name: self.sample_name.clone(),
             data: Arc::clone(&self.data),
             root_freq: self.root_freq,
             attenuation: self.attenuation,

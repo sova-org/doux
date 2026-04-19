@@ -27,6 +27,7 @@
 
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
@@ -107,7 +108,10 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
 
             for (i, path) in files.into_iter().enumerate() {
                 let name = format!("{folder_name}/{i}");
-                entries.push(SampleEntry { path, name });
+                entries.push(SampleEntry {
+                    path: Arc::new(path),
+                    name: Arc::from(name),
+                });
             }
         } else if is_audio_file(&item) {
             let name = item
@@ -116,7 +120,10 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
                 .unwrap_or("unknown")
                 .to_string();
 
-            entries.push(SampleEntry { path: item, name });
+            entries.push(SampleEntry {
+                path: Arc::new(item),
+                name: Arc::from(name),
+            });
         }
     }
 

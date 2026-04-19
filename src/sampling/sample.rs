@@ -4,6 +4,7 @@
 //! On WASM builds, the legacy [`SamplePool`], [`SampleInfo`], and [`FileSource`] are used.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::cursor::Cursor;
 
@@ -13,9 +14,9 @@ use super::cursor::Cursor;
 #[derive(Clone)]
 pub struct SampleEntry {
     /// Filesystem path to the audio file.
-    pub path: PathBuf,
+    pub path: Arc<PathBuf>,
     /// Display name (derived from filename or folder/index).
-    pub name: String,
+    pub name: Arc<str>,
 }
 
 /// Contiguous storage for all loaded sample data (WASM only).

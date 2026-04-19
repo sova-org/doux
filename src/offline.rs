@@ -51,7 +51,7 @@ pub fn create_engine(
                 .map_err(|err| format!("failed to load {}: {err}", entry.name))?;
             engine
                 .sample_registry
-                .insert(entry.name.clone(), Arc::new(data));
+                .insert(entry.name.as_ref().to_string(), Arc::new(data));
         }
         engine.sample_index = index;
 
