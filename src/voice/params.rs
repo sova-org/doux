@@ -13,7 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::dsp::PhaseShape;
-use crate::types::{DelayType, LfoShape, ReverbType, Source, SubWave};
+use crate::types::{DelayType, LfoShape, ReverbType, Source, SubWave, SyncMode};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -34,7 +34,7 @@ pub struct VoiceParams {
     pub stretch: f32,
     /// Pre-filter gain (0.0 to 1.0+).
     pub gain: f32,
-    /// MIDI velocity (0.0 to 1.0), multiplied with gain.
+    /// MIDI velocity (0.0 to 1.0), applied at the output VCA alongside env and postgain.
     pub velocity: f32,
     /// Post-envelope gain (0.0 to 1.0+).
     pub postgain: f32,
@@ -76,11 +76,13 @@ pub struct VoiceParams {
     pub sub_oct: u8,
     /// Sub oscillator waveform.
     pub sub_wave: SubWave,
-    /// Hard-sync ratio. Slave main phasor runs at `freq * sync_ratio` and is
-    /// reset each time a hidden master at `freq` wraps. `1.0` = off.
+    /// Sync ratio. Slave main phasor runs at `freq * sync_ratio`; a hidden
+    /// master at `freq` drives the sync event. `1.0` = off.
     pub sync_ratio: f32,
-    /// Phase value (`0.0..1.0`) the slave resets TO on each sync event.
+    /// Hard-mode only: phase value (`0.0..1.0`) the slave resets TO on each sync event.
     pub sync_phase: f32,
+    /// Sync algorithm: `Hard` resets slave phase on master wrap; `Soft` flips slave direction.
+    pub sync_mode: SyncMode,
 
     // ─────────────────────────────────────────────────────────────────────
     // Amplitude Envelope (DAHDSR)
@@ -365,6 +367,7 @@ impl Default for VoiceParams {
             sub_wave: SubWave::Tri,
             sync_ratio: 1.0,
             sync_phase: 0.0,
+            sync_mode: SyncMode::default(),
             envdelay: 0.0,
             attack: 0.003,
             hold: 0.0,

@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
-use crate::types::{Source, SubWave, CHANNELS};
+use crate::types::{Source, SubWave, SyncMode, CHANNELS};
 
 use super::{Voice, MAX_ADDITIVE_PARTIALS};
 
@@ -506,23 +506,34 @@ impl Voice {
             let master_dt = freq * isr;
             let prev = self.sync_phasor.phase;
             self.sync_phasor.update(freq, isr);
-            if self.sync_phasor.phase < prev {
-                let wrap_frac = if master_dt > 0.0 {
-                    self.sync_phasor.phase / master_dt
-                } else {
-                    0.0
-                };
-                let slave_dt = master_dt * ratio;
-                let mut p = self.params.sync_phase + slave_dt * wrap_frac;
-                if p >= 1.0 {
-                    p -= p.floor();
+            let master_wrapped = self.sync_phasor.phase < prev;
+            match self.params.sync_mode {
+                SyncMode::Hard => {
+                    if master_wrapped {
+                        let wrap_frac = if master_dt > 0.0 {
+                            self.sync_phasor.phase / master_dt
+                        } else {
+                            0.0
+                        };
+                        let slave_dt = master_dt * ratio;
+                        let mut p = self.params.sync_phase + slave_dt * wrap_frac;
+                        if p >= 1.0 {
+                            p -= p.floor();
+                        }
+                        if p < 0.0 {
+                            p += 1.0;
+                        }
+                        self.phasor.phase = p;
+                    }
+                    self.generate_main_osc(freq * ratio, isr);
                 }
-                if p < 0.0 {
-                    p += 1.0;
+                SyncMode::Soft => {
+                    if master_wrapped {
+                        self.sync_direction = -self.sync_direction;
+                    }
+                    self.generate_main_osc(freq * ratio * self.sync_direction, isr);
                 }
-                self.phasor.phase = p;
             }
-            self.generate_main_osc(freq * ratio, isr);
         } else {
             self.generate_main_osc(freq, isr);
         }

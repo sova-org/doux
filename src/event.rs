@@ -1,4 +1,4 @@
-use crate::types::{midi2freq, DelayType, LfoShape, ReverbType, SubWave};
+use crate::types::{midi2freq, DelayType, LfoShape, ReverbType, SubWave, SyncMode};
 use crate::voice::{ModChain, ParamId};
 
 #[derive(Clone, Default, Debug)]
@@ -52,6 +52,7 @@ pub struct Event {
     pub sub_wave: Option<SubWave>,
     pub sync_ratio: Option<f32>,
     pub sync_phase: Option<f32>,
+    pub sync_mode: Option<SyncMode>,
     pub scan: Option<f32>,
     pub wtlen: Option<u32>,
     // Web sample (WASM only - set by JavaScript)
@@ -313,6 +314,7 @@ impl Event {
                 "subwave" => event.sub_wave = val.parse().ok(),
                 "sync" => parse_param!(val, sync_ratio, ParamId::SyncRatio),
                 "syncphase" | "syncph" => parse_param!(val, sync_phase, ParamId::SyncPhase),
+                "syncmode" => event.sync_mode = val.parse().ok(),
                 "scan" => parse_param!(val, scan, ParamId::Scan),
                 "wtlen" => event.wtlen = val.parse().ok(),
                 "file_pcm" => event.file_pcm = val.parse().ok(),

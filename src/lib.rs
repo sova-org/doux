@@ -808,6 +808,9 @@ impl Engine {
         if let Some(sync_phase) = event.sync_phase {
             v.params.sync_phase = sync_phase.clamp(0.0, 1.0);
         }
+        if let Some(sync_mode) = event.sync_mode {
+            v.params.sync_mode = sync_mode;
+        }
         if let Some(size) = event.size {
             v.params.shape.size = size.min(256);
         }

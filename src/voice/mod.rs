@@ -56,6 +56,8 @@ pub struct Voice {
     pub phasor: Phasor,
     pub sub_phasor: Phasor,
     pub sync_phasor: Phasor,
+    /// Soft-sync direction: `+1.0` forward, `-1.0` reversed. Flips on master wrap in `Soft` mode.
+    pub sync_direction: f32,
     pub spread_phasors: [Phasor; 7],
     pub dahdsr: Dahdsr,
     pub lp: [SvfState; CHANNELS],
@@ -126,6 +128,7 @@ impl Default for Voice {
             phasor: Phasor::default(),
             sub_phasor: Phasor::default(),
             sync_phasor: Phasor::default(),
+            sync_direction: 1.0,
             spread_phasors: std::array::from_fn(|i| {
                 let mut p = Phasor::default();
                 p.phase = i as f32 / 7.0;
@@ -191,6 +194,7 @@ impl Clone for Voice {
             phasor: self.phasor,
             sub_phasor: self.sub_phasor,
             sync_phasor: self.sync_phasor,
+            sync_direction: self.sync_direction,
             spread_phasors: self.spread_phasors,
             dahdsr: self.dahdsr,
             lp: self.lp,
@@ -664,6 +668,7 @@ impl Voice {
 
     fn trigger_envelopes(&mut self) {
         self.dahdsr.trigger(self.params.gate);
+        self.sync_direction = 1.0;
         for i in 0..self.param_mod_count as usize {
             self.param_mods[i].1.trigger(self.params.gate);
         }
@@ -770,7 +775,7 @@ impl Voice {
 
         // Pre-filter gain
         for c in 0..nch {
-            self.ch[c] *= self.params.gain * self.params.velocity;
+            self.ch[c] *= self.params.gain;
         }
 
         // SVF filters (LP -> HP -> BP)
@@ -939,15 +944,16 @@ impl Voice {
             }
         }
 
-        // Apply gain envelope and postgain
+        // VCA: envelope × postgain × velocity
+        let voice_gain = env * self.params.postgain * self.params.velocity;
         for c in 0..nch {
-            self.ch[c] *= env * self.params.postgain;
+            self.ch[c] *= voice_gain;
         }
 
         // Mono sources: spread or duplicate to stereo
         if nch == 1 {
             if self.params.spread > 0.0 {
-                let side = self.spread_side * env * self.params.postgain;
+                let side = self.spread_side * voice_gain;
                 self.ch[1] = self.ch[0] - side;
                 self.ch[0] += side;
             } else {

@@ -86,13 +86,13 @@ Waveform of the sub oscillator.
 
 </CommandEntry>
 
-## Hard Sync
+## Sync
 
-Classic analog hard sync. A hidden master oscillator runs at the note frequency and forces the main oscillator's phase to reset every time it wraps. Sweeping the ratio produces the characteristic sync sweep. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) as well as the `add` and `osc` sources.
+A hidden master oscillator runs at the note frequency and drives the main oscillator on each master wrap. Two algorithms are available: **hard** (classic analog, phase reset each wrap — tearing, aggressive) and **soft** (main oscillator's direction flips each wrap — smoother, filter-sweep character, less aliasing). Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) as well as the `add` and `osc` sources.
 
 <CommandEntry name="sync" type="number" min={1} max={64} default={1} mod>
 
-Sync ratio. The main oscillator runs at `freq * sync` and is reset each time the hidden master at `freq` wraps. `1` disables sync (no effect). Modulate it for the classic sweep.
+Sync ratio. The main oscillator runs at `freq * sync` and is synced each time the hidden master at `freq` wraps. `1` disables sync (no effect). Modulate it for the classic sweep.
 
 <CodeEditor code={`/sound/saw/sync/3`} rows={2} />
 
@@ -102,9 +102,17 @@ Sync ratio. The main oscillator runs at `freq * sync` and is reset each time the
 
 <CommandEntry name="syncphase" type="number" min={0} max={1} default={0} mod>
 
-Phase value the main oscillator resets to on each sync event. Non-zero values shift the reset point for additional timbral variation. Aliased as `syncph`.
+Hard-mode only: phase value the main oscillator resets to on each sync event. Non-zero values shift the reset point for additional timbral variation. Ignored in `soft` mode. Aliased as `syncph`.
 
 <CodeEditor code={`/sound/saw/sync/4/syncphase/.25`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="syncmode" type="enum" values={["hard", "soft"]} default="hard">
+
+Sync algorithm. `hard` resets the main oscillator's phase each time the master wraps (classic tearing). `soft` flips the main oscillator's direction instead (smoother sweep, less aliasing). `syncphase` only applies in `hard` mode.
+
+<CodeEditor code={`/sound/saw/sync/4/syncmode/soft`} rows={2} />
 
 </CommandEntry>
 

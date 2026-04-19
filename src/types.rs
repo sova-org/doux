@@ -912,6 +912,25 @@ impl FromStr for ReverbType {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum SyncMode {
+    #[default]
+    Hard,
+    Soft,
+}
+
+impl FromStr for SyncMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "hard" | "0" => Ok(Self::Hard),
+            "soft" | "1" => Ok(Self::Soft),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum DelayType {
     #[default]
     Standard,
