@@ -5,7 +5,7 @@
 
 use std::f32::consts::{LOG2_E, TAU};
 
-use crate::dsp::{exp2f, sinf, SvfMode};
+use crate::dsp::{exp2f, polyblep_square, sinf, SvfMode};
 use crate::types::Source;
 
 use super::Voice;
@@ -70,12 +70,20 @@ impl Voice {
     fn drum_kick(&mut self, freq: f32, isr: f32) -> f32 {
         let sweep_oct = self.params.morph * 4.0;
         let rate = 20.0 + self.params.harmonics * 80.0;
-        let pitch_env = exp2f(-self.time * rate * LOG2_E);
+        // Two-stage pitch: fast initial spike (~3 ms) rides on top of main decay.
+        let slow = exp2f(-self.time * rate * LOG2_E);
+        let fast = exp2f(-self.time * 300.0 * LOG2_E);
+        let pitch_env = slow + 0.3 * fast;
         let actual_freq = freq * exp2f(sweep_oct * pitch_env);
 
         let phase = self.phasor.phase;
-        let sample = drum_osc(phase, self.params.wave);
+        let body = drum_osc(phase, self.params.wave);
         self.phasor.phase = wrap_phase(phase + actual_freq * isr);
+
+        // 909-style click transient: short noise burst in first ~6 ms.
+        let click_env = exp2f(-self.time * 600.0 * LOG2_E);
+        let click = self.white() * click_env * 0.25;
+        let sample = body + click;
 
         let drive = self.params.timbre * 4.0;
         if drive > 0.0 {
@@ -88,21 +96,33 @@ impl Voice {
 
     #[inline]
     fn drum_snare(&mut self, freq: f32, isr: f32) -> f32 {
-        let rate = 40.0 + self.params.harmonics * 60.0;
-        let pitch_env = exp2f(-self.time * rate * LOG2_E);
-        let actual_freq = freq * exp2f(1.5 * pitch_env);
+        // 808-style: two bridged-T partials tuned ~1 : 1.833 (≈180 / 330 Hz),
+        // each with a self-damping decay. `wave` morphs sine → triangle for a
+        // 909-leaning timbre.
+        let shape = self.params.wave * 0.5;
+        let tone_rate = 50.0 + self.params.harmonics * 60.0;
+        let tone_env = exp2f(-self.time * tone_rate * LOG2_E);
 
-        let phase = self.phasor.phase;
-        let body = drum_osc(phase, self.params.wave);
-        self.phasor.phase = wrap_phase(phase + actual_freq * isr);
+        let p0 = &mut self.spread_phasors[0];
+        let t1 = drum_osc(p0.phase, shape);
+        p0.phase = wrap_phase(p0.phase + freq * isr);
 
+        let p1 = &mut self.spread_phasors[1];
+        let t2 = drum_osc(p1.phase, shape);
+        p1.phase = wrap_phase(p1.phase + freq * 1.833 * isr);
+
+        let tones = (t1 + t2 * 0.7) * tone_env;
+
+        // Snare wires: highpassed noise with its own slower decay for the rattle tail.
+        let noise_rate = 25.0 + self.params.harmonics * 50.0;
+        let noise_env = exp2f(-self.time * noise_rate * LOG2_E);
         let noise = self.white();
-        let brightness = 2000.0 + self.params.harmonics * 6000.0;
-        self.drum_svf.cutoff = brightness;
-        let filtered_noise = self.drum_svf.process(noise, SvfMode::Bp, 0.3, self.sr);
+        let hp_cutoff = 1500.0 + self.params.harmonics * 4000.0;
+        self.drum_svf.cutoff = hp_cutoff;
+        let rattle = self.drum_svf.process(noise, SvfMode::Hp, 0.5, self.sr) * noise_env;
 
         let mix = self.params.timbre;
-        body * (1.0 - mix) + filtered_noise * mix * 2.0
+        tones * (1.0 - mix) + rattle * mix * 1.5
     }
 
     #[inline]
@@ -164,13 +184,15 @@ impl Voice {
         let detune = 1.0 + (COWBELL_RATIO - 1.0) * (0.5 + self.params.morph * 0.5);
         let freq2 = freq * detune;
 
+        let dt0 = freq * isr;
         let p0 = &mut self.spread_phasors[0];
-        let sq0 = if p0.phase < 0.5 { 1.0 } else { -1.0 };
-        p0.phase = wrap_phase(p0.phase + freq * isr);
+        let sq0 = polyblep_square(p0.phase, dt0);
+        p0.phase = wrap_phase(p0.phase + dt0);
 
+        let dt1 = freq2 * isr;
         let p1 = &mut self.spread_phasors[1];
-        let sq1 = if p1.phase < 0.5 { 1.0 } else { -1.0 };
-        p1.phase = wrap_phase(p1.phase + freq2 * isr);
+        let sq1 = polyblep_square(p1.phase, dt1);
+        p1.phase = wrap_phase(p1.phase + dt1);
 
         let mixed = (sq0 + sq1) * 0.5;
 
@@ -192,9 +214,10 @@ impl Voice {
         for (i, &ratio) in CYMBAL_RATIOS.iter().enumerate() {
             let r = 1.0 + (ratio - 1.0) * spread_amt;
             let cym_freq = freq * r;
+            let dt = cym_freq * isr;
             let p = &mut self.spread_phasors[i];
-            let pulse = if p.phase < 0.5 { 1.0 } else { -1.0 };
-            p.phase = wrap_phase(p.phase + cym_freq * isr);
+            let pulse = polyblep_square(p.phase, dt);
+            p.phase = wrap_phase(p.phase + dt);
             metallic += pulse;
         }
         metallic /= 6.0;

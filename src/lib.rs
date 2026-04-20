@@ -1077,6 +1077,7 @@ impl Engine {
             verbdamp,
             verbpredelay,
             verbdiff,
+            verbsize,
             verbprelow,
             verbprehigh,
             verblowcut,
@@ -1118,6 +1119,7 @@ impl Engine {
                 state.params.verb_damp = voice.params.verbdamp;
                 state.params.verb_predelay = voice.params.verbpredelay;
                 state.params.verb_diff = voice.params.verbdiff;
+                state.params.verb_size = voice.params.verbsize;
                 state.params.verb_prelow = voice.params.verbprelow;
                 state.params.verb_prehigh = voice.params.verbprehigh;
                 state.params.verb_lowcut = voice.params.verblowcut;
@@ -1167,6 +1169,7 @@ impl Engine {
                 orbit.params.verb_damp = state.params.verb_damp;
                 orbit.params.verb_predelay = state.params.verb_predelay;
                 orbit.params.verb_diff = state.params.verb_diff;
+                orbit.params.verb_size = state.params.verb_size;
                 orbit.params.verb_prelow = state.params.verb_prelow;
                 orbit.params.verb_prehigh = state.params.verb_prehigh;
                 orbit.params.verb_lowcut = state.params.verb_lowcut;

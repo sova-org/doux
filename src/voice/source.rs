@@ -24,7 +24,6 @@ fn wrap_phase(phase: f32) -> f32 {
     }
 }
 
-
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
 const LOG2_TABLE: [f32; 32] = [
@@ -543,8 +542,7 @@ impl Voice {
                 self.generate_main_osc(freq * ratio, isr);
 
                 if master_wrapped && aa_saw {
-                    let phase_at_wrap =
-                        wrap_phase(phase_before + (1.0 - wrap_frac) * slave_dt);
+                    let phase_at_wrap = wrap_phase(phase_before + (1.0 - wrap_frac) * slave_dt);
                     let h = 2.0 * (p - phase_at_wrap);
                     // saw_shaped's natural-wrap polyBLEP fires on the post-reset
                     // phase assuming a −2 step; cancel it before applying the
@@ -555,8 +553,7 @@ impl Voice {
                 }
 
                 if let Some(wfn) = next_wrap_frac {
-                    let phase_at_next =
-                        wrap_phase(self.phasor.phase + (1.0 - wfn) * slave_dt);
+                    let phase_at_next = wrap_phase(self.phasor.phase + (1.0 - wfn) * slave_dt);
                     let p_next = wrap_phase(self.params.sync_phase + slave_dt * wfn);
                     let h_next = 2.0 * (p_next - phase_at_next);
                     self.ch[0] += 0.5 * h_next * blep_pre_step(wfn);

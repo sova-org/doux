@@ -70,6 +70,23 @@ pub(crate) fn blamp_post_kink(wrap_frac: f32) -> f32 {
     d * d * d / 6.0
 }
 
+/// Band-limited square wave via PolyBLEP.
+///
+/// Returns `+1` while `phase < 0.5`, `-1` otherwise, with smoothed transitions
+/// at both discontinuities (phase 0 and phase 0.5).
+#[inline]
+pub fn polyblep_square(phase: f32, dt: f32) -> f32 {
+    let naive = if phase < 0.5 { 1.0 } else { -1.0 };
+    let rise = poly_blep(phase, dt);
+    let shifted = if phase >= 0.5 {
+        phase - 0.5
+    } else {
+        phase + 0.5
+    };
+    let fall = poly_blep(shifted, dt);
+    naive + rise - fall
+}
+
 /// Phase transformation parameters for waveform shaping.
 ///
 /// Applies a chain of transformations to the oscillator phase:

@@ -16,4 +16,4 @@ pub use fastmath::{
 };
 pub use filter::{Biquad, FilterState, Svf, SvfMode, SvfState};
 pub use noise::{BrownNoise, PinkNoise};
-pub use oscillator::{PhaseShape, Phasor};
+pub use oscillator::{polyblep_square, PhaseShape, Phasor};

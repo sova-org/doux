@@ -4,7 +4,6 @@ const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
 const NUM_LINES: usize = NUM_CONTAINERS * CONTAINER_SIZE;
 const BASE_SR: f32 = 44100.0;
-const ALLPASS_COEFF: f32 = 0.6;
 const MAX_PREDELAY_SEC: f32 = 0.3;
 
 // Feedback delay lengths in samples at 44100Hz (per container, per line).
@@ -243,6 +242,7 @@ impl VitalVerb {
         lowgain: f32,     // 0-1: shelf low gain
         chorus_amt: f32,  // 0-1: chorus/modulation amount
         chorus_freq: f32, // 0-1: chorus LFO frequency
+        diffusion: f32,   // 0-1: allpass diffusion coefficient
     ) -> [f32; 2] {
         let sr = self.sr;
         let sr_ratio = sr / BASE_SR;
@@ -260,6 +260,7 @@ impl VitalVerb {
         let lowgain = lowgain.clamp(0.0, 1.0);
         let chorus_amt = chorus_amt.clamp(0.0, 1.0);
         let chorus_freq = chorus_freq.clamp(0.0, 1.0);
+        let diffusion = diffusion.clamp(0.0, 0.95);
 
         // Recompute expensive derived values only when source params change.
         let c = &mut self.cached;
@@ -362,10 +363,10 @@ impl VitalVerb {
 
             let read_pos = (aw + buf.len() - ap_delay) & mask;
             let delayed = buf[read_pos];
-            let v = *xi - ALLPASS_COEFF * delayed;
+            let v = *xi - diffusion * delayed;
             buf[aw & mask] = v;
             self.allpass_write[line] = (aw + 1) & mask;
-            *xi = delayed + ALLPASS_COEFF * v;
+            *xi = delayed + diffusion * v;
         }
 
         // --- Step 5: Feedback matrix ---
@@ -410,9 +411,6 @@ impl VitalVerb {
                 right += mo;
             }
         }
-        left *= 0.5;
-        right *= 0.5;
-
         // --- Step 7: Shelf filters in feedback path ---
         for (line, (lo_st, hi_st)) in self
             .shelf_low_state
