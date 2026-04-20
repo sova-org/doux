@@ -28,23 +28,46 @@ use super::fastmath::{exp2f, powf, sinf};
 use crate::types::LfoShape;
 use std::f32::consts::PI;
 
-/// PolyBLEP correction for band-limited discontinuities.
+/// PolyBLEP residual near a phase-wrap discontinuity.
 ///
-/// Applies a polynomial correction near waveform discontinuities to reduce
-/// aliasing. The correction is applied within one sample of the transition.
-///
-/// - `t`: Current phase position in `[0, 1)`
-/// - `dt`: Phase increment per sample (frequency × inverse sample rate)
-fn poly_blep(t: f32, dt: f32) -> f32 {
-    if t < dt {
-        let t = t / dt;
+/// Uses `|dt|` so the correction also fires for negative `dt` (e.g.
+/// soft-sync's reversed direction).
+pub(crate) fn poly_blep(t: f32, dt: f32) -> f32 {
+    let adt = dt.abs();
+    if t < adt {
+        let t = t / adt;
         return t + t - t * t - 1.0;
     }
-    if t > 1.0 - dt {
-        let t = (t - 1.0) / dt;
+    if t > 1.0 - adt {
+        let t = (t - 1.0) / adt;
         return t * t + t + t + 1.0;
     }
     0.0
+}
+
+// Two-sample polyBLEP/polyBLAMP lobes indexed by `wrap_frac = 1 − ν`
+// (fraction of the sample period remaining after the event).
+
+#[inline]
+pub(crate) fn blep_pre_step(wrap_frac: f32) -> f32 {
+    0.5 * wrap_frac * wrap_frac
+}
+
+#[inline]
+pub(crate) fn blep_post_step(wrap_frac: f32) -> f32 {
+    let d = 1.0 - wrap_frac;
+    -0.5 * d * d
+}
+
+#[inline]
+pub(crate) fn blamp_pre_kink(wrap_frac: f32) -> f32 {
+    wrap_frac * wrap_frac * wrap_frac / 6.0
+}
+
+#[inline]
+pub(crate) fn blamp_post_kink(wrap_frac: f32) -> f32 {
+    let d = 1.0 - wrap_frac;
+    d * d * d / 6.0
 }
 
 /// Phase transformation parameters for waveform shaping.

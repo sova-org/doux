@@ -2,6 +2,7 @@
 
 use std::f32::consts::TAU;
 
+use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
 use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
@@ -10,6 +11,7 @@ use crate::types::{Source, SubWave, SyncMode, CHANNELS};
 use super::{Voice, MAX_ADDITIVE_PARTIALS};
 
 const INV_MIDDLE_C: f32 = 1.0 / 261.626;
+const SYNC_RATIO_EPS: f32 = 1e-4;
 
 #[inline]
 fn wrap_phase(phase: f32) -> f32 {
@@ -21,6 +23,7 @@ fn wrap_phase(phase: f32) -> f32 {
         phase
     }
 }
+
 
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
@@ -502,40 +505,81 @@ impl Voice {
 
     fn run_single_osc(&mut self, freq: f32, isr: f32) {
         let ratio = self.params.sync_ratio;
-        if ratio > 1.0 + 1e-4 {
-            let master_dt = freq * isr;
-            let prev = self.sync_phasor.phase;
-            self.sync_phasor.update(freq, isr);
-            let master_wrapped = self.sync_phasor.phase < prev;
-            match self.params.sync_mode {
-                SyncMode::Hard => {
-                    if master_wrapped {
-                        let wrap_frac = if master_dt > 0.0 {
-                            self.sync_phasor.phase / master_dt
-                        } else {
-                            0.0
-                        };
-                        let slave_dt = master_dt * ratio;
-                        let mut p = self.params.sync_phase + slave_dt * wrap_frac;
-                        if p >= 1.0 {
-                            p -= p.floor();
-                        }
-                        if p < 0.0 {
-                            p += 1.0;
-                        }
-                        self.phasor.phase = p;
-                    }
-                    self.generate_main_osc(freq * ratio, isr);
-                }
-                SyncMode::Soft => {
-                    if master_wrapped {
-                        self.sync_direction = -self.sync_direction;
-                    }
-                    self.generate_main_osc(freq * ratio * self.sync_direction, isr);
-                }
+        if ratio <= 1.0 + SYNC_RATIO_EPS {
+            self.generate_main_osc(freq, isr);
+            return;
+        }
+
+        let master_dt = freq * isr;
+        let slave_dt = master_dt * ratio;
+        let prev = self.sync_phasor.phase;
+        self.sync_phasor.update(freq, isr);
+        let master_wrapped = self.sync_phasor.phase < prev;
+        let wrap_frac = if master_wrapped && master_dt > 0.0 {
+            self.sync_phasor.phase / master_dt
+        } else {
+            0.0
+        };
+
+        let aa_saw = matches!(self.params.sound, Source::Saw);
+        let next_wrap_frac = if aa_saw && master_dt > 0.0 {
+            let overshoot = self.sync_phasor.phase + master_dt - 1.0;
+            if overshoot >= 0.0 {
+                Some(overshoot / master_dt)
+            } else {
+                None
             }
         } else {
-            self.generate_main_osc(freq, isr);
+            None
+        };
+
+        match self.params.sync_mode {
+            SyncMode::Hard => {
+                let phase_before = self.phasor.phase;
+                let p = wrap_phase(self.params.sync_phase + slave_dt * wrap_frac);
+                if master_wrapped {
+                    self.phasor.phase = p;
+                }
+                self.generate_main_osc(freq * ratio, isr);
+
+                if master_wrapped && aa_saw {
+                    let phase_at_wrap =
+                        wrap_phase(phase_before + (1.0 - wrap_frac) * slave_dt);
+                    let h = 2.0 * (p - phase_at_wrap);
+                    // saw_shaped's natural-wrap polyBLEP fires on the post-reset
+                    // phase assuming a −2 step; cancel it before applying the
+                    // correct lobe for the actual step height.
+                    let d = 1.0 - wrap_frac;
+                    let natural = if p < slave_dt { 0.5 * d * d } else { 0.0 };
+                    self.ch[0] += 0.5 * h * blep_post_step(wrap_frac) - natural;
+                }
+
+                if let Some(wfn) = next_wrap_frac {
+                    let phase_at_next =
+                        wrap_phase(self.phasor.phase + (1.0 - wfn) * slave_dt);
+                    let p_next = wrap_phase(self.params.sync_phase + slave_dt * wfn);
+                    let h_next = 2.0 * (p_next - phase_at_next);
+                    self.ch[0] += 0.5 * h_next * blep_pre_step(wfn);
+                }
+            }
+            SyncMode::Soft => {
+                let dir_old = self.sync_direction;
+                if master_wrapped {
+                    self.sync_direction = -self.sync_direction;
+                }
+                self.generate_main_osc(freq * ratio * self.sync_direction, isr);
+
+                if master_wrapped && aa_saw {
+                    // Naïve saw slope per sample = 2·slave_dt·dir; flip → Δm = −4·slave_dt·dir_old.
+                    let dm = -4.0 * slave_dt * dir_old;
+                    self.ch[0] += 0.5 * dm * blamp_post_kink(wrap_frac);
+                }
+
+                if let Some(wfn) = next_wrap_frac {
+                    let dm_next = -4.0 * slave_dt * self.sync_direction;
+                    self.ch[0] += 0.5 * dm_next * blamp_pre_kink(wfn);
+                }
+            }
         }
     }
 
@@ -832,5 +876,80 @@ mod tests {
             plain.run_single_osc(freq, isr);
             assert_eq!(synced.ch[0].to_bits(), plain.ch[0].to_bits());
         }
+    }
+
+    // With a post-step polyBLEP applied at each sync reset, the worst-case
+    // sample-to-sample jump in the Saw output is bounded well below the raw
+    // step amplitude (which can reach ±1.0 in ch[0] units after the 0.5 scale).
+    #[test]
+    fn hard_sync_saw_step_is_bounded() {
+        let sr = 44_100.0_f32;
+        let isr = 1.0 / sr;
+        let freq = 110.0_f32;
+
+        let mut voice = Voice::default();
+        voice.params.sound = Source::Saw;
+        voice.params.sync_ratio = 3.7;
+        voice.params.sync_phase = 0.0;
+        voice.params.sync_mode = SyncMode::Hard;
+
+        // Natural saw wraps with 2-sample polyBLEP have a worst-case first-
+        // difference of |slave_dt − 0.75| ≈ 0.74 (at τ≈0.5); that's the floor.
+        // Without AA, sync wraps would add jumps close to |h|/2 ≈ 1.0 on top.
+        // Bounding the overall max to ≲ 0.8 confirms sync jumps don't exceed
+        // the natural-wrap baseline.
+        let mut prev = 0.0_f32;
+        let mut max_jump = 0.0_f32;
+        for i in 0..2048 {
+            voice.run_single_osc(freq, isr);
+            let y = voice.ch[0];
+            if i > 0 {
+                let d = (y - prev).abs();
+                if d > max_jump {
+                    max_jump = d;
+                }
+            }
+            prev = y;
+        }
+        assert!(
+            max_jump < 0.8,
+            "hard-sync saw first-difference should stay at natural-wrap baseline, got {max_jump}"
+        );
+    }
+
+    // PolyBLAMP smooths the direction-reversal kink. The dominant 2nd-difference
+    // contribution is still the natural saw wrap (now band-limited in both
+    // directions after the negative-`dt` fix in `poly_blep`). Without AA for
+    // reversed direction, the 2nd difference is ≳1.5; with AA it stays ≲1.0.
+    #[test]
+    fn soft_sync_saw_kink_is_bounded() {
+        let sr = 44_100.0_f32;
+        let isr = 1.0 / sr;
+        let freq = 110.0_f32;
+
+        let mut voice = Voice::default();
+        voice.params.sound = Source::Saw;
+        voice.params.sync_ratio = 3.7;
+        voice.params.sync_mode = SyncMode::Soft;
+
+        let mut y_prev = 0.0_f32;
+        let mut y_prev2 = 0.0_f32;
+        let mut max_2nd = 0.0_f32;
+        for i in 0..2048 {
+            voice.run_single_osc(freq, isr);
+            let y = voice.ch[0];
+            if i >= 2 {
+                let d2 = (y - 2.0 * y_prev + y_prev2).abs();
+                if d2 > max_2nd {
+                    max_2nd = d2;
+                }
+            }
+            y_prev2 = y_prev;
+            y_prev = y;
+        }
+        assert!(
+            max_2nd < 1.0,
+            "soft-sync saw second-difference should be bounded, got {max_2nd}"
+        );
     }
 }
