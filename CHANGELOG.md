@@ -3,21 +3,35 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.0.32] - 2026-04-19
+## [0.0.32] - 2026-04-21
 
 ### Added
+
+- Hard sync (`sync`, `syncphase`/`syncph`) and soft sync (`syncmode`) on all basic oscillators, `add`, and `osc`
+- Cross-channel feedback blend (`fbcross`/`fbc`) for ping-pong-style per-orbit feedback
+- Room-size parameter (`verbsize`/`vsize`) on the space reverb, separated from diffusion
+- 909-style click transient and two-stage pitch envelope on kick
+- 808-style dual-partial snare with highpassed-noise rattle tail
 
 ### Changed
 
 - Removed always-on master saturation
 - Removed voice-count gain compensation in favor of fixed per-voice trim plus linked output limiting and soft clipping
 - Switched native sample metadata on the callback path from owned `String`/`PathBuf` clones to shared `Arc<str>` / `Arc<PathBuf>` handles
+- `distort` now uses linear drive with unbounded amount instead of `exp_m1` mapping over 0..10
+- FM synthesis converted to DX7-style phase modulation (carrier frequency untouched, modulator output offsets carrier phase)
+- `fold` and `wrap` distortions anti-aliased via first-order antiderivative (ADAA)
+- `fbtime` max range raised from 500 ms to 680 ms
+- `phasersweep` now expressed in cents instead of Hz; reverb/flanger/chorus/phaser defaults retuned
+- Cowbell and cymbal use band-limited square oscillators
 
 ### Fixed
 
 - Preserved stereo in orbit comb, feedback, and reverb sends
 - Removed the temporary 10x Vital space reverb compensation and corrected the space reverb wet-path scaling
 - Removed hot-path heap allocation when scheduled sample events resolve or upgrade native registry samples
+- PolyBLEP/BLAMP anti-aliasing around hard-sync reset on saw, and reverse-direction polyBLEP for soft sync
+- DC blocker added after the distortion chain to remove asymmetric-drive DC creep
 
 ## [0.0.31] - 2026-04-09
 
