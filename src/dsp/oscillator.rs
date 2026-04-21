@@ -28,6 +28,13 @@ use super::fastmath::{exp2f, powf, sinf};
 use crate::types::LfoShape;
 use std::f32::consts::PI;
 
+/// Wraps `phase + offset` into `[0, 1)`. Zero-alloc, handles any finite offset.
+#[inline]
+fn offset_phase(phase: f32, offset: f32) -> f32 {
+    let p = phase + offset;
+    p - p.floor()
+}
+
 /// PolyBLEP residual near a phase-wrap discontinuity.
 ///
 /// Uses `|dt|` so the correction also fires for negative `dt` (e.g.
@@ -200,7 +207,18 @@ impl Phasor {
     ///
     /// Sample-and-hold (`Sh`) latches a new random value at each cycle start.
     pub fn lfo(&mut self, shape: LfoShape, freq: f32, isr: f32) -> f32 {
-        let p = self.phase;
+        self.lfo_pm(shape, freq, isr, 0.0)
+    }
+
+    /// Like `lfo` but reads from `(phase + phase_offset)` wrapped into `[0, 1)`.
+    /// Used for phase-modulation feedback and nested FM where a modulator's
+    /// phase is offset by another signal (in turns).
+    ///
+    /// `Sh` (sample-and-hold) ignores the offset: its output is latched at the
+    /// true phase wrap and independent of read position.
+    pub fn lfo_pm(&mut self, shape: LfoShape, freq: f32, isr: f32, phase_offset: f32) -> f32 {
+        let p_true = self.phase;
+        let p = offset_phase(p_true, phase_offset);
         self.update(freq, isr);
 
         match shape {
@@ -221,7 +239,7 @@ impl Phasor {
                 }
             }
             LfoShape::Sh => {
-                if self.phase < p {
+                if self.phase < p_true {
                     self.sh_seed = self.sh_seed.wrapping_mul(1103515245).wrapping_add(12345);
                     self.sh_value = ((self.sh_seed >> 16) & 0x7fff) as f32 / 16383.5 - 1.0;
                 }
@@ -291,24 +309,38 @@ impl Phasor {
         s
     }
 
-    /// Sine wave with phase shaping.
-    pub fn sine_shaped(&mut self, freq: f32, isr: f32, shape: &PhaseShape) -> f32 {
+    /// Sine wave with phase shaping and optional phase-modulation offset (turns).
+    pub fn sine_shaped(
+        &mut self,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
+        let read = offset_phase(self.phase, phase_offset);
         let p = if shape.is_active() {
-            shape.apply(self.phase)
+            shape.apply(read)
         } else {
-            self.phase
+            read
         };
         let s = sinf(p * 2.0 * PI);
         self.update(freq, isr);
         s
     }
 
-    /// Triangle wave with phase shaping.
-    pub fn tri_shaped(&mut self, freq: f32, isr: f32, shape: &PhaseShape) -> f32 {
+    /// Triangle wave with phase shaping and optional PM offset (turns).
+    pub fn tri_shaped(
+        &mut self,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
+        let read = offset_phase(self.phase, phase_offset);
         let p = if shape.is_active() {
-            shape.apply(self.phase)
+            shape.apply(read)
         } else {
-            self.phase
+            read
         };
         let s = if p < 0.5 {
             4.0 * p - 1.0
@@ -319,38 +351,62 @@ impl Phasor {
         s
     }
 
-    /// Sawtooth with phase shaping and PolyBLEP anti-aliasing.
-    pub fn saw_shaped(&mut self, freq: f32, isr: f32, shape: &PhaseShape) -> f32 {
-        if !shape.is_active() {
-            return self.saw(freq, isr);
-        }
+    /// Sawtooth with phase shaping, PolyBLEP anti-aliasing, optional PM offset (turns).
+    pub fn saw_shaped(
+        &mut self,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
         let dt = freq * isr;
-        let p = shape.apply(self.phase);
+        let read = offset_phase(self.phase, phase_offset);
+        let p = if shape.is_active() {
+            shape.apply(read)
+        } else {
+            read
+        };
         let blep = poly_blep(p, dt);
         let s = p * 2.0 - 1.0 - blep;
         self.update(freq, isr);
         s
     }
 
-    /// Raw sawtooth with phase shaping.
-    pub fn zaw_shaped(&mut self, freq: f32, isr: f32, shape: &PhaseShape) -> f32 {
+    /// Raw sawtooth with phase shaping and optional PM offset (turns).
+    pub fn zaw_shaped(
+        &mut self,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
+        let read = offset_phase(self.phase, phase_offset);
         let p = if shape.is_active() {
-            shape.apply(self.phase)
+            shape.apply(read)
         } else {
-            self.phase
+            read
         };
         let s = p * 2.0 - 1.0;
         self.update(freq, isr);
         s
     }
 
-    /// Pulse wave with phase shaping and PolyBLEP anti-aliasing.
-    pub fn pulse_shaped(&mut self, freq: f32, pw: f32, isr: f32, shape: &PhaseShape) -> f32 {
-        if !shape.is_active() {
-            return self.pulse(freq, pw, isr);
-        }
+    /// Pulse wave with phase shaping, PolyBLEP anti-aliasing, optional PM offset (turns).
+    pub fn pulse_shaped(
+        &mut self,
+        freq: f32,
+        pw: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
         let dt = freq * isr;
-        let p = shape.apply(self.phase);
+        let read = offset_phase(self.phase, phase_offset);
+        let p = if shape.is_active() {
+            shape.apply(read)
+        } else {
+            read
+        };
         let mut phi = p + pw;
         if phi >= 1.0 {
             phi -= 1.0;
@@ -362,12 +418,20 @@ impl Phasor {
         s
     }
 
-    /// Raw pulse with phase shaping.
-    pub fn pulze_shaped(&mut self, freq: f32, duty: f32, isr: f32, shape: &PhaseShape) -> f32 {
+    /// Raw pulse with phase shaping and optional PM offset (turns).
+    pub fn pulze_shaped(
+        &mut self,
+        freq: f32,
+        duty: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) -> f32 {
+        let read = offset_phase(self.phase, phase_offset);
         let p = if shape.is_active() {
-            shape.apply(self.phase)
+            shape.apply(read)
         } else {
-            self.phase
+            read
         };
         let s = if p < duty { 1.0 } else { -1.0 };
         self.update(freq, isr);

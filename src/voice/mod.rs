@@ -12,8 +12,8 @@ use std::f32::consts::PI;
 
 use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode, SvfState};
 use crate::effects::{
-    crush, distort, fold, wrap, Chorus, Coarse, Eq, Flanger, Haas, LadderFilter, LadderMode,
-    Phaser, Smear, Tilt,
+    crush, distort, Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode,
+    Phaser, Smear, Tilt, Wrap,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -27,6 +27,8 @@ use crate::types::CHANNELS;
 pub const MAX_PARAM_MODS: usize = 15;
 pub(crate) const MAX_ADDITIVE_PARTIALS: usize = 32;
 const VOICE_OUTPUT_TRIM: f32 = 0.5;
+/// `1 / (2π)`: converts radians to turns for phase-modulation math.
+const INV_TAU: f32 = 0.159_154_94;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AdditiveCache {
@@ -68,6 +70,9 @@ pub struct Voice {
     pub fm2_phasor: Phasor,
     pub fm_fb_prev: f32,
     pub fm_fb_prev2: f32,
+    /// Phase-modulation offset applied to the carrier read, in turns.
+    /// Computed once per sample by `compute_freq`; read by `generate_main_osc`.
+    pub fm_phase_mod: f32,
     pub am_lfo: Phasor,
     pub rm_lfo: Phasor,
     pub current_freq: f32,
@@ -93,6 +98,9 @@ pub struct Voice {
     pub smear: [Smear; CHANNELS],
     pub chorus: Option<Box<Chorus>>,
     pub coarse: [Coarse; CHANNELS],
+    pub fold_state: [Fold; CHANNELS],
+    pub wrap_state: [Wrap; CHANNELS],
+    pub dc_block: [DcBlocker; CHANNELS],
     pub eq: [Eq; CHANNELS],
     pub tilt: [Tilt; CHANNELS],
     pub haas: Option<Box<Haas>>,
@@ -143,6 +151,7 @@ impl Default for Voice {
             fm2_phasor: Phasor::default(),
             fm_fb_prev: 0.0,
             fm_fb_prev2: 0.0,
+            fm_phase_mod: 0.0,
             am_lfo: Phasor::default(),
             rm_lfo: Phasor::default(),
             current_freq: 330.0,
@@ -163,6 +172,9 @@ impl Default for Voice {
             smear: [Smear::default(); CHANNELS],
             chorus: Some(Box::new(Chorus::default())),
             coarse: [Coarse::default(); CHANNELS],
+            fold_state: [Fold::default(); CHANNELS],
+            wrap_state: [Wrap::default(); CHANNELS],
+            dc_block: [DcBlocker::default(); CHANNELS],
             eq: [Eq::default(); CHANNELS],
             tilt: [Tilt::default(); CHANNELS],
             haas: Some(Box::new(Haas::default())),
@@ -205,6 +217,7 @@ impl Clone for Voice {
             fm2_phasor: self.fm2_phasor,
             fm_fb_prev: self.fm_fb_prev,
             fm_fb_prev2: self.fm_fb_prev2,
+            fm_phase_mod: self.fm_phase_mod,
             am_lfo: self.am_lfo,
             rm_lfo: self.rm_lfo,
             current_freq: self.current_freq,
@@ -225,6 +238,9 @@ impl Clone for Voice {
             smear: self.smear,
             chorus: self.chorus.clone(),
             coarse: self.coarse,
+            fold_state: self.fold_state,
+            wrap_state: self.wrap_state,
+            dc_block: self.dc_block,
             eq: self.eq,
             tilt: self.tilt,
             haas: self.haas.clone(),
@@ -268,6 +284,7 @@ impl Voice {
         self.fm2_phasor = Phasor::default();
         self.fm_fb_prev = 0.0;
         self.fm_fb_prev2 = 0.0;
+        self.fm_phase_mod = 0.0;
         self.am_lfo = Phasor::default();
         self.rm_lfo = Phasor::default();
         self.current_freq = 330.0;
@@ -297,6 +314,9 @@ impl Voice {
             **c = Chorus::default();
         }
         self.coarse = [Coarse::default(); CHANNELS];
+        self.fold_state = [Fold::default(); CHANNELS];
+        self.wrap_state = [Wrap::default(); CHANNELS];
+        self.dc_block = [DcBlocker::default(); CHANNELS];
         self.eq = [Eq::default(); CHANNELS];
         self.tilt = [Tilt::default(); CHANNELS];
         if let Some(ref mut h) = self.haas {
@@ -580,6 +600,13 @@ impl Voice {
         }
     }
 
+    /// Computes the carrier frequency and the phase-modulation offset applied
+    /// to the carrier this sample.
+    ///
+    /// Phase modulation (not frequency modulation): modulator output is added
+    /// to the carrier's *phase* at read time, matching DX7/Dexed/Operator/FM8.
+    /// Depth scales as `fm * mod_out / TAU`, so one unit of `fm` ≈ one radian
+    /// of peak phase deviation per unit of modulator amplitude.
     fn compute_freq(&mut self, isr: f32) -> f32 {
         let mut freq = self.params.freq;
 
@@ -591,57 +618,65 @@ impl Voice {
         // Speed multiplier
         freq *= self.params.speed;
 
-        // FM synthesis (3-operator)
+        // Phase-modulation synthesis. Carrier freq is unaffected; modulator
+        // outputs contribute to `fm_phase_mod` (turns).
+        let mut pm = 0.0_f32;
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
             let fm1 = self.params.fm;
             let fm2 = self.params.fm2;
             let shape = self.params.fmshape;
-            let fb = (self.fm_fb_prev + self.fm_fb_prev2) * 0.5 * self.params.fmfb;
+            // Feedback: averaged last-2 outputs → phase-offset (turns) on the
+            // same operator's own read. Matches classic DX7 feedback topology.
+            let fb_turns = (self.fm_fb_prev + self.fm_fb_prev2) * 0.5 * self.params.fmfb * INV_TAU;
 
             if fm2 > 0.0 {
                 match self.params.fmalgo {
-                    // Cascade: fm2 -> fm1 -> carrier
+                    // Cascade: fm2 → fm1 → carrier.
                     0 => {
                         let mod2_freq = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo(shape, mod2_freq + fb * mod2_freq, isr);
+                        let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
                         self.fm_fb_prev2 = self.fm_fb_prev;
                         self.fm_fb_prev = mod2;
-                        let mod1_base = freq * self.params.fmh;
-                        let mod1_freq = mod1_base + mod2 * mod2_freq * fm2;
-                        let mod1 = self.fm_phasor.lfo(shape, mod1_freq, isr);
-                        freq += mod1 * mod1_base * fm1;
+                        let mod1_freq = freq * self.params.fmh;
+                        let mod1 =
+                            self.fm_phasor
+                                .lfo_pm(shape, mod1_freq, isr, fm2 * mod2 * INV_TAU);
+                        pm += fm1 * mod1 * INV_TAU;
                     }
-                    // Parallel: fm1 + fm2 both modulate carrier
+                    // Parallel: fm1 + fm2 both modulate carrier.
                     1 => {
                         let mf1 = freq * self.params.fmh;
-                        freq += self.fm_phasor.lfo(shape, mf1, isr) * mf1 * fm1;
+                        let mod1 = self.fm_phasor.lfo(shape, mf1, isr);
+                        pm += fm1 * mod1 * INV_TAU;
                         let mf2 = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo(shape, mf2 + fb * mf2, isr);
+                        let mod2 = self.fm2_phasor.lfo_pm(shape, mf2, isr, fb_turns);
                         self.fm_fb_prev2 = self.fm_fb_prev;
                         self.fm_fb_prev = mod2;
-                        freq += mod2 * mf2 * fm2;
+                        pm += fm2 * mod2 * INV_TAU;
                     }
-                    // Branch: fm2 -> fm1 -> carrier AND fm2 -> carrier
+                    // Branch: fm2 → fm1 → carrier and fm2 → carrier.
                     _ => {
                         let mod2_freq = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo(shape, mod2_freq + fb * mod2_freq, isr);
+                        let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
                         self.fm_fb_prev2 = self.fm_fb_prev;
                         self.fm_fb_prev = mod2;
-                        let mod1_base = freq * self.params.fmh;
-                        let mod1_freq = mod1_base + mod2 * mod2_freq * fm2;
-                        let mod1 = self.fm_phasor.lfo(shape, mod1_freq, isr);
-                        freq += mod1 * mod1_base * fm1;
-                        freq += mod2 * mod2_freq * fm2;
+                        let mod1_freq = freq * self.params.fmh;
+                        let mod1 =
+                            self.fm_phasor
+                                .lfo_pm(shape, mod1_freq, isr, fm2 * mod2 * INV_TAU);
+                        pm += fm1 * mod1 * INV_TAU;
+                        pm += fm2 * mod2 * INV_TAU;
                     }
                 }
             } else {
                 let mod1_freq = freq * self.params.fmh;
-                let mod1 = self.fm_phasor.lfo(shape, mod1_freq + fb * mod1_freq, isr);
+                let mod1 = self.fm_phasor.lfo_pm(shape, mod1_freq, isr, fb_turns);
                 self.fm_fb_prev2 = self.fm_fb_prev;
                 self.fm_fb_prev = mod1;
-                freq += mod1 * mod1_freq * fm1;
+                pm += fm1 * mod1 * INV_TAU;
             }
         }
+        self.fm_phase_mod = pm;
 
         // Vibrato
         if self.params.vib > 0.0 && self.params.vibmod > 0.0 {
@@ -843,17 +878,30 @@ impl Voice {
         }
         if let Some(fold_amount) = self.params.fold {
             for c in 0..nch {
-                self.ch[c] = fold(self.ch[c], fold_amount);
+                self.ch[c] = self.fold_state[c].process(self.ch[c], fold_amount);
             }
         }
         if let Some(wrap_amount) = self.params.wrap {
             for c in 0..nch {
-                self.ch[c] = wrap(self.ch[c], wrap_amount);
+                self.ch[c] = self.wrap_state[c].process(self.ch[c], wrap_amount);
             }
         }
         if let Some(dist_amount) = self.params.distort {
             for c in 0..nch {
                 self.ch[c] = distort(self.ch[c], dist_amount, self.params.distortvol);
+            }
+        }
+
+        // DC blocker: asymmetric drive + modulation upstream can park a DC
+        // offset. Only runs if any distortion stage was active.
+        if self.params.coarse.is_some()
+            || self.params.crush.is_some()
+            || self.params.fold.is_some()
+            || self.params.wrap.is_some()
+            || self.params.distort.is_some()
+        {
+            for c in 0..nch {
+                self.ch[c] = self.dc_block[c].process(self.ch[c]);
             }
         }
 

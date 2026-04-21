@@ -24,6 +24,13 @@ fn wrap_phase(phase: f32) -> f32 {
     }
 }
 
+/// Wraps any finite phase value into `[0, 1)`. Use when the offset may be
+/// outside `[-1, 1)` (e.g. large FM phase-mod depth).
+#[inline]
+fn wrap_phase_any(phase: f32) -> f32 {
+    phase - phase.floor()
+}
+
 // log2(i) for i=1..32, precomputed to replace powf with a single exp2f
 #[allow(clippy::approx_constant)]
 const LOG2_TABLE: [f32; 32] = [
@@ -457,9 +464,10 @@ impl Voice {
         const PAN: [f32; 3] = [0.3, 0.6, 0.9];
         let ratios = *self.spread_detune_ratios();
 
+        let pm = self.fm_phase_mod;
         let dt_c = freq * isr;
         let phase_c = self.spread_phasors[3].phase;
-        let center = self.osc_at(phase_c, dt_c);
+        let center = self.osc_at(wrap_phase_any(phase_c + pm), dt_c);
         self.spread_phasors[3].phase = wrap_phase(phase_c + dt_c);
         left += center;
         right += center;
@@ -470,12 +478,12 @@ impl Voice {
 
             let dt_up = freq * ratio_up * isr;
             let phase_up = self.spread_phasors[3 + i].phase;
-            let voice_up = self.osc_at(phase_up, dt_up);
+            let voice_up = self.osc_at(wrap_phase_any(phase_up + pm), dt_up);
             self.spread_phasors[3 + i].phase = wrap_phase(phase_up + dt_up);
 
             let dt_down = freq * ratio_down * isr;
             let phase_down = self.spread_phasors[3 - i].phase;
-            let voice_down = self.osc_at(phase_down, dt_down);
+            let voice_down = self.osc_at(wrap_phase_any(phase_down + pm), dt_down);
             self.spread_phasors[3 - i].phase = wrap_phase(phase_down + dt_down);
 
             let pan = PAN[i - 1];
@@ -581,32 +589,35 @@ impl Voice {
     }
 
     fn generate_main_osc(&mut self, freq: f32, isr: f32) {
+        let pm = self.fm_phase_mod;
         self.ch[0] = match self.params.sound {
-            Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape) * 0.5,
-            Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape) * 0.5,
-            Source::Saw => self.phasor.saw_shaped(freq, isr, &self.params.shape) * 0.5,
-            Source::Zaw => self.phasor.zaw_shaped(freq, isr, &self.params.shape) * 0.5,
+            Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape, pm) * 0.5,
+            Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape, pm) * 0.5,
+            Source::Saw => self.phasor.saw_shaped(freq, isr, &self.params.shape, pm) * 0.5,
+            Source::Zaw => self.phasor.zaw_shaped(freq, isr, &self.params.shape, pm) * 0.5,
             Source::Pulse => {
                 self.phasor
-                    .pulse_shaped(freq, self.params.pw, isr, &self.params.shape)
+                    .pulse_shaped(freq, self.params.pw, isr, &self.params.shape, pm)
                     * 0.5
             }
             Source::Pulze => {
                 self.phasor
-                    .pulze_shaped(freq, self.params.pw, isr, &self.params.shape)
+                    .pulze_shaped(freq, self.params.pw, isr, &self.params.shape, pm)
                     * 0.5
             }
             Source::Add => {
                 self.ensure_additive_cache();
                 let dt = freq * isr;
-                let phase = self.shape_phase(self.phasor.phase);
+                let read = wrap_phase_any(self.phasor.phase + pm);
+                let phase = self.shape_phase(read);
                 let s = self.additive_at_cached(phase, dt);
                 self.phasor.update(freq, isr);
                 s * 0.5
             }
             Source::Osc => {
                 let dt = freq * isr;
-                let s = osc_morph_at(self.phasor.phase, dt, self.params.wave, &self.params.shape);
+                let read = wrap_phase_any(self.phasor.phase + pm);
+                let s = osc_morph_at(read, dt, self.params.wave, &self.params.shape);
                 self.phasor.update(freq, isr);
                 s * 0.5
             }

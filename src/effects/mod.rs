@@ -23,7 +23,7 @@ pub use comb::Comb;
 pub use compressor::Compressor;
 pub use crush::crush;
 pub use delay::{Delay, DelayParams};
-pub use distort::{distort, fold, wrap};
+pub use distort::{distort, DcBlocker, Fold, Wrap};
 pub use eq::Eq;
 pub use feedback::Feedback;
 pub use flanger::Flanger;
