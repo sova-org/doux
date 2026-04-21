@@ -3,7 +3,7 @@ members = [".", "doux-sova"]
 
 [package]
 name = "doux"
-version = "0.0.31"
+version = "0.0.32"
 edition = "2021"
 
 [lib]

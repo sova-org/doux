@@ -99,7 +99,7 @@ fn spawn_preload(index: &[SampleEntry], target_sr: f32, registry: &Arc<SampleReg
     if index.is_empty() {
         return;
     }
-    let entries: Vec<(String, std::path::PathBuf)> = index
+    let entries: Vec<(Arc<str>, Arc<std::path::PathBuf>)> = index
         .iter()
         .map(|e| (e.name.clone(), e.path.clone()))
         .collect();
@@ -109,8 +109,8 @@ fn spawn_preload(index: &[SampleEntry], target_sr: f32, registry: &Arc<SampleReg
         .spawn(move || {
             let mut batch = Vec::with_capacity(entries.len());
             for (name, path) in &entries {
-                match doux::sampling::decode_sample_head(path, target_sr) {
-                    Ok(data) => batch.push((name.clone(), Arc::new(data))),
+                match doux::sampling::decode_sample_head(path.as_ref(), target_sr) {
+                    Ok(data) => batch.push((name.to_string(), Arc::new(data))),
                     Err(e) => eprintln!("[doux] preload {name}: {e}"),
                 }
             }
