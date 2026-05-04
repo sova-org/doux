@@ -192,6 +192,20 @@ pub fn fast_tanh_f32(x: f32) -> f32 {
     x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
+/// 4-tap cubic Hermite interpolation (Catmull-Rom form, Niemitalo coefficients).
+///
+/// Higher quality than linear interp on pitched / stretched signal — preserves
+/// top end and reduces aliasing. `frac` ∈ [0, 1) sits between `y1` and `y2`;
+/// `y0` and `y3` are the surrounding taps.
+#[inline]
+pub fn hermite4(y0: f32, y1: f32, y2: f32, y3: f32, frac: f32) -> f32 {
+    let c0 = y1;
+    let c1 = 0.5 * (y2 - y0);
+    let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+    let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+    ((c3 * frac + c2) * frac + c1) * frac + c0
+}
+
 /// Fast atan2 approximation.
 ///
 /// Uses octant reduction with a linear-corrected polynomial:

@@ -49,23 +49,32 @@ impl SampleData {
         }
     }
 
-    /// Reads a sample at the given frame and channel with linear interpolation.
+    /// Reads a sample at the given frame and channel with 4-tap cubic Hermite interpolation.
     #[inline]
     pub fn read_interpolated(&self, pos: f32, channel: usize) -> f32 {
+        let frame_count = self.frame_count as usize;
+        if frame_count == 0 {
+            return 0.0;
+        }
         let ch = channel.min(self.channels as usize - 1);
         let channels = self.channels as usize;
+        let last = frame_count - 1;
 
-        let frame = pos as usize;
-        let next_frame = (frame + 1).min(self.frame_count as usize - 1);
+        let frame = (pos as usize).min(last);
         let frac = pos.fract();
 
-        let idx0 = frame * channels + ch;
-        let idx1 = next_frame * channels + ch;
+        let i0 = frame.saturating_sub(1);
+        let i1 = frame;
+        let i2 = (frame + 1).min(last);
+        let i3 = (frame + 2).min(last);
 
-        let s0 = self.frames.get(idx0).copied().unwrap_or(0.0);
-        let s1 = self.frames.get(idx1).copied().unwrap_or(0.0);
+        let frames = &self.frames;
+        let y0 = frames[i0 * channels + ch];
+        let y1 = frames[i1 * channels + ch];
+        let y2 = frames[i2 * channels + ch];
+        let y3 = frames[i3 * channels + ch];
 
-        s0 + frac * (s1 - s0)
+        crate::dsp::hermite4(y0, y1, y2, y3, frac)
     }
 }
 

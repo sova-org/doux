@@ -116,11 +116,15 @@ impl StretchState {
 
     #[inline]
     pub fn read(&self, channel: usize) -> f32 {
-        let idx0 = self.read_pos.floor() as usize & BUF_MASK;
-        let idx1 = (idx0 + 1) & BUF_MASK;
+        let center = self.read_pos.floor() as usize & BUF_MASK;
         let frac = self.read_pos.fract() as f32;
-        self.output_buf[channel][idx0]
-            + frac * (self.output_buf[channel][idx1] - self.output_buf[channel][idx0])
+        let buf = &self.output_buf[channel];
+        // Ring buffer: BUF_MASK wraps all 4 taps, including the (-1) lookback.
+        let y0 = buf[center.wrapping_sub(1) & BUF_MASK];
+        let y1 = buf[center];
+        let y2 = buf[(center + 1) & BUF_MASK];
+        let y3 = buf[(center + 2) & BUF_MASK];
+        crate::dsp::hermite4(y0, y1, y2, y3, frac)
     }
 
     #[inline]

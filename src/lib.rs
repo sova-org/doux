@@ -119,60 +119,22 @@ impl Default for OrbitBlockState {
     }
 }
 
-const MIX_BUS_TRIM: f32 = 0.9;
-const OUTPUT_LIMIT_THRESHOLD: f32 = 0.95;
-const OUTPUT_LIMIT_RELEASE_SECS: f32 = 0.05;
-const OUTPUT_SOFT_CLIP_THRESHOLD: f32 = 0.95;
-
 #[derive(Clone, Copy)]
-struct StereoOutputStage {
-    gain: f32,
-}
-
-impl Default for StereoOutputStage {
-    fn default() -> Self {
-        Self { gain: 1.0 }
-    }
-}
+struct StereoOutputStage;
 
 impl StereoOutputStage {
-    fn process(&mut self, pair: &mut [f32], sr: f32) {
+    fn process(&mut self, pair: &mut [f32], _sr: f32) {
         debug_assert_eq!(pair.len(), CHANNELS);
-
-        pair[0] *= MIX_BUS_TRIM;
-        pair[1] *= MIX_BUS_TRIM;
-
-        let peak = pair[0].abs().max(pair[1].abs());
-        let target_gain = if peak > OUTPUT_LIMIT_THRESHOLD {
-            OUTPUT_LIMIT_THRESHOLD / peak
-        } else {
-            1.0
-        };
-
-        if target_gain < self.gain {
-            self.gain = target_gain;
-        } else {
-            let release_coeff = 1.0 / (OUTPUT_LIMIT_RELEASE_SECS * sr).max(1.0);
-            self.gain += release_coeff * (target_gain - self.gain);
-        }
-
-        pair[0] = soft_clip_sample(pair[0] * self.gain);
-        pair[1] = soft_clip_sample(pair[1] * self.gain);
+        pair[0] = soft_clip_sample(pair[0]);
+        pair[1] = soft_clip_sample(pair[1]);
     }
 }
 
+// Master soft-clip: plain tanh. Identity slope at origin, monotonic, bounded by ±1.
+// Loses ~2.4 dB at unity input — the musical price of analog-style saturation.
 #[inline]
 fn soft_clip_sample(input: f32) -> f32 {
-    let magnitude = input.abs();
-    if magnitude <= OUTPUT_SOFT_CLIP_THRESHOLD {
-        return input;
-    }
-
-    let sign = input.signum();
-    let headroom = 1.0 - OUTPUT_SOFT_CLIP_THRESHOLD;
-    let drive = (magnitude - OUTPUT_SOFT_CLIP_THRESHOLD) / headroom;
-    let clipped = OUTPUT_SOFT_CLIP_THRESHOLD + fast_tanh_f32(drive) * headroom;
-    sign * clipped.min(1.0)
+    fast_tanh_f32(input)
 }
 
 fn output_stage_count(output_channels: usize) -> usize {
@@ -257,7 +219,7 @@ impl Engine {
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
             input_channels: 2,
-            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
+            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
         }
     }
@@ -311,7 +273,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             input_channels: 2,
-            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
+            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -357,7 +319,7 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             input_channels: 2,
-            output_stages: vec![StereoOutputStage::default(); output_stage_count(output_channels)],
+            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -1676,7 +1638,7 @@ mod tests {
 
     #[test]
     fn stereo_output_stage_keeps_signal_bounded() {
-        let mut stage = StereoOutputStage::default();
+        let mut stage = StereoOutputStage;
         let mut pair = [2.0, -1.5];
 
         stage.process(&mut pair, 48_000.0);
@@ -1686,43 +1648,15 @@ mod tests {
     }
 
     #[test]
-    fn stereo_output_stage_uses_linked_gain() {
-        let mut stage = StereoOutputStage::default();
-        let mut pair = [1.2, 0.6];
+    fn stereo_output_stage_is_near_identity_at_low_levels() {
+        let mut stage = StereoOutputStage;
+        let mut pair = [0.1, -0.05];
 
         stage.process(&mut pair, 48_000.0);
 
-        assert!((pair[0] - 0.95).abs() < 1e-6);
-        assert!((pair[1] - 0.475).abs() < 1e-6);
-    }
-
-    #[test]
-    fn stereo_output_stage_release_recovers_toward_unity() {
-        let mut stage = StereoOutputStage::default();
-        let mut clipped = [2.0, 2.0];
-        stage.process(&mut clipped, 48_000.0);
-        let limited_gain = stage.gain;
-
-        let mut quiet = [0.1, 0.1];
-        for _ in 0..24_000 {
-            stage.process(&mut quiet, 48_000.0);
-        }
-
-        assert!(stage.gain > limited_gain);
-        assert!(stage.gain > 0.99);
-    }
-
-    #[test]
-    fn stereo_output_stages_are_independent() {
-        let mut stages = [StereoOutputStage::default(); 2];
-        let mut loud_pair = [2.0, 2.0];
-        let mut quiet_pair = [0.1, 0.1];
-
-        stages[0].process(&mut loud_pair, 48_000.0);
-        stages[1].process(&mut quiet_pair, 48_000.0);
-
-        assert!(stages[0].gain < 1.0);
-        assert_eq!(stages[1].gain, 1.0);
+        // tanh slope at origin is 1; near-identity below ~0.3.
+        assert!((pair[0] - 0.1).abs() < 1e-2);
+        assert!((pair[1] + 0.05).abs() < 1e-2);
     }
 
     #[test]

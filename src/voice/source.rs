@@ -776,16 +776,24 @@ fn read_interpolated(
     pos: f32,
     channel: usize,
 ) -> f32 {
-    let idx0 = pos.floor() as usize;
-    let idx1 = (idx0 + 1) % frames;
+    if frames == 0 {
+        return 0.0;
+    }
+    let center = pos.floor() as usize % frames;
     let frac = pos.fract();
 
-    let i0 = offset + idx0 * channels + channel;
-    let i1 = offset + idx1 * channels + channel;
+    // Wavetable wraparound: cycle through `frames` for all 4 taps.
+    let i0 = (center + frames - 1) % frames;
+    let i1 = center;
+    let i2 = (center + 1) % frames;
+    let i3 = (center + 2) % frames;
 
-    let s0 = pool.get(i0).copied().unwrap_or(0.0);
-    let s1 = pool.get(i1).copied().unwrap_or(0.0);
-    s0 + frac * (s1 - s0)
+    let read = |idx: usize| -> f32 {
+        pool.get(offset + idx * channels + channel)
+            .copied()
+            .unwrap_or(0.0)
+    };
+    crate::dsp::hermite4(read(i0), read(i1), read(i2), read(i3), frac)
 }
 
 #[cfg(test)]
