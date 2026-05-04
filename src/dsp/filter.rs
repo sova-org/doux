@@ -20,7 +20,7 @@
 //!
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
-use super::fastmath::{fast_tan, fast_tanh_f32, ftz, par_cosf, par_sinf, pow10};
+use super::fastmath::{fast_tan, ftz, par_cosf, par_sinf, pow10};
 use crate::types::FilterType;
 use std::f32::consts::PI;
 
@@ -57,8 +57,8 @@ impl Svf {
         let v1 = a1 * self.ic1eq + a2 * v3;
         let v2 = self.ic2eq + a2 * self.ic1eq + a3 * v3;
 
-        self.ic1eq = fast_tanh_f32(ftz(2.0 * v1 - self.ic1eq, 1e-20));
-        self.ic2eq = fast_tanh_f32(ftz(2.0 * v2 - self.ic2eq, 1e-20));
+        self.ic1eq = ftz(2.0 * v1 - self.ic1eq, 1e-20);
+        self.ic2eq = ftz(2.0 * v2 - self.ic2eq, 1e-20);
 
         match mode {
             SvfMode::Lp => v2,
