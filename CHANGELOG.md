@@ -3,6 +3,15 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.33] - 2026-05-04
+
+### Changed
+
+- 4-tap cubic Hermite interpolation for all sample reads (was linear)
+- SVF: cache full coefficient set, drop tanh from integrator state
+- Biquad: Direct Form I → Transposed Direct Form II
+- Output stage: drop limiter and headroom soft-clip; plain tanh
+
 ## [0.0.32] - 2026-04-21
 
 ### Added
