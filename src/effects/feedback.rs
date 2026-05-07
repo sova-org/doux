@@ -4,7 +4,7 @@
 //! time, damping, and cross-channel blend. Enables slapback echoes, metallic
 //! resonances, ping-pong, and short rhythmic feedback loops.
 
-use crate::dsp::{ftz, DelayLine};
+use crate::dsp::ftz;
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -72,15 +72,46 @@ pub const INFO: ModuleInfo = ModuleInfo {
 };
 
 const BUFFER_SIZE: usize = 32768;
+const BUFFER_MASK: usize = BUFFER_SIZE - 1;
 
 /// Stereo feedback delay with one-pole damping and cross-channel blend.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone)]
 pub struct Feedback {
-    delay: [DelayLine<BUFFER_SIZE>; CHANNELS],
+    buffer: [Vec<f32>; CHANNELS],
+    write_pos: [usize; CHANNELS],
     damp_state: [f32; CHANNELS],
 }
 
+impl Default for Feedback {
+    fn default() -> Self {
+        Self {
+            buffer: [vec![0.0; BUFFER_SIZE], vec![0.0; BUFFER_SIZE]],
+            write_pos: [0; CHANNELS],
+            damp_state: [0.0; CHANNELS],
+        }
+    }
+}
+
 impl Feedback {
+    #[inline]
+    fn read(&self, ch: usize, delay_samples: f32) -> f32 {
+        let delay_int = delay_samples.floor() as usize;
+        let frac = delay_samples - delay_int as f32;
+        let buf = &self.buffer[ch];
+        let wp = self.write_pos[ch];
+        let idx0 = (wp + BUFFER_SIZE - delay_int) & BUFFER_MASK;
+        let idx1 = (wp + BUFFER_SIZE - delay_int - 1) & BUFFER_MASK;
+        buf[idx0] + frac * (buf[idx1] - buf[idx0])
+    }
+
+    #[inline]
+    fn write(&mut self, ch: usize, sample: f32) {
+        let buf = &mut self.buffer[ch];
+        let wp = self.write_pos[ch];
+        buf[wp] = sample;
+        self.write_pos[ch] = (wp + 1) & BUFFER_MASK;
+    }
+
     /// Processes one stereo sample through the feedback delay.
     ///
     /// - `feedback`: Re-injection level `[0.0, 0.99]`
@@ -106,7 +137,7 @@ impl Feedback {
         let mut damped = [0.0f32; CHANNELS];
 
         for c in 0..CHANNELS {
-            delayed[c] = self.delay[c].read(delay_samples);
+            delayed[c] = self.read(c, delay_samples);
             damped[c] = if damp > 0.0 {
                 self.damp_state[c] = ftz(
                     delayed[c] * (1.0 - damp) + self.damp_state[c] * damp,
@@ -121,8 +152,8 @@ impl Feedback {
         let fb_l = damped[0] * (1.0 - cross) + damped[1] * cross;
         let fb_r = damped[1] * (1.0 - cross) + damped[0] * cross;
 
-        self.delay[0].write(input[0] + fb_l * feedback);
-        self.delay[1].write(input[1] + fb_r * feedback);
+        self.write(0, input[0] + fb_l * feedback);
+        self.write(1, input[1] + fb_r * feedback);
 
         delayed
     }
