@@ -478,19 +478,9 @@ impl Voice {
             ParamId::Tilt => self.params.tilt,
             ParamId::Width => self.params.width,
             ParamId::Haas => self.params.haas,
-            ParamId::Delay => self.params.delay,
-            ParamId::Verb => self.params.verb,
-            ParamId::Comb => self.params.comb,
-            ParamId::Feedback => self.params.feedback,
-            ParamId::FbTime => self.params.fbtime,
-            ParamId::CombFreq => self.params.combfreq,
-            ParamId::CombFeedback => self.params.combfeedback,
-            ParamId::DelayTime => self.params.delaytime,
-            ParamId::DelayFeedback => self.params.delayfeedback,
             ParamId::EqLoFreq => self.params.eqlofreq,
             ParamId::EqMidFreq => self.params.eqmidfreq,
             ParamId::EqHiFreq => self.params.eqhifreq,
-            ParamId::Comp => self.params.comp,
         }
     }
 
@@ -584,19 +574,9 @@ impl Voice {
             ParamId::Tilt => self.params.tilt = val,
             ParamId::Width => self.params.width = val,
             ParamId::Haas => self.params.haas = val,
-            ParamId::Delay => self.params.delay = val,
-            ParamId::Verb => self.params.verb = val,
-            ParamId::Comb => self.params.comb = val,
-            ParamId::Feedback => self.params.feedback = val,
-            ParamId::FbTime => self.params.fbtime = val,
-            ParamId::CombFreq => self.params.combfreq = val,
-            ParamId::CombFeedback => self.params.combfeedback = val,
-            ParamId::DelayTime => self.params.delaytime = val,
-            ParamId::DelayFeedback => self.params.delayfeedback = val,
             ParamId::EqLoFreq => self.params.eqlofreq = val,
             ParamId::EqMidFreq => self.params.eqmidfreq = val,
             ParamId::EqHiFreq => self.params.eqhifreq = val,
-            ParamId::Comp => self.params.comp = val,
         }
     }
 

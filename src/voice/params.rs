@@ -13,7 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::dsp::PhaseShape;
-use crate::types::{DelayType, LfoShape, ReverbType, Source, SubWave, SyncMode};
+use crate::types::{LfoShape, Source, SubWave, SyncMode};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -265,76 +265,12 @@ pub struct VoiceParams {
     pub tilt: f32,
 
     // ─────────────────────────────────────────────────────────────────────
-    // Routing / Sends
+    // Routing
     // ─────────────────────────────────────────────────────────────────────
     /// Orbit index for effect bus routing (0 to MAX_ORBITS-1).
+    /// All orbit FX (delay/verb/comb/feedback/comp) live on the orbit itself,
+    /// not on the voice — see `Orbit` in `src/orbit.rs`.
     pub orbit: usize,
-    /// Delay send level (0.0 to 1.0).
-    pub delay: f32,
-    /// Delay time in seconds (overrides orbit default).
-    pub delaytime: f32,
-    /// Delay feedback amount (overrides orbit default).
-    pub delayfeedback: f32,
-    /// Delay type (overrides orbit default).
-    pub delaytype: DelayType,
-    /// Reverb send level (0.0 to 1.0).
-    pub verb: f32,
-    /// Reverb algorithm type.
-    pub verbtype: ReverbType,
-    /// Reverb decay time (overrides orbit default).
-    pub verbdecay: f32,
-    /// Reverb damping (overrides orbit default).
-    pub verbdamp: f32,
-    /// Reverb pre-delay in seconds.
-    pub verbpredelay: f32,
-    /// Reverb diffusion amount.
-    pub verbdiff: f32,
-    /// Reverb room size (0-1, space only).
-    pub verbsize: f32,
-    /// Reverb pre-filter low cutoff (0-1, space only).
-    pub verbprelow: f32,
-    /// Reverb pre-filter high cutoff (0-1, space only).
-    pub verbprehigh: f32,
-    /// Reverb feedback low shelf cutoff (0-1, space only).
-    pub verblowcut: f32,
-    /// Reverb feedback high shelf cutoff (0-1, space only).
-    pub verbhighcut: f32,
-    /// Reverb feedback low shelf gain (0-1, space only).
-    pub verblowgain: f32,
-    /// Reverb chorus/modulation amount (0-1, space only).
-    pub verbchorus: f32,
-    /// Reverb chorus LFO frequency (0-1, space only).
-    pub verbchorusfreq: f32,
-    /// Comb filter send level (0.0 to 1.0).
-    pub comb: f32,
-    /// Comb filter frequency in Hz.
-    pub combfreq: f32,
-    /// Comb filter feedback amount.
-    pub combfeedback: f32,
-    /// Comb filter damping.
-    pub combdamp: f32,
-    /// Feedback delay send level (0.0 to 1.0). Also controls re-injection amount.
-    pub feedback: f32,
-    /// Feedback delay time in ms (overrides orbit default).
-    pub fbtime: f32,
-    /// Feedback delay damping (overrides orbit default).
-    pub fbdamp: f32,
-    /// Feedback cross-channel blend (0 = self, 1 = ping-pong).
-    pub fbcross: f32,
-    /// Feedback LFO rate in Hz.
-    pub fblfo: f32,
-    /// Feedback LFO depth (0.0 to 1.0).
-    pub fblfodepth: f32,
-    /// Feedback LFO waveform.
-    pub fblfoshape: LfoShape,
-    /// Sidechain compressor duck amount (0.0 = off, 1.0 = full duck).
-    pub comp: f32,
-    /// Sidechain compressor attack time in seconds.
-    pub compattack: f32,
-    /// Sidechain compressor release time in seconds.
-    pub comprelease: f32,
-    /// Which orbit provides the sidechain signal.
-    pub comporbit: usize,
 
     /// Input channel index for LiveInput (0-indexed). None = stereo (ch 0+1).
     pub inchan: Option<usize>,
@@ -433,39 +369,6 @@ impl Default for VoiceParams {
             eqhifreq: 5000.0,
             tilt: 0.0,
             orbit: 0,
-            delay: 0.0,
-            delaytime: 0.333,
-            delayfeedback: 0.6,
-            delaytype: DelayType::Standard,
-            verb: 0.0,
-            verbtype: ReverbType::Space,
-            verbdecay: 0.55,
-            verbdamp: 0.7,
-            verbpredelay: 0.0,
-            verbdiff: 0.6,
-            verbsize: 0.75,
-            verbprelow: 0.2,
-            verbprehigh: 0.9,
-            verblowcut: 0.5,
-            verbhighcut: 0.7,
-            verblowgain: 0.4,
-            verbchorus: 0.3,
-            verbchorusfreq: 0.65,
-            comb: 0.0,
-            combfreq: 220.0,
-            combfeedback: 0.9,
-            combdamp: 0.1,
-            feedback: 0.0,
-            fbtime: 10.0,
-            fbdamp: 0.0,
-            fbcross: 0.0,
-            fblfo: 0.0,
-            fblfodepth: 0.5,
-            fblfoshape: LfoShape::Sine,
-            comp: 0.0,
-            compattack: 0.01,
-            comprelease: 0.15,
-            comporbit: 0,
             inchan: None,
         }
     }

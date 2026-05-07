@@ -95,31 +95,6 @@ struct GmResolved {
 }
 
 #[derive(Clone, Copy)]
-struct OrbitBlockState {
-    params: orbit::EffectParams,
-    fb_level: f32,
-    has_delay: bool,
-    has_verb: bool,
-    has_comb: bool,
-    has_feedback: bool,
-    has_comp: bool,
-}
-
-impl Default for OrbitBlockState {
-    fn default() -> Self {
-        Self {
-            params: orbit::EffectParams::default(),
-            fb_level: 0.0,
-            has_delay: false,
-            has_verb: false,
-            has_comb: false,
-            has_feedback: false,
-            has_comp: false,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
 struct StereoOutputStage;
 
 impl StereoOutputStage {
@@ -152,7 +127,7 @@ pub struct Engine {
     pub max_voices: usize,
     pub voices: Vec<Voice>,
     pub active_voices: usize,
-    pub orbits: Vec<Orbit>,
+    pub orbits: [Orbit; MAX_ORBITS],
     pub schedule: Schedule,
     pub time: f64,
     pub tick: u64,
@@ -197,10 +172,7 @@ impl Engine {
     pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
         dsp::fft::init_twiddles();
 
-        let mut orbits = Vec::with_capacity(MAX_ORBITS);
-        for _ in 0..MAX_ORBITS {
-            orbits.push(Orbit::new(sample_rate));
-        }
+        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
 
         Self {
             sr: sample_rate,
@@ -246,10 +218,7 @@ impl Engine {
         let registry = Arc::new(SampleRegistry::new());
         let loader = SampleLoader::new(Arc::clone(&registry));
 
-        let mut orbits = Vec::with_capacity(MAX_ORBITS);
-        for _ in 0..MAX_ORBITS {
-            orbits.push(Orbit::new(sample_rate));
-        }
+        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
 
         Self {
             sr: sample_rate,
@@ -292,10 +261,7 @@ impl Engine {
         let registry = Arc::new(SampleRegistry::new());
         let loader = SampleLoader::new(Arc::clone(&registry));
 
-        let mut orbits = Vec::with_capacity(MAX_ORBITS);
-        for _ in 0..MAX_ORBITS {
-            orbits.push(Orbit::new(sample_rate));
-        }
+        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
 
         Self {
             sr: sample_rate,
@@ -740,6 +706,65 @@ impl Engine {
             None
         };
 
+        // --- Orbit FX state (Tidal-style sticky bus) ---
+        // Resolve the target orbit from the event override or the voice's
+        // current routing, then write any event-supplied FX params into the
+        // orbit. The orbit is the source of truth for all FX state.
+        let target_orbit = event
+            .orbit
+            .map(|o| o % MAX_ORBITS)
+            .unwrap_or_else(|| self.voices[idx].params.orbit % MAX_ORBITS);
+        {
+            let orbit = &mut self.orbits[target_orbit];
+            macro_rules! set {
+                ($evt:ident, $dst:expr) => {
+                    if let Some(x) = event.$evt {
+                        $dst = x;
+                    }
+                };
+            }
+            macro_rules! set_pos {
+                ($evt:ident, $dst:expr) => {
+                    if let Some(x) = event.$evt {
+                        $dst = x.max(0.0);
+                    }
+                };
+            }
+            set_pos!(delay, orbit.delay_level);
+            set_pos!(verb, orbit.verb_level);
+            set_pos!(comb, orbit.comb_level);
+            set_pos!(feedback, orbit.fb_level);
+            set_pos!(comp, orbit.params.comp);
+            set!(delaytime, orbit.params.delay_time);
+            set!(delayfeedback, orbit.params.delay_feedback);
+            set!(delaytype, orbit.params.delay_type);
+            set!(verbtype, orbit.params.verb_type);
+            set!(verbdecay, orbit.params.verb_decay);
+            set!(verbdamp, orbit.params.verb_damp);
+            set!(verbpredelay, orbit.params.verb_predelay);
+            set!(verbdiff, orbit.params.verb_diff);
+            set!(verbsize, orbit.params.verb_size);
+            set!(verbprelow, orbit.params.verb_prelow);
+            set!(verbprehigh, orbit.params.verb_prehigh);
+            set!(verblowcut, orbit.params.verb_lowcut);
+            set!(verbhighcut, orbit.params.verb_highcut);
+            set!(verblowgain, orbit.params.verb_lowgain);
+            set!(verbchorus, orbit.params.verb_chorus);
+            set!(verbchorusfreq, orbit.params.verb_chorus_freq);
+            set!(combfreq, orbit.params.comb_freq);
+            set!(combfeedback, orbit.params.comb_feedback);
+            set!(combdamp, orbit.params.comb_damp);
+            set!(fbtime, orbit.params.fb_time);
+            set!(fbdamp, orbit.params.fb_damp);
+            set!(fbcross, orbit.params.fb_cross);
+            set!(fblfo, orbit.params.fb_lfo);
+            set!(fblfodepth, orbit.params.fb_lfo_depth);
+            set!(fblfoshape, orbit.params.fb_lfo_shape);
+            set!(compattack, orbit.params.comp_attack);
+            set!(comprelease, orbit.params.comp_release);
+            set!(comporbit, orbit.params.comp_orbit);
+        }
+
         let v = &mut self.voices[idx];
 
         // --- Pitch ---
@@ -1010,44 +1035,13 @@ impl Engine {
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
         copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
-        copy_opt!(event, v.params, comb, combfreq, combfeedback, combdamp);
-        copy_opt!(
-            event, v.params, feedback, fbtime, fbdamp, fbcross, fblfo, fblfodepth, fblfoshape
-        );
-        copy_opt!(event, v.params, comp, compattack, comprelease, comporbit);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
         copy_opt!(event, v.params, width, haas);
         copy_opt!(event, v.params, eqlo, eqmid, eqhi, eqlofreq, eqmidfreq, eqhifreq, tilt);
 
-        // --- Sends ---
-        copy_opt!(
-            event,
-            v.params,
-            orbit,
-            delay,
-            delaytime,
-            delayfeedback,
-            delaytype
-        );
-        copy_opt!(
-            event,
-            v.params,
-            verb,
-            verbtype,
-            verbdecay,
-            verbdamp,
-            verbpredelay,
-            verbdiff,
-            verbsize,
-            verbprelow,
-            verbprehigh,
-            verblowcut,
-            verbhighcut,
-            verblowgain,
-            verbchorus,
-            verbchorusfreq
-        );
+        // --- Routing (orbit FX state lives on the orbit, not the voice) ---
+        copy_opt!(event, v.params, orbit);
 
         // Live input channel
         v.params.inchan = event.inchan;
@@ -1058,111 +1052,6 @@ impl Engine {
         }
 
         v.sync_source_state();
-    }
-
-    fn collect_block_orbit_state(&self) -> [OrbitBlockState; MAX_ORBITS] {
-        let mut states = [OrbitBlockState::default(); MAX_ORBITS];
-        let num_orbits = self.orbits.len();
-
-        for voice in self.voices.iter().take(self.active_voices) {
-            let orbit_idx = voice.params.orbit % num_orbits;
-            let state = &mut states[orbit_idx];
-
-            if voice.params.delay > 0.0 {
-                state.has_delay = true;
-                state.params.delay_time = voice.params.delaytime;
-                state.params.delay_feedback = voice.params.delayfeedback;
-                state.params.delay_type = voice.params.delaytype;
-            }
-            if voice.params.verb > 0.0 {
-                state.has_verb = true;
-                state.params.verb_type = voice.params.verbtype;
-                state.params.verb_decay = voice.params.verbdecay;
-                state.params.verb_damp = voice.params.verbdamp;
-                state.params.verb_predelay = voice.params.verbpredelay;
-                state.params.verb_diff = voice.params.verbdiff;
-                state.params.verb_size = voice.params.verbsize;
-                state.params.verb_prelow = voice.params.verbprelow;
-                state.params.verb_prehigh = voice.params.verbprehigh;
-                state.params.verb_lowcut = voice.params.verblowcut;
-                state.params.verb_highcut = voice.params.verbhighcut;
-                state.params.verb_lowgain = voice.params.verblowgain;
-                state.params.verb_chorus = voice.params.verbchorus;
-                state.params.verb_chorus_freq = voice.params.verbchorusfreq;
-            }
-            if voice.params.comb > 0.0 {
-                state.has_comb = true;
-                state.params.comb_freq = voice.params.combfreq;
-                state.params.comb_feedback = voice.params.combfeedback;
-                state.params.comb_damp = voice.params.combdamp;
-            }
-            if voice.params.feedback > 0.0 {
-                state.has_feedback = true;
-                state.fb_level = voice.params.feedback;
-                state.params.fb_time = voice.params.fbtime;
-                state.params.fb_damp = voice.params.fbdamp;
-                state.params.fb_cross = voice.params.fbcross;
-                state.params.fb_lfo = voice.params.fblfo;
-                state.params.fb_lfo_depth = voice.params.fblfodepth;
-                state.params.fb_lfo_shape = voice.params.fblfoshape;
-            }
-            if voice.params.comp > 0.0 {
-                state.has_comp = true;
-                state.params.comp = voice.params.comp;
-                state.params.comp_attack = voice.params.compattack;
-                state.params.comp_release = voice.params.comprelease;
-                state.params.comp_orbit = voice.params.comporbit;
-            }
-        }
-
-        states
-    }
-
-    fn apply_block_orbit_state(&mut self, states: &[OrbitBlockState; MAX_ORBITS]) {
-        for (orbit, state) in self.orbits.iter_mut().zip(states.iter()) {
-            if state.has_delay {
-                orbit.params.delay_time = state.params.delay_time;
-                orbit.params.delay_feedback = state.params.delay_feedback;
-                orbit.params.delay_type = state.params.delay_type;
-            }
-            if state.has_verb {
-                orbit.params.verb_type = state.params.verb_type;
-                orbit.params.verb_decay = state.params.verb_decay;
-                orbit.params.verb_damp = state.params.verb_damp;
-                orbit.params.verb_predelay = state.params.verb_predelay;
-                orbit.params.verb_diff = state.params.verb_diff;
-                orbit.params.verb_size = state.params.verb_size;
-                orbit.params.verb_prelow = state.params.verb_prelow;
-                orbit.params.verb_prehigh = state.params.verb_prehigh;
-                orbit.params.verb_lowcut = state.params.verb_lowcut;
-                orbit.params.verb_highcut = state.params.verb_highcut;
-                orbit.params.verb_lowgain = state.params.verb_lowgain;
-                orbit.params.verb_chorus = state.params.verb_chorus;
-                orbit.params.verb_chorus_freq = state.params.verb_chorus_freq;
-            }
-            if state.has_comb {
-                orbit.params.comb_freq = state.params.comb_freq;
-                orbit.params.comb_feedback = state.params.comb_feedback;
-                orbit.params.comb_damp = state.params.comb_damp;
-            }
-            if state.has_feedback {
-                orbit.params.fb_time = state.params.fb_time;
-                orbit.params.fb_damp = state.params.fb_damp;
-                orbit.params.fb_cross = state.params.fb_cross;
-                orbit.params.fb_lfo = state.params.fb_lfo;
-                orbit.params.fb_lfo_depth = state.params.fb_lfo_depth;
-                orbit.params.fb_lfo_shape = state.params.fb_lfo_shape;
-                orbit.fb_level = state.fb_level;
-            } else {
-                orbit.fb_level = 0.0;
-            }
-            if state.has_comp {
-                orbit.params.comp = state.params.comp;
-                orbit.params.comp_attack = state.params.comp_attack;
-                orbit.params.comp_release = state.params.comp_release;
-                orbit.params.comp_orbit = state.params.comp_orbit;
-            }
-        }
     }
 
     fn free_voice(&mut self, i: usize) {
@@ -1222,7 +1111,6 @@ impl Engine {
         // When a voice dies, it's freed immediately and the loop continues,
         // which means the swapped-in voice (from the end) gets skipped this frame.
         let isr = self.isr;
-        let num_orbits = self.orbits.len();
         #[cfg(all(feature = "native", feature = "profiling"))]
         let mut voice_source_ns = 0u64;
         #[cfg(all(feature = "native", feature = "profiling"))]
@@ -1278,34 +1166,35 @@ impl Engine {
                 continue;
             }
 
-            let orbit_idx = self.voices[i].params.orbit % num_orbits;
+            let orbit_idx = self.voices[i].params.orbit % MAX_ORBITS;
 
             orbit_dry[orbit_idx][0] += self.voices[i].ch[0];
             orbit_dry[orbit_idx][1] += self.voices[i].ch[1];
 
-            // Add to orbit sends. Effect params are collected once per block.
-            if self.voices[i].params.delay > 0.0 {
+            // Send to orbit FX at the orbit's persistent levels (Tidal-style).
+            let orbit = &mut self.orbits[orbit_idx];
+            if orbit.delay_level > 0.0 {
+                let level = orbit.delay_level;
                 for c in 0..CHANNELS {
-                    self.orbits[orbit_idx]
-                        .add_delay_send(c, self.voices[i].ch[c] * self.voices[i].params.delay);
+                    orbit.add_delay_send(c, self.voices[i].ch[c] * level);
                 }
             }
-            if self.voices[i].params.verb > 0.0 {
+            if orbit.verb_level > 0.0 {
+                let level = orbit.verb_level;
                 for c in 0..CHANNELS {
-                    self.orbits[orbit_idx]
-                        .add_verb_send(c, self.voices[i].ch[c] * self.voices[i].params.verb);
+                    orbit.add_verb_send(c, self.voices[i].ch[c] * level);
                 }
             }
-            if self.voices[i].params.comb > 0.0 {
+            if orbit.comb_level > 0.0 {
+                let level = orbit.comb_level;
                 for c in 0..CHANNELS {
-                    self.orbits[orbit_idx]
-                        .add_comb_send(c, self.voices[i].ch[c] * self.voices[i].params.comb);
+                    orbit.add_comb_send(c, self.voices[i].ch[c] * level);
                 }
             }
-            if self.voices[i].params.feedback > 0.0 {
+            if orbit.fb_level > 0.0 {
+                let level = orbit.fb_level;
                 for c in 0..CHANNELS {
-                    self.orbits[orbit_idx]
-                        .add_fb_send(c, self.voices[i].ch[c] * self.voices[i].params.feedback);
+                    orbit.add_fb_send(c, self.voices[i].ch[c] * level);
                 }
             }
 
@@ -1328,7 +1217,6 @@ impl Engine {
 
         // Phase 2: mix to output with optional sidechain compression
         let isr = self.isr;
-        let num_orbs = self.orbits.len();
         #[cfg(all(feature = "native", feature = "profiling"))]
         let final_mix_start = std::time::Instant::now();
         for (oi, orbit) in self.orbits.iter_mut().enumerate() {
@@ -1342,7 +1230,7 @@ impl Engine {
             ];
 
             if p.comp > 0.0 {
-                let sc = p.comp_orbit % num_orbs;
+                let sc = p.comp_orbit % MAX_ORBITS;
                 let sc_total = [
                     orbit_dry[sc][0] + orbit_levels[sc][0],
                     orbit_dry[sc][1] + orbit_levels[sc][1],
@@ -1448,7 +1336,6 @@ impl Engine {
 
         #[cfg(all(feature = "native", feature = "profiling"))]
         let mut schedule_elapsed_ns = 0u64;
-        let mut orbit_state_ready = false;
         for i in 0..samples {
             #[cfg(all(feature = "native", feature = "profiling"))]
             let schedule_start = std::time::Instant::now();
@@ -1456,11 +1343,6 @@ impl Engine {
             #[cfg(all(feature = "native", feature = "profiling"))]
             {
                 schedule_elapsed_ns += schedule_start.elapsed().as_nanos() as u64;
-            }
-            if !orbit_state_ready {
-                let orbit_states = self.collect_block_orbit_state();
-                self.apply_block_orbit_state(&orbit_states);
-                orbit_state_ready = true;
             }
             self.tick += 1;
             self.time = self.tick as f64 / self.sr as f64;
@@ -1590,52 +1472,6 @@ impl Engine {
 mod tests {
     use super::*;
 
-    fn render_delay_send(engine: &mut Engine, blocks: usize) -> [f32; CHANNELS] {
-        let mut output = [0.0; CHANNELS];
-        for _ in 0..blocks {
-            engine.process_block(&mut output, &[], &[]);
-        }
-        engine.orbits[0].delay_send
-    }
-
-    fn test_voice(freq: f32, orbit: usize, delay: f32, delay_time: f32, comp: f32) -> VoiceParams {
-        VoiceParams {
-            sound: Source::Sine,
-            freq,
-            gain: 0.3,
-            postgain: 0.8,
-            gate: 1.0,
-            attack: 0.0,
-            decay: 0.0,
-            sustain: 1.0,
-            release: 0.05,
-            orbit,
-            delay,
-            delaytime: delay_time,
-            delayfeedback: 0.25 + delay_time,
-            comp,
-            compattack: 0.01 + delay_time * 0.1,
-            comprelease: 0.1 + delay_time * 0.2,
-            comporbit: orbit,
-            ..VoiceParams::default()
-        }
-    }
-
-    #[test]
-    fn block_orbit_state_uses_last_active_voice_params() {
-        let mut engine = Engine::new(48_000.0);
-        engine.play(test_voice(220.0, 0, 0.2, 0.15, 0.3));
-        engine.play(test_voice(330.0, 0, 0.4, 0.35, 0.6));
-
-        let states = engine.collect_block_orbit_state();
-
-        assert!(states[0].has_delay);
-        assert!(states[0].has_comp);
-        assert!((states[0].params.delay_time - 0.35).abs() < 1e-6);
-        assert!((states[0].params.delay_feedback - 0.6).abs() < 1e-6);
-        assert!((states[0].params.comp - 0.6).abs() < 1e-6);
-    }
-
     #[test]
     fn stereo_output_stage_keeps_signal_bounded() {
         let mut stage = StereoOutputStage;
@@ -1657,27 +1493,5 @@ mod tests {
         // tanh slope at origin is 1; near-identity below ~0.3.
         assert!((pair[0] - 0.1).abs() < 1e-2);
         assert!((pair[1] + 0.05).abs() < 1e-2);
-    }
-
-    #[test]
-    fn block_rate_orbit_params_keep_send_sums_without_voice_compensation() {
-        let blocks = 512;
-        let mut both = Engine::new(48_000.0);
-        both.play(test_voice(220.0, 0, 0.2, 0.15, 0.0));
-        both.play(test_voice(330.0, 0, 0.4, 0.35, 0.0));
-        let both_send = render_delay_send(&mut both, blocks);
-        assert!((both.orbits[0].params.delay_time - 0.35).abs() < 1e-6);
-
-        let mut first = Engine::new(48_000.0);
-        first.play(test_voice(220.0, 0, 0.2, 0.15, 0.0));
-        let first_send = render_delay_send(&mut first, blocks);
-
-        let mut second = Engine::new(48_000.0);
-        second.play(test_voice(330.0, 0, 0.4, 0.35, 0.0));
-        let second_send = render_delay_send(&mut second, blocks);
-
-        for c in 0..CHANNELS {
-            assert!((both_send[c] - (first_send[c] + second_send[c])).abs() < 1e-5);
-        }
     }
 }

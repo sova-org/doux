@@ -3,7 +3,7 @@ use crate::effects::{Comb, Compressor, DattorroVerb, Delay, DelayParams, Feedbac
 use crate::types::{DelayType, LfoShape, ReverbType, CHANNELS};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
-const SILENCE_HOLDOFF: u32 = 48000;
+const SILENCE_HOLDOFF_SECS: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub struct EffectParams {
@@ -78,13 +78,16 @@ pub struct Orbit {
     pub delay: Delay,
     pub delay_send: [f32; CHANNELS],
     pub delay_out: [f32; CHANNELS],
+    pub delay_level: f32,
     pub verb: [DattorroVerb; CHANNELS],
     pub vital: VitalVerb,
     pub verb_send: [f32; CHANNELS],
     pub verb_out: [f32; CHANNELS],
+    pub verb_level: f32,
     pub comb: [Comb; CHANNELS],
     pub comb_send: [f32; CHANNELS],
     pub comb_out: [f32; CHANNELS],
+    pub comb_level: f32,
     pub fb: Feedback,
     pub fb_phasor: Phasor,
     pub fb_send: [f32; CHANNELS],
@@ -94,21 +97,26 @@ pub struct Orbit {
     pub params: EffectParams,
     pub sr: f32,
     silent_samples: u32,
+    silence_holdoff: u32,
 }
 
 impl Orbit {
     pub fn new(sr: f32) -> Self {
+        let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
             delay: Delay::new(),
             delay_send: [0.0; CHANNELS],
             delay_out: [0.0; CHANNELS],
+            delay_level: 0.0,
             verb: std::array::from_fn(|_| DattorroVerb::new(sr)),
             vital: VitalVerb::new(sr),
             verb_send: [0.0; CHANNELS],
             verb_out: [0.0; CHANNELS],
+            verb_level: 0.0,
             comb: [Comb::default(); CHANNELS],
             comb_send: [0.0; CHANNELS],
             comb_out: [0.0; CHANNELS],
+            comb_level: 0.0,
             fb: Feedback::default(),
             fb_phasor: Phasor::default(),
             fb_send: [0.0; CHANNELS],
@@ -117,7 +125,8 @@ impl Orbit {
             comp: Compressor::new(),
             params: EffectParams::default(),
             sr,
-            silent_samples: SILENCE_HOLDOFF + 1,
+            silent_samples: silence_holdoff + 1,
+            silence_holdoff,
         }
     }
 
@@ -157,7 +166,7 @@ impl Orbit {
 
         if has_input {
             self.silent_samples = 0;
-        } else if self.silent_samples > SILENCE_HOLDOFF {
+        } else if self.silent_samples > self.silence_holdoff {
             self.delay_out = [0.0; CHANNELS];
             self.verb_out = [0.0; CHANNELS];
             self.comb_out = [0.0; CHANNELS];
