@@ -104,7 +104,7 @@ impl Orbit {
     pub fn new(sr: f32) -> Self {
         let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
-            delay: Delay::new(),
+            delay: Delay::default(),
             delay_send: [0.0; CHANNELS],
             delay_out: [0.0; CHANNELS],
             delay_level: 0.0,
@@ -122,7 +122,7 @@ impl Orbit {
             fb_send: [0.0; CHANNELS],
             fb_level: 0.0,
             fb_out: [0.0; CHANNELS],
-            comp: Compressor::new(),
+            comp: Compressor::default(),
             params: EffectParams::default(),
             sr,
             silent_samples: silence_holdoff + 1,

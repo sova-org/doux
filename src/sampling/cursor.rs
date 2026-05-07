@@ -136,22 +136,27 @@ impl Cursor {
         self.pos < 0.0 || self.pos >= self.length
     }
 
+    #[inline]
+    fn clamped_pos(&self) -> f32 {
+        self.pos.clamp(0.0, (self.length - 1.0).max(0.0))
+    }
+
     /// Returns the absolute frame position, clamped to valid range.
     #[inline]
     pub fn frame_position(&self) -> f32 {
-        self.start_pos + self.pos.clamp(0.0, (self.length - 1.0).max(0.0))
+        self.start_pos + self.clamped_pos()
     }
 
     /// Returns the fractional part of the current position for interpolation.
     #[inline]
     pub fn frac(&self) -> f32 {
-        self.pos.clamp(0.0, (self.length - 1.0).max(0.0)).fract()
+        self.clamped_pos().fract()
     }
 
     /// Returns the current frame index (integer part of position).
     #[inline]
     pub fn current_frame(&self) -> usize {
-        (self.start_pos + self.pos.clamp(0.0, (self.length - 1.0).max(0.0))) as usize
+        (self.start_pos + self.clamped_pos()) as usize
     }
 
     /// Returns the next frame index for interpolation, clamped to end boundary.

@@ -33,10 +33,9 @@
 //! Any other input is evaluated as a doux pattern.
 
 use clap::Parser;
-use doux::audio::{get_host, print_diagnostics, HostSelection};
 use doux::cli_common::{
-    build_audio_streams, print_devices, print_hosts, recreate_engine, resolve_output_config,
-    StreamParams,
+    build_audio_streams, init_audio_host, recreate_engine, setup_engine_samples, CommonAudioArgs,
+    HostInit, StreamParams,
 };
 use doux::AudioCmd;
 use doux::Engine;
@@ -143,44 +142,8 @@ impl Helper for DouxHighlighter {}
 #[command(name = "doux-repl")]
 #[command(about = "Interactive REPL for doux audio engine")]
 struct Args {
-    /// Directory containing audio samples
-    #[arg(short, long)]
-    samples: Option<PathBuf>,
-
-    /// List available audio devices and exit
-    #[arg(long)]
-    list_devices: bool,
-
-    /// Input device (name or index)
-    #[arg(short, long)]
-    input: Option<String>,
-
-    /// Output device (name or index)
-    #[arg(short, long)]
-    output: Option<String>,
-
-    /// Number of output channels (default: 2, max depends on device)
-    #[arg(long, default_value = "2")]
-    channels: u16,
-
-    /// Audio buffer size in samples (lower = less latency, higher = more stable).
-    /// Common values: 64, 128, 256, 512, 1024. Default: system choice.
-    #[arg(short, long)]
-    buffer_size: Option<u32>,
-
-    /// Maximum polyphony (number of simultaneous voices).
-    #[arg(long, default_value = "32")]
-    max_voices: usize,
-
-    /// Audio host backend: jack, alsa, or auto (default: auto).
-    /// On Linux with PipeWire, use 'jack' for best compatibility.
-    /// On Windows, use 'asio' for low-latency pro audio (requires --features asio).
-    #[arg(long, default_value = "auto")]
-    host: String,
-
-    /// Run audio diagnostics and exit (useful for troubleshooting on Linux).
-    #[arg(long)]
-    diagnose: bool,
+    #[command(flatten)]
+    common: CommonAudioArgs,
 }
 
 fn print_help() {
@@ -200,60 +163,42 @@ fn print_help() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let host_selection: HostSelection = args.host.parse().map_err(|e: String| e)?;
-
-    if args.diagnose {
-        print_hosts();
-        println!();
-        print_diagnostics();
-        return Ok(());
-    }
-
-    let host = get_host(host_selection)?;
-
-    if args.list_devices {
-        print_devices(&host);
-        return Ok(());
-    }
-
-    let oc = resolve_output_config(
-        &host,
-        args.output.as_deref(),
-        args.channels,
-        args.buffer_size,
-    )?;
+    let (host, oc, block_size) = match init_audio_host(&args.common)? {
+        HostInit::Ready {
+            host,
+            output_config,
+            block_size,
+        } => (host, output_config, block_size),
+        HostInit::EarlyExit => return Ok(()),
+    };
 
     println!("doux-repl ({})", host.id().name());
-    if let Some(buf) = args.buffer_size {
+    if let Some(buf) = args.common.buffer_size {
         let latency_ms = buf as f32 / oc.sample_rate * 1000.0;
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
     }
 
-    let block_size = args
-        .buffer_size
-        .map(|b| b as usize)
-        .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
     let mut engine = Engine::new_with_channels(
         oc.sample_rate,
         oc.output_channels,
-        args.max_voices,
+        args.common.max_voices,
         block_size,
     );
 
-    if let Some(ref dir) = args.samples {
-        let index = doux::sampling::scan_samples_dir(dir);
-        println!("Samples: {} from {}", index.len(), dir.display());
-        engine.sample_index = index;
-
-        #[cfg(feature = "soundfont")]
-        engine.load_soundfont_from_dir(dir);
+    if let Some(ref dir) = args.common.samples {
+        setup_engine_samples(&mut engine, dir, false, false);
+        println!(
+            "Samples: {} from {}",
+            engine.sample_index.len(),
+            dir.display()
+        );
     }
 
     let sample_index = engine.sample_index.clone();
     let sample_registry = Arc::clone(&engine.sample_registry);
     #[cfg(feature = "soundfont")]
     let gm_bank = engine.gm_bank.clone();
-    let max_voices = args.max_voices;
+    let max_voices = args.common.max_voices;
     let mut metrics = Arc::clone(&engine.metrics);
 
     let device_lost = Arc::new(AtomicBool::new(false));
@@ -262,8 +207,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stream_params = StreamParams {
         host: &host,
-        input_spec: args.input.as_deref(),
-        output_spec: args.output.as_deref(),
+        input_spec: args.common.input.as_deref(),
+        output_spec: args.common.output.as_deref(),
         config: &oc,
         device_lost: &device_lost,
     };

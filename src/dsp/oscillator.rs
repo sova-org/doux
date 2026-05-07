@@ -129,6 +129,16 @@ impl PhaseShape {
         self.size >= 2 || self.warp != 0.0 || self.mirror > 0.0
     }
 
+    /// Applies shaping only when active; otherwise passes the phase through unchanged.
+    #[inline]
+    pub fn apply_or_pass(&self, phase: f32) -> f32 {
+        if self.is_active() {
+            self.apply(phase)
+        } else {
+            phase
+        }
+    }
+
     /// Applies the full transformation chain to a phase value.
     ///
     /// Input and output are in the range `[0, 1)`.
@@ -318,11 +328,7 @@ impl Phasor {
         phase_offset: f32,
     ) -> f32 {
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let s = sinf(p * 2.0 * PI);
         self.update(freq, isr);
         s
@@ -337,11 +343,7 @@ impl Phasor {
         phase_offset: f32,
     ) -> f32 {
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let s = if p < 0.5 {
             4.0 * p - 1.0
         } else {
@@ -361,11 +363,7 @@ impl Phasor {
     ) -> f32 {
         let dt = freq * isr;
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let blep = poly_blep(p, dt);
         let s = p * 2.0 - 1.0 - blep;
         self.update(freq, isr);
@@ -381,11 +379,7 @@ impl Phasor {
         phase_offset: f32,
     ) -> f32 {
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let s = p * 2.0 - 1.0;
         self.update(freq, isr);
         s
@@ -402,11 +396,7 @@ impl Phasor {
     ) -> f32 {
         let dt = freq * isr;
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let mut phi = p + pw;
         if phi >= 1.0 {
             phi -= 1.0;
@@ -428,11 +418,7 @@ impl Phasor {
         phase_offset: f32,
     ) -> f32 {
         let read = offset_phase(self.phase, phase_offset);
-        let p = if shape.is_active() {
-            shape.apply(read)
-        } else {
-            read
-        };
+        let p = shape.apply_or_pass(read);
         let s = if p < duty { 1.0 } else { -1.0 };
         self.update(freq, isr);
         s
@@ -445,22 +431,14 @@ impl Phasor {
     /// Sine at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn sine_at(phase: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         sinf(p * 2.0 * PI)
     }
 
     /// Triangle at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn tri_at(phase: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         if p < 0.5 {
             4.0 * p - 1.0
         } else {
@@ -471,11 +449,7 @@ impl Phasor {
     /// Band-limited sawtooth at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn saw_at(phase: f32, dt: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         let blep = poly_blep(p, dt);
         p * 2.0 - 1.0 - blep
     }
@@ -483,22 +457,14 @@ impl Phasor {
     /// Raw sawtooth at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn zaw_at(phase: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         p * 2.0 - 1.0
     }
 
     /// Band-limited pulse at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn pulse_at(phase: f32, dt: f32, pw: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         let mut phi = p + pw;
         if phi >= 1.0 {
             phi -= 1.0;
@@ -511,11 +477,7 @@ impl Phasor {
     /// Raw pulse at arbitrary phase (stateless, for unison voices).
     #[inline]
     pub fn pulze_at(phase: f32, duty: f32, shape: &PhaseShape) -> f32 {
-        let p = if shape.is_active() {
-            shape.apply(phase)
-        } else {
-            phase
-        };
+        let p = shape.apply_or_pass(phase);
         if p < duty {
             1.0
         } else {

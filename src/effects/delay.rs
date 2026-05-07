@@ -106,14 +106,6 @@ pub struct Delay {
 }
 
 impl Delay {
-    pub fn new() -> Self {
-        Self {
-            lines: [DelayLine::default(), DelayLine::default()],
-            feedback: [0.0; CHANNELS],
-            lp: [0.0; CHANNELS],
-        }
-    }
-
     pub fn process(&mut self, send: [f32; CHANNELS], p: &DelayParams) -> [f32; CHANNELS] {
         let delay_samples = ((p.time * p.sr) as usize).min(MAX_DELAY_SAMPLES - 1);
         let feedback = p.feedback.clamp(0.0, 0.95);

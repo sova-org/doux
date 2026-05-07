@@ -69,7 +69,6 @@ fn is_audio_file(path: &Path) -> bool {
 /// Prints a summary of discovered samples and folders to stdout.
 pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
     let mut entries = Vec::new();
-    let mut _folder_count = 0;
 
     let items = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -101,10 +100,6 @@ pub fn scan_samples_dir(dir: &Path) -> Vec<SampleEntry> {
                 .collect();
 
             files.sort();
-
-            if !files.is_empty() {
-                _folder_count += 1;
-            }
 
             for (i, path) in files.into_iter().enumerate() {
                 let name = format!("{folder_name}/{i}");

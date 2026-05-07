@@ -39,15 +39,7 @@ use dsp::{fast_tanh_f32, init_envelope};
 use event::Event;
 
 use orbit::Orbit;
-use types::ModuleInfo;
 
-/// All modules in the engine: sources, effects, filters, modulation.
-pub fn all_modules() -> Vec<&'static ModuleInfo> {
-    let mut modules: Vec<&'static ModuleInfo> =
-        Source::all().iter().map(|s| &s.info().module).collect();
-    modules.extend_from_slice(effects::ALL_MODULES);
-    modules
-}
 #[cfg(feature = "native")]
 use recorder::Recorder;
 #[cfg(feature = "native")]
@@ -94,31 +86,11 @@ struct GmResolved {
     release: f32,
 }
 
-#[derive(Clone, Copy)]
-struct StereoOutputStage;
-
-impl StereoOutputStage {
-    fn process(&mut self, pair: &mut [f32], _sr: f32) {
-        debug_assert_eq!(pair.len(), CHANNELS);
-        pair[0] = soft_clip_sample(pair[0]);
-        pair[1] = soft_clip_sample(pair[1]);
-    }
-}
-
 // Master soft-clip: plain tanh. Identity slope at origin, monotonic, bounded by ±1.
 // Loses ~2.4 dB at unity input — the musical price of analog-style saturation.
 #[inline]
 fn soft_clip_sample(input: f32) -> f32 {
     fast_tanh_f32(input)
-}
-
-fn output_stage_count(output_channels: usize) -> usize {
-    debug_assert_eq!(
-        output_channels % CHANNELS,
-        0,
-        "output channels must be arranged as stereo pairs"
-    );
-    output_channels / CHANNELS
 }
 
 pub struct Engine {
@@ -156,7 +128,6 @@ pub struct Engine {
     #[cfg(feature = "soundfont")]
     pub gm_bank: Option<soundfont::GmBank>,
     pub input_channels: usize,
-    output_stages: Vec<StereoOutputStage>,
     voice_seed: u32,
     #[cfg(feature = "native")]
     load_gate: bool,
@@ -191,7 +162,6 @@ impl Engine {
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
             input_channels: 2,
-            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
         }
     }
@@ -242,7 +212,6 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             input_channels: 2,
-            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -285,7 +254,6 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             input_channels: 2,
-            output_stages: vec![StereoOutputStage; output_stage_count(output_channels)],
             voice_seed: 123456789,
             load_gate: false,
         }
@@ -1262,9 +1230,10 @@ impl Engine {
             }
         }
 
-        for (pair_index, stage) in self.output_stages.iter_mut().enumerate().take(num_pairs) {
+        for pair_index in 0..num_pairs {
             let pair_base = base_idx + pair_index * CHANNELS;
-            stage.process(&mut output[pair_base..pair_base + CHANNELS], self.sr);
+            output[pair_base] = soft_clip_sample(output[pair_base]);
+            output[pair_base + 1] = soft_clip_sample(output[pair_base + 1]);
         }
 
         #[cfg(all(feature = "native", feature = "profiling"))]
@@ -1473,25 +1442,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stereo_output_stage_keeps_signal_bounded() {
-        let mut stage = StereoOutputStage;
-        let mut pair = [2.0, -1.5];
-
-        stage.process(&mut pair, 48_000.0);
-
-        assert!(pair[0].abs() <= 1.0);
-        assert!(pair[1].abs() <= 1.0);
+    fn soft_clip_keeps_signal_bounded() {
+        assert!(soft_clip_sample(2.0).abs() <= 1.0);
+        assert!(soft_clip_sample(-1.5).abs() <= 1.0);
     }
 
     #[test]
-    fn stereo_output_stage_is_near_identity_at_low_levels() {
-        let mut stage = StereoOutputStage;
-        let mut pair = [0.1, -0.05];
-
-        stage.process(&mut pair, 48_000.0);
-
+    fn soft_clip_is_near_identity_at_low_levels() {
         // tanh slope at origin is 1; near-identity below ~0.3.
-        assert!((pair[0] - 0.1).abs() < 1e-2);
-        assert!((pair[1] + 0.05).abs() < 1e-2);
+        assert!((soft_clip_sample(0.1) - 0.1).abs() < 1e-2);
+        assert!((soft_clip_sample(-0.05) + 0.05).abs() < 1e-2);
     }
 }

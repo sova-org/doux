@@ -3,14 +3,149 @@ use cpal::FromSample;
 use crossbeam_channel::Receiver;
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::audio::{find_device, host_controls_buffer_size, list_hosts, max_output_channels};
+use crate::audio::{
+    find_device, get_host, host_controls_buffer_size, list_hosts, max_output_channels,
+    print_diagnostics, HostSelection,
+};
 use crate::error::DouxError;
+use crate::types::DEFAULT_NATIVE_BLOCK_SIZE;
 use crate::{AudioCmd, Engine};
 
 const INPUT_BUFFER_SIZE: usize = 8192;
+
+/// CLI flags shared by all native binaries that open an audio stream.
+#[derive(clap::Args)]
+pub struct CommonAudioArgs {
+    /// Directory containing audio samples.
+    #[arg(short, long)]
+    pub samples: Option<PathBuf>,
+
+    /// List available audio devices and exit.
+    #[arg(long)]
+    pub list_devices: bool,
+
+    /// Input device (name or index).
+    #[arg(short, long)]
+    pub input: Option<String>,
+
+    /// Output device (name or index).
+    #[arg(short, long)]
+    pub output: Option<String>,
+
+    /// Number of output channels (default: 2, max depends on device).
+    #[arg(long, default_value = "2")]
+    pub channels: u16,
+
+    /// Audio buffer size in samples (lower = less latency, higher = more stable).
+    #[arg(short, long)]
+    pub buffer_size: Option<u32>,
+
+    /// Maximum polyphony (number of simultaneous voices).
+    #[arg(long, default_value = "32")]
+    pub max_voices: usize,
+
+    /// Audio host backend: jack, alsa, asio, or auto (default: auto).
+    #[arg(long, default_value = "auto")]
+    pub host: String,
+
+    /// Run audio diagnostics and exit.
+    #[arg(long)]
+    pub diagnose: bool,
+}
+
+/// Outcome of host initialisation.
+pub enum HostInit {
+    /// User asked for `--diagnose` or `--list-devices`; the binary should exit.
+    EarlyExit,
+    Ready {
+        host: cpal::Host,
+        output_config: OutputConfig,
+        block_size: usize,
+    },
+}
+
+/// Parses host selection, runs `--diagnose` / `--list-devices` short-circuits,
+/// and resolves the output configuration. Used by all interactive binaries.
+pub fn init_audio_host(common: &CommonAudioArgs) -> Result<HostInit, DouxError> {
+    let host_selection: HostSelection = common.host.parse().map_err(DouxError::HostNotFound)?;
+
+    if common.diagnose {
+        print_hosts();
+        println!();
+        print_diagnostics();
+        return Ok(HostInit::EarlyExit);
+    }
+
+    let host = get_host(host_selection)?;
+
+    if common.list_devices {
+        print_devices(&host);
+        return Ok(HostInit::EarlyExit);
+    }
+
+    let output_config = resolve_output_config(
+        &host,
+        common.output.as_deref(),
+        common.channels,
+        common.buffer_size,
+    )?;
+
+    let block_size = common
+        .buffer_size
+        .map(|b| b as usize)
+        .unwrap_or(DEFAULT_NATIVE_BLOCK_SIZE);
+
+    Ok(HostInit::Ready {
+        host,
+        output_config,
+        block_size,
+    })
+}
+
+/// Loads samples from `dir` into the engine.
+///
+/// `preload = true` decodes everything up front (blocking); otherwise sample data
+/// is deferred to lazy loading. With `verbose = true`, progress is printed to stdout.
+pub fn setup_engine_samples(engine: &mut Engine, dir: &Path, preload: bool, verbose: bool) {
+    if verbose {
+        println!("\nScanning samples from: {}", dir.display());
+    }
+    let index = crate::sampling::scan_samples_dir(dir);
+    let count = index.len();
+
+    if preload {
+        if verbose {
+            println!("Preloading {count} samples...");
+        }
+        let sr = engine.sr;
+        for entry in &index {
+            match crate::sampling::decode_sample_file(&entry.path, sr) {
+                Ok(data) => {
+                    engine
+                        .sample_registry
+                        .insert(entry.name.as_ref().to_string(), Arc::new(data));
+                }
+                Err(e) => {
+                    eprintln!("Failed to preload {}: {e}", entry.name);
+                }
+            }
+        }
+        if verbose {
+            println!("Preloaded {} samples\n", engine.sample_registry.len());
+        }
+    } else if verbose {
+        println!("Found {count} samples (lazy loading enabled)\n");
+    }
+
+    engine.sample_index = index;
+
+    #[cfg(feature = "soundfont")]
+    engine.load_soundfont_from_dir(dir);
+}
 
 pub struct OutputConfig {
     pub stream_config: cpal::StreamConfig,

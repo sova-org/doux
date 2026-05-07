@@ -16,7 +16,7 @@
 //!
 //! # Implementation Notes
 //!
-//! All functions are division-free (except `fast_tanh` and `atan2f`).
+//! All functions are division-free (except `fast_tanh_f32` and `atan2f`).
 //! The logarithm and exponential functions exploit IEEE 754 float bit layout,
 //! extracting and manipulating exponent/mantissa fields directly. Trigonometric
 //! functions use minimax polynomial approximations.
@@ -171,20 +171,10 @@ pub fn ftz(x: f32, limit: f32) -> f32 {
     }
 }
 
-/// Fast hyperbolic tangent approximation (f64).
-///
-/// Rational cubic preserving odd symmetry. Replaces expensive `f64::tanh()`
-/// in the ladder filter (~5 cycles vs ~20-50).
-#[inline]
-pub fn fast_tanh(x: f64) -> f64 {
-    let x = x.clamp(-3.0, 3.0);
-    let x2 = x * x;
-    x * (27.0 + x2) / (27.0 + 9.0 * x2)
-}
-
 /// Fast hyperbolic tangent approximation (f32).
 ///
-/// Same rational cubic as [`fast_tanh`] but in single precision.
+/// Rational cubic preserving odd symmetry. Replaces expensive `f32::tanh()`
+/// in the ladder filter (~5 cycles vs ~20-50).
 #[inline]
 pub fn fast_tanh_f32(x: f32) -> f32 {
     let x = x.clamp(-3.0, 3.0);
@@ -286,20 +276,6 @@ mod tests {
             assert!(
                 (fast - std).abs() / std < 0.01,
                 "pow10({x}) = {fast} vs std {std}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_fast_tanh() {
-        for i in -30..=30 {
-            let x = i as f64 * 0.1;
-            let fast = fast_tanh(x);
-            let std = x.tanh();
-            let err = (fast - std).abs();
-            assert!(
-                err < 0.03,
-                "fast_tanh({x}) = {fast} vs std {std}, err={err}"
             );
         }
     }

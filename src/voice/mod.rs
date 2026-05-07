@@ -53,6 +53,7 @@ impl Default for AdditiveCache {
     }
 }
 
+#[derive(Clone)]
 pub struct Voice {
     pub params: VoiceParams,
     pub phasor: Phasor,
@@ -195,72 +196,6 @@ impl Default for Voice {
             sr,
             seed: 123456789,
             drum_svf: SvfState::default(),
-        }
-    }
-}
-
-impl Clone for Voice {
-    fn clone(&self) -> Self {
-        Self {
-            params: self.params,
-            phasor: self.phasor,
-            sub_phasor: self.sub_phasor,
-            sync_phasor: self.sync_phasor,
-            sync_direction: self.sync_direction,
-            spread_phasors: self.spread_phasors,
-            dahdsr: self.dahdsr,
-            lp: self.lp,
-            hp: self.hp,
-            bp: self.bp,
-            vib_lfo: self.vib_lfo,
-            fm_phasor: self.fm_phasor,
-            fm2_phasor: self.fm2_phasor,
-            fm_fb_prev: self.fm_fb_prev,
-            fm_fb_prev2: self.fm_fb_prev2,
-            fm_phase_mod: self.fm_phase_mod,
-            am_lfo: self.am_lfo,
-            rm_lfo: self.rm_lfo,
-            current_freq: self.current_freq,
-            pink_noise: self.pink_noise,
-            brown_noise: self.brown_noise,
-            #[cfg(not(feature = "native"))]
-            file_source: self.file_source,
-            #[cfg(feature = "native")]
-            registry_sample: self.registry_sample.clone(),
-            #[cfg(feature = "native")]
-            registry_sample_b: self.registry_sample_b.clone(),
-            sample_blend: self.sample_blend,
-            #[cfg(feature = "native")]
-            stretch: self.stretch,
-            web_sample: self.web_sample,
-            phaser: self.phaser,
-            flanger: self.flanger.clone(),
-            smear: self.smear,
-            chorus: self.chorus.clone(),
-            coarse: self.coarse,
-            fold_state: self.fold_state,
-            wrap_state: self.wrap_state,
-            dc_block: self.dc_block,
-            eq: self.eq,
-            tilt: self.tilt,
-            haas: self.haas.clone(),
-            ladder_lp: self.ladder_lp,
-            ladder_hp: self.ladder_hp,
-            ladder_bp: self.ladder_bp,
-            param_mods: self.param_mods,
-            param_mod_count: self.param_mod_count,
-            triggered: self.triggered,
-            time: self.time,
-            ch: self.ch,
-            nch: self.nch,
-            spread_side: self.spread_side,
-            spread_cache_value: self.spread_cache_value,
-            spread_detune_ratios: self.spread_detune_ratios,
-            additive_cache: self.additive_cache,
-            shape_active: self.shape_active,
-            sr: self.sr,
-            seed: self.seed,
-            drum_svf: self.drum_svf,
         }
     }
 }
