@@ -62,9 +62,19 @@ use telemetry::ProfilePhase;
 use types::DEFAULT_NATIVE_BLOCK_SIZE;
 #[cfg(not(feature = "native"))]
 use types::WASM_BLOCK_SIZE;
-use types::{Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
+use types::{ModuleInfo, Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
 use voice::modulation::ParamId;
 use voice::{modulation, Voice, VoiceParams};
+
+/// All modules in the engine: sources, effects, filters, modulation.
+///
+/// Public surface consumed by sova's docs panel; keep stable.
+pub fn all_modules() -> Vec<&'static ModuleInfo> {
+    let mut modules: Vec<&'static ModuleInfo> =
+        Source::all().iter().map(|s| &s.info().module).collect();
+    modules.extend_from_slice(effects::ALL_MODULES);
+    modules
+}
 
 #[cfg(feature = "soundfont")]
 struct GmResolved {

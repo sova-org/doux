@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-const BUFFER_SIZE: usize = 1600;
+const BUFFER_SIZE: usize = 2048;
 
 /// Lock-free triple-buffer for audio oscilloscope capture.
 ///
