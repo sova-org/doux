@@ -231,6 +231,13 @@ pub fn fast_tan(x: f32) -> f32 {
     sinf(x) / cosf(x)
 }
 
+/// Convert milliseconds to samples at the given sample rate. Callers clamp
+/// to their buffer's safe range — bounds legitimately differ per use site.
+#[inline]
+pub fn ms_to_samples(ms: f32, sr: f32) -> f32 {
+    ms * sr * 0.001
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

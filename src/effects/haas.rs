@@ -1,6 +1,6 @@
 //! Haas effect — short delay on one channel for spatial placement.
 
-use crate::dsp::DelayLine;
+use crate::dsp::{ms_to_samples, DelayLine};
 
 const BUFFER_SIZE: usize = 2048;
 
@@ -15,7 +15,7 @@ impl Haas {
     #[inline]
     pub fn process(&mut self, input: f32, ms: f32, sr: f32) -> f32 {
         self.delay.write(input);
-        let delay_samples = (ms * sr * 0.001).clamp(1.0, (BUFFER_SIZE - 2) as f32);
+        let delay_samples = ms_to_samples(ms, sr).clamp(1.0, (BUFFER_SIZE - 2) as f32);
         self.delay.read(delay_samples)
     }
 }

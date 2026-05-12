@@ -16,7 +16,7 @@
 //! The three voices are phase-offset by 120° to avoid reinforcement artifacts.
 //! Left and right taps use opposite modulation polarity for stereo width.
 
-use crate::dsp::{DelayLine, Phasor};
+use crate::dsp::{ms_to_samples, DelayLine, Phasor};
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -127,8 +127,8 @@ impl Chorus {
             let dly_l = (delay_ms + modulation).clamp(min_delay, max_delay);
             let dly_r = (delay_ms - modulation).clamp(min_delay, max_delay);
 
-            let samp_l = (dly_l * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
-            let samp_r = (dly_r * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
+            let samp_l = ms_to_samples(dly_l, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
+            let samp_r = ms_to_samples(dly_r, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
 
             out_l += self.delay.read(samp_l);
             out_r += self.delay.read(samp_r);

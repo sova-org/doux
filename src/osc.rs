@@ -33,30 +33,7 @@ const BUFFER_SIZE: usize = 4096;
 
 /// Starts the OSC receiver loop on the specified port.
 ///
-/// Binds to all interfaces (`0.0.0.0`) and blocks indefinitely, processing
-/// incoming messages. Intended to be spawned in a dedicated thread.
-pub fn run(tx: Sender<AudioCmd>, port: u16) -> std::io::Result<()> {
-    let addr = format!("0.0.0.0:{port}");
-    let socket = UdpSocket::bind(&addr)?;
-
-    let mut buf = [0u8; BUFFER_SIZE];
-
-    loop {
-        match socket.recv_from(&mut buf) {
-            Ok((size, _addr)) => {
-                if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&tx, &packet.1);
-                }
-            }
-            Err(e) => {
-                eprintln!("OSC recv error: {e}");
-            }
-        }
-    }
-}
-
-/// Like `run`, but returns when `device_lost` is set.
-///
+/// Binds to all interfaces (`0.0.0.0`) and returns when `device_lost` is set.
 /// Uses a 500ms socket timeout so the loop periodically checks the flag.
 /// Returns `Ok(true)` if it exited due to device loss, `Ok(false)` otherwise.
 pub fn run_recoverable(

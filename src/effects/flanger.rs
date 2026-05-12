@@ -3,7 +3,7 @@
 //! Creates the characteristic "jet plane" sweep by mixing the input with a
 //! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
 
-use crate::dsp::{DelayLine, Phasor};
+use crate::dsp::{ms_to_samples, DelayLine, Phasor};
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -72,7 +72,7 @@ impl Flanger {
         let lfo_val = self.lfo.sine(rate, isr);
         let depth_curve = depth * depth;
         let delay_ms = MIN_DELAY_MS + depth_curve * DELAY_RANGE_MS * (lfo_val * 0.5 + 0.5);
-        let delay_samples = (delay_ms * sr * 0.001).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
+        let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
 
         let delayed = self.delay.read(delay_samples);
         let feedback = feedback.clamp(0.0, 0.95);

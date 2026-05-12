@@ -75,40 +75,57 @@ pub fn distort(input: f32, amount: f32, postgain: f32) -> f32 {
     ((1.0 + k) * input / (1.0 + k * input.abs())) * postgain
 }
 
-/// Sine wavefolder: `f(x) = sin(x · g · π/2)` with `g = 2^(amt·4)`.
-///
-/// Antiderivative used by ADAA: `F(x) = −cos(x · g · π/2) / (g · π/2)`.
+/// First-order ADAA state. Caller supplies the nonlinearity's antiderivative
+/// `F` and a midpoint evaluator `f((x + x₋₁)/2)` used when `|Δx|` is too small
+/// for the difference quotient. Param-change detection re-evaluates `F(x₋₁)`
+/// under the new curve to keep the next step mathematically consistent.
 #[derive(Clone, Copy, Default)]
-pub struct Fold {
+struct AdaaState {
     x_prev: f32,
     f_prev: f32,
     last_k: f32,
 }
 
-impl Fold {
+impl AdaaState {
     #[inline]
-    pub fn process(&mut self, x: f32, amount: f32) -> f32 {
-        let gain = exp2f(amount * 4.0);
-        let k = gain * std::f32::consts::FRAC_PI_2;
-
-        // Parameter change: re-evaluate F(x_prev) under the new curve so the
-        // next difference stays mathematically consistent.
+    fn step(
+        &mut self,
+        x: f32,
+        k: f32,
+        antideriv: impl Fn(f32, f32) -> f32,
+        midpoint: impl Fn(f32, f32) -> f32,
+    ) -> f32 {
         if k != self.last_k {
-            self.f_prev = -cosf(self.x_prev * k) / k;
+            self.f_prev = antideriv(self.x_prev, k);
             self.last_k = k;
         }
-
-        let f_x = -cosf(x * k) / k;
+        let f_x = antideriv(x, k);
         let dx = x - self.x_prev;
         let y = if dx.abs() < ADAA_EPS {
-            sinf((x + self.x_prev) * 0.5 * k)
+            midpoint((x + self.x_prev) * 0.5, k)
         } else {
             (f_x - self.f_prev) / dx
         };
-
         self.x_prev = x;
         self.f_prev = f_x;
         y
+    }
+}
+
+/// Sine wavefolder: `f(x) = sin(x · g · π/2)` with `g = 2^(amt·4)`.
+///
+/// Antiderivative used by ADAA: `F(x) = −cos(x · g · π/2) / (g · π/2)`.
+#[derive(Clone, Copy, Default)]
+pub struct Fold {
+    state: AdaaState,
+}
+
+impl Fold {
+    #[inline]
+    pub fn process(&mut self, x: f32, amount: f32) -> f32 {
+        let k = exp2f(amount * 4.0) * std::f32::consts::FRAC_PI_2;
+        self.state
+            .step(x, k, |x, k| -cosf(x * k) / k, |x, k| sinf(x * k))
     }
 }
 
@@ -120,33 +137,16 @@ impl Fold {
 /// of `f` (each period integrates to zero), which is exactly why ADAA works.
 #[derive(Clone, Copy, Default)]
 pub struct Wrap {
-    x_prev: f32,
-    f_prev: f32,
-    last_k: f32,
+    state: AdaaState,
 }
 
 impl Wrap {
     #[inline]
     pub fn process(&mut self, x: f32, wraps: f32) -> f32 {
         let k = 1.0 + wraps;
-
-        if k != self.last_k {
-            self.f_prev = antideriv_wrap(self.x_prev, k);
-            self.last_k = k;
-        }
-
-        let f_x = antideriv_wrap(x, k);
-        let dx = x - self.x_prev;
-        let y = if dx.abs() < ADAA_EPS {
-            let m = (x + self.x_prev) * 0.5;
-            (k * m + 1.0).rem_euclid(2.0) - 1.0
-        } else {
-            (f_x - self.f_prev) / dx
-        };
-
-        self.x_prev = x;
-        self.f_prev = f_x;
-        y
+        self.state.step(x, k, antideriv_wrap, |x, k| {
+            (k * x + 1.0).rem_euclid(2.0) - 1.0
+        })
     }
 }
 

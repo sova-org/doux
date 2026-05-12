@@ -4,7 +4,7 @@
 //! time, damping, and cross-channel blend. Enables slapback echoes, metallic
 //! resonances, ping-pong, and short rhythmic feedback loops.
 
-use crate::dsp::ftz;
+use crate::dsp::{ftz, ms_to_samples};
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -129,7 +129,7 @@ impl Feedback {
         cross: f32,
         sr: f32,
     ) -> [f32; CHANNELS] {
-        let delay_samples = (time_ms * sr * 0.001).clamp(1.0, (BUFFER_SIZE - 1) as f32);
+        let delay_samples = ms_to_samples(time_ms, sr).clamp(1.0, (BUFFER_SIZE - 1) as f32);
         let feedback = feedback.clamp(0.0, 0.99);
         let cross = cross.clamp(0.0, 1.0);
 

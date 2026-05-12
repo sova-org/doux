@@ -1,8 +1,6 @@
 #[cfg(feature = "native")]
 pub mod audio;
 #[cfg(feature = "native")]
-pub mod benchmark;
-#[cfg(feature = "native")]
 pub mod cli_common;
 #[cfg(feature = "native")]
 pub mod config;
@@ -58,11 +56,9 @@ use std::sync::Arc;
 pub use telemetry::EngineMetrics;
 #[cfg(feature = "native")]
 use telemetry::ProfilePhase;
-#[cfg(feature = "native")]
-use types::DEFAULT_NATIVE_BLOCK_SIZE;
 #[cfg(not(feature = "native"))]
 use types::WASM_BLOCK_SIZE;
-use types::{ModuleInfo, Source, CHANNELS, DEFAULT_MAX_VOICES, MAX_ORBITS};
+use types::{ModuleInfo, Source, CHANNELS, MAX_ORBITS};
 use voice::modulation::ParamId;
 use voice::{modulation, Voice, VoiceParams};
 
@@ -145,11 +141,6 @@ pub struct Engine {
 
 impl Engine {
     #[cfg(not(feature = "native"))]
-    pub fn new(sample_rate: f32) -> Self {
-        Self::new_with_channels(sample_rate, CHANNELS, DEFAULT_MAX_VOICES)
-    }
-
-    #[cfg(not(feature = "native"))]
     pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
         dsp::fft::init_twiddles();
 
@@ -177,54 +168,19 @@ impl Engine {
     }
 
     #[cfg(feature = "native")]
-    pub fn new(sample_rate: f32) -> Self {
-        Self::new_with_channels(
-            sample_rate,
-            CHANNELS,
-            DEFAULT_MAX_VOICES,
-            DEFAULT_NATIVE_BLOCK_SIZE,
-        )
-    }
-
-    #[cfg(feature = "native")]
     pub fn new_with_channels(
         sample_rate: f32,
         output_channels: usize,
         max_voices: usize,
         block_size: usize,
     ) -> Self {
-        dsp::fft::init_twiddles();
-
-        let registry = Arc::new(SampleRegistry::new());
-        let loader = SampleLoader::new(Arc::clone(&registry));
-
-        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
-
-        Self {
-            sr: sample_rate,
-            isr: 1.0 / sample_rate,
-            max_voices,
-            voices: vec![Voice::default(); max_voices],
-            active_voices: 0,
-            orbits,
-            schedule: Schedule::new(),
-            time: 0.0,
-            tick: 0,
+        Self::new_with_metrics(
+            sample_rate,
             output_channels,
+            max_voices,
+            Arc::new(EngineMetrics::default()),
             block_size,
-            output: vec![0.0; block_size * output_channels],
-            sample_index: Vec::new(),
-            sample_registry: registry,
-            sample_loader: loader,
-            recorder: Recorder::new(sample_rate),
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * block_size * CHANNELS],
-            metrics: Arc::new(EngineMetrics::default()),
-            #[cfg(feature = "soundfont")]
-            gm_bank: None,
-            input_channels: 2,
-            voice_seed: 123456789,
-            load_gate: false,
-        }
+        )
     }
 
     #[cfg(feature = "native")]
@@ -301,55 +257,44 @@ impl Engine {
         Some(idx)
     }
 
-    /// Look up sample by name (e.g., "wave_tek") and n (e.g., 0 for "wave_tek/0")
-    /// n wraps around using modulo if it exceeds the folder count
+    /// Look up sample folder/n (e.g., "wave_tek/3"). `n` wraps via modulo over the folder count.
+    /// Walks the index twice (count, then find) — but each walk is O(n) and shared by all callers.
     #[cfg(feature = "native")]
-    fn find_sample_index(&self, name: &str, n: usize) -> Option<usize> {
+    fn lookup_sample_entry(&self, name: &str, n: usize) -> Option<&SampleEntry> {
         let name_bytes = name.as_bytes();
-        let has_prefix = |e: &&SampleEntry| {
-            e.name.len() > name.len()
-                && e.name.as_bytes()[name_bytes.len()] == b'/'
+        let name_len = name.len();
+        let matches = |e: &SampleEntry| {
+            e.name.len() > name_len
+                && e.name.as_bytes()[name_len] == b'/'
                 && e.name.as_bytes().starts_with(name_bytes)
         };
-        let count = self.sample_index.iter().filter(has_prefix).count();
+        let count = self.sample_index.iter().filter(|e| matches(e)).count();
         if count == 0 {
             return None;
         }
         let wrapped_n = n % count;
-        self.sample_index.iter().position(|e| {
-            e.name.len() > name.len()
-                && e.name.as_bytes()[name_bytes.len()] == b'/'
-                && e.name.as_bytes().starts_with(name_bytes)
-                && e.name[name.len() + 1..].parse::<usize>().ok() == Some(wrapped_n)
-        })
-    }
-
-    /// Get the sample name for a given base name and n index.
-    #[cfg(feature = "native")]
-    fn get_sample_name(&self, name: &str, n: usize) -> Option<Arc<str>> {
-        let index_idx = self.find_sample_index(name, n)?;
-        Some(Arc::clone(&self.sample_index[index_idx].name))
+        self.sample_index
+            .iter()
+            .find(|e| matches(e) && e.name[name_len + 1..].parse::<usize>().ok() == Some(wrapped_n))
     }
 
     /// Try to get a sample from the registry, or request background loading.
     #[cfg(feature = "native")]
     fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<(Arc<str>, Arc<SampleData>)> {
-        let sample_name = self.get_sample_name(name, n)?;
+        let (sample_name, path) = {
+            let entry = self.lookup_sample_entry(name, n)?;
+            (Arc::clone(&entry.name), Arc::clone(&entry.path))
+        };
 
         if let Some(data) = self.sample_registry.get(sample_name.as_ref()) {
             if data.frame_count < data.total_frames {
-                let index_idx = self.find_sample_index(name, n)?;
-                let path = Arc::clone(&self.sample_index[index_idx].path);
                 self.sample_loader
                     .request(Arc::clone(&sample_name), path, self.sr);
             }
             return Some((sample_name, data));
         }
 
-        let index_idx = self.find_sample_index(name, n)?;
-        let path = Arc::clone(&self.sample_index[index_idx].path);
         self.sample_loader.request(sample_name, path, self.sr);
-
         None
     }
 

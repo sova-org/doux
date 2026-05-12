@@ -11,8 +11,8 @@ pub mod oscillator;
 pub use delay_line::DelayLine;
 pub use envelope::{init_envelope, Dahdsr, DahdsrState, EnvelopeParams};
 pub use fastmath::{
-    atan2f, cosf, exp2f, fast_tan, fast_tanh_f32, ftz, hermite4, log2f, modpi, par_cosf, par_sinf,
-    pow10, pow1half, powf, sinf,
+    atan2f, cosf, exp2f, fast_tan, fast_tanh_f32, ftz, hermite4, log2f, modpi, ms_to_samples,
+    par_cosf, par_sinf, pow10, pow1half, powf, sinf,
 };
 pub use filter::{Biquad, SvfMode, SvfState};
 pub use noise::{BrownNoise, PinkNoise};
