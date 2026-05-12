@@ -15,12 +15,21 @@
 //!  →   Engine path: "sound/kick/note/60/amp/0.8"
 //! ```
 //!
+//! # Scheduling
+//!
+//! OSC bundle timetags (NTP) are honored. A timetagged bundle resolves to a
+//! sample-accurate engine tick via [`TimeAnchor`]; messages inside the bundle
+//! inherit that tick unless they carry an explicit in-band `tick` / `time` /
+//! `delta` arg, which takes precedence. The OSC "immediately" sentinel
+//! `(0, 1)` falls through to fire-on-receipt.
+//!
 //! # Protocol
 //!
 //! - Transport: UDP
 //! - Default bind: `0.0.0.0:<port>` (all interfaces)
 //! - Supports both single messages and bundles (bundles are flattened)
 
+use crate::time::TimeAnchor;
 use crate::AudioCmd;
 use crossbeam_channel::Sender;
 use rosc::{OscMessage, OscPacket, OscType};
@@ -35,7 +44,7 @@ const BUFFER_SIZE: usize = 4096;
 ///
 /// Binds to all interfaces (`0.0.0.0`) and blocks indefinitely, processing
 /// incoming messages. Intended to be spawned in a dedicated thread.
-pub fn run(tx: Sender<AudioCmd>, port: u16) -> std::io::Result<()> {
+pub fn run(tx: Sender<AudioCmd>, port: u16, anchor: TimeAnchor) -> std::io::Result<()> {
     let addr = format!("0.0.0.0:{port}");
     let socket = UdpSocket::bind(&addr)?;
 
@@ -45,7 +54,7 @@ pub fn run(tx: Sender<AudioCmd>, port: u16) -> std::io::Result<()> {
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {
                 if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&tx, &packet.1);
+                    handle_packet(&tx, &packet.1, &anchor, None);
                 }
             }
             Err(e) => {
@@ -62,6 +71,7 @@ pub fn run(tx: Sender<AudioCmd>, port: u16) -> std::io::Result<()> {
 pub fn run_recoverable(
     tx: Sender<AudioCmd>,
     port: u16,
+    anchor: TimeAnchor,
     device_lost: &AtomicBool,
 ) -> std::io::Result<bool> {
     let addr = format!("0.0.0.0:{port}");
@@ -77,7 +87,7 @@ pub fn run_recoverable(
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {
                 if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&tx, &packet.1);
+                    handle_packet(&tx, &packet.1, &anchor, None);
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -89,22 +99,33 @@ pub fn run_recoverable(
 }
 
 /// Recursively processes an OSC packet, handling both messages and bundles.
-fn handle_packet(tx: &Sender<AudioCmd>, packet: &OscPacket) {
+///
+/// `parent_tick` propagates a tick resolved from an outer bundle's timetag.
+/// Nested bundles override with their own timetag.
+fn handle_packet(
+    tx: &Sender<AudioCmd>,
+    packet: &OscPacket,
+    anchor: &TimeAnchor,
+    parent_tick: Option<u64>,
+) {
     match packet {
-        OscPacket::Message(msg) => handle_message(tx, msg),
+        OscPacket::Message(msg) => handle_message(tx, msg, parent_tick),
         OscPacket::Bundle(bundle) => {
+            let tick = anchor
+                .ntp_to_tick(bundle.timetag.seconds, bundle.timetag.fractional)
+                .or(parent_tick);
             for p in &bundle.content {
-                handle_packet(tx, p);
+                handle_packet(tx, p, anchor, tick);
             }
         }
     }
 }
 
 /// Converts an OSC message to a path string and sends it as an AudioCmd.
-fn handle_message(tx: &Sender<AudioCmd>, msg: &OscMessage) {
+fn handle_message(tx: &Sender<AudioCmd>, msg: &OscMessage, tick: Option<u64>) {
     let path = osc_to_path(msg);
     if !path.is_empty() {
-        let _ = tx.send(AudioCmd::Evaluate(path));
+        let _ = tx.send(AudioCmd::Evaluate { path, tick });
     }
 }
 
