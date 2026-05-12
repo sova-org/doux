@@ -4,8 +4,8 @@
 //! time, damping, and cross-channel blend. Enables slapback echoes, metallic
 //! resonances, ping-pong, and short rhythmic feedback loops.
 
-use crate::dsp::{ftz, ms_to_samples};
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
+use crate::dsp::{ftz, ms_to_samples, Phasor};
+use crate::types::{LfoShape, ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "feedback",
@@ -74,12 +74,37 @@ pub const INFO: ModuleInfo = ModuleInfo {
 const BUFFER_SIZE: usize = 32768;
 const BUFFER_MASK: usize = BUFFER_SIZE - 1;
 
+#[derive(Clone, Copy)]
+pub struct FeedbackParams {
+    pub time_ms: f32,
+    pub damp: f32,
+    pub cross: f32,
+    pub lfo: f32,
+    pub lfo_depth: f32,
+    pub lfo_shape: LfoShape,
+}
+
+impl Default for FeedbackParams {
+    fn default() -> Self {
+        Self {
+            time_ms: 10.0,
+            damp: 0.0,
+            cross: 0.0,
+            lfo: 0.0,
+            lfo_depth: 0.5,
+            lfo_shape: LfoShape::Sine,
+        }
+    }
+}
+
 /// Stereo feedback delay with one-pole damping and cross-channel blend.
 #[derive(Clone)]
 pub struct Feedback {
     buffer: [Vec<f32>; CHANNELS],
     write_pos: [usize; CHANNELS],
     damp_state: [f32; CHANNELS],
+    phasor: Phasor,
+    pub params: FeedbackParams,
 }
 
 impl Default for Feedback {
@@ -88,6 +113,8 @@ impl Default for Feedback {
             buffer: [vec![0.0; BUFFER_SIZE], vec![0.0; BUFFER_SIZE]],
             write_pos: [0; CHANNELS],
             damp_state: [0.0; CHANNELS],
+            phasor: Phasor::default(),
+            params: FeedbackParams::default(),
         }
     }
 }
@@ -114,33 +141,38 @@ impl Feedback {
 
     /// Processes one stereo sample through the feedback delay.
     ///
-    /// - `feedback`: Re-injection level `[0.0, 0.99]`
-    /// - `time_ms`: Delay time in milliseconds
-    /// - `damp`: High-frequency loss in feedback path `[0.0, 1.0]`
-    /// - `cross`: Cross-channel blend `[0.0, 1.0]`. 0 = self-feedback, 1 = ping-pong.
+    /// `fb_amount` is the re-injection coefficient supplied by the caller
+    /// (typically the orbit's send level, which doubles as the FX feedback
+    /// gain). Time/damp/cross and LFO modulation come from `self.params`.
     ///
     /// Returns wet signal only (dry is summed separately by the orbit bus).
     pub fn process(
         &mut self,
         input: [f32; CHANNELS],
-        feedback: f32,
-        time_ms: f32,
-        damp: f32,
-        cross: f32,
+        fb_amount: f32,
         sr: f32,
     ) -> [f32; CHANNELS] {
+        let p = self.params;
+        let isr = 1.0 / sr;
+        let time_ms = if p.lfo > 0.0 {
+            let lfo = self.phasor.lfo(p.lfo_shape, p.lfo, isr);
+            p.time_ms + lfo * p.lfo_depth * p.time_ms * 0.5
+        } else {
+            p.time_ms
+        };
+
         let delay_samples = ms_to_samples(time_ms, sr).clamp(1.0, (BUFFER_SIZE - 1) as f32);
-        let feedback = feedback.clamp(0.0, 0.99);
-        let cross = cross.clamp(0.0, 1.0);
+        let fb_amount = fb_amount.clamp(0.0, 0.99);
+        let cross = p.cross.clamp(0.0, 1.0);
 
         let mut delayed = [0.0f32; CHANNELS];
         let mut damped = [0.0f32; CHANNELS];
 
         for c in 0..CHANNELS {
             delayed[c] = self.read(c, delay_samples);
-            damped[c] = if damp > 0.0 {
+            damped[c] = if p.damp > 0.0 {
                 self.damp_state[c] = ftz(
-                    delayed[c] * (1.0 - damp) + self.damp_state[c] * damp,
+                    delayed[c] * (1.0 - p.damp) + self.damp_state[c] * p.damp,
                     0.0001,
                 );
                 self.damp_state[c]
@@ -152,8 +184,8 @@ impl Feedback {
         let fb_l = damped[0] * (1.0 - cross) + damped[1] * cross;
         let fb_r = damped[1] * (1.0 - cross) + damped[0] * cross;
 
-        self.write(0, input[0] + fb_l * feedback);
-        self.write(1, input[1] + fb_r * feedback);
+        self.write(0, input[0] + fb_l * fb_amount);
+        self.write(1, input[1] + fb_r * fb_amount);
 
         delayed
     }

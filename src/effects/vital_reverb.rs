@@ -1,4 +1,5 @@
 use crate::dsp::{exp2f, ftz, pow10, sinf};
+use crate::effects::reverb::ReverbParams;
 
 const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
@@ -227,40 +228,24 @@ impl VitalVerb {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn process(
-        &mut self,
-        input: [f32; 2],
-        decay: f32,       // 0-1: reverb time
-        damp: f32,        // 0-1: high-frequency damping (inverted for high_gain)
-        predelay: f32,    // 0-1: pre-delay amount
-        size: f32,        // 0-1: room size / diffusion
-        prelow: f32,      // 0-1: pre-filter low cutoff
-        prehigh: f32,     // 0-1: pre-filter high cutoff
-        lowcut: f32,      // 0-1: shelf filter low cutoff
-        highcut: f32,     // 0-1: shelf filter high cutoff
-        lowgain: f32,     // 0-1: shelf low gain
-        chorus_amt: f32,  // 0-1: chorus/modulation amount
-        chorus_freq: f32, // 0-1: chorus LFO frequency
-        diffusion: f32,   // 0-1: allpass diffusion coefficient
-    ) -> [f32; 2] {
+    pub fn process(&mut self, input: [f32; 2], rp: &ReverbParams) -> [f32; 2] {
         let sr = self.sr;
         let sr_ratio = sr / BASE_SR;
         let wp = self.write_pos;
 
         // Clamp all parameters to [0, 1] range for safety.
-        let decay = decay.clamp(0.0, 1.0);
-        let damp = damp.clamp(0.0, 1.0);
-        let predelay = predelay.clamp(0.0, 1.0);
-        let size = size.clamp(0.0, 1.0);
-        let prelow = prelow.clamp(0.0, 1.0);
-        let prehigh = prehigh.clamp(0.0, 1.0);
-        let lowcut = lowcut.clamp(0.0, 1.0);
-        let highcut = highcut.clamp(0.0, 1.0);
-        let lowgain = lowgain.clamp(0.0, 1.0);
-        let chorus_amt = chorus_amt.clamp(0.0, 1.0);
-        let chorus_freq = chorus_freq.clamp(0.0, 1.0);
-        let diffusion = diffusion.clamp(0.0, 0.95);
+        let decay = rp.decay.clamp(0.0, 1.0);
+        let damp = rp.damp.clamp(0.0, 1.0);
+        let predelay = rp.predelay.clamp(0.0, 1.0);
+        let size = rp.size.clamp(0.0, 1.0);
+        let prelow = rp.prelow.clamp(0.0, 1.0);
+        let prehigh = rp.prehigh.clamp(0.0, 1.0);
+        let lowcut = rp.lowcut.clamp(0.0, 1.0);
+        let highcut = rp.highcut.clamp(0.0, 1.0);
+        let lowgain = rp.lowgain.clamp(0.0, 1.0);
+        let chorus_amt = rp.chorus.clamp(0.0, 1.0);
+        let chorus_freq = rp.chorus_freq.clamp(0.0, 1.0);
+        let diffusion = rp.diff.clamp(0.0, 0.95);
 
         // Recompute expensive derived values only when source params change.
         let c = &mut self.cached;

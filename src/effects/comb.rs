@@ -49,6 +49,23 @@ pub const INFO: ModuleInfo = ModuleInfo {
 
 const BUFFER_SIZE: usize = 2048;
 
+#[derive(Clone, Copy)]
+pub struct CombParams {
+    pub freq: f32,
+    pub feedback: f32,
+    pub damp: f32,
+}
+
+impl Default for CombParams {
+    fn default() -> Self {
+        Self {
+            freq: 220.0,
+            feedback: 0.9,
+            damp: 0.1,
+        }
+    }
+}
+
 /// Feedback comb filter with one-pole damping.
 #[derive(Clone, Copy, Default)]
 pub struct Comb {
@@ -57,20 +74,15 @@ pub struct Comb {
 }
 
 impl Comb {
-    /// Processes one sample through the comb filter.
-    ///
-    /// - `freq`: Fundamental frequency (delay = 1/freq)
-    /// - `feedback`: Feedback amount `[-0.99, 0.99]`
-    /// - `damp`: High-frequency loss per iteration `[0.0, 1.0]`
-    ///
-    /// Returns the delayed signal (wet only).
-    pub fn process(&mut self, input: f32, freq: f32, feedback: f32, damp: f32, sr: f32) -> f32 {
-        let delay_samples = (sr / freq).clamp(1.0, (BUFFER_SIZE - 1) as f32);
+    /// Processes one sample through the comb filter. Params are shared
+    /// across channels and supplied by the caller (typically the orbit).
+    pub fn process(&mut self, input: f32, p: &CombParams, sr: f32) -> f32 {
+        let delay_samples = (sr / p.freq).clamp(1.0, (BUFFER_SIZE - 1) as f32);
         let delayed = self.delay.read(delay_samples);
 
-        let feedback = feedback.clamp(-0.99, 0.99);
-        let fb_signal = if damp > 0.0 {
-            self.damp_state = delayed * (1.0 - damp) + self.damp_state * damp;
+        let feedback = p.feedback.clamp(-0.99, 0.99);
+        let fb_signal = if p.damp > 0.0 {
+            self.damp_state = delayed * (1.0 - p.damp) + self.damp_state * p.damp;
             self.damp_state
         } else {
             delayed

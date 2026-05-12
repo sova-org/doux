@@ -40,9 +40,27 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
+#[derive(Clone, Copy)]
+pub struct CompressorParams {
+    pub amount: f32,
+    pub attack: f32,
+    pub release: f32,
+}
+
+impl Default for CompressorParams {
+    fn default() -> Self {
+        Self {
+            amount: 0.0,
+            attack: 0.01,
+            release: 0.15,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Compressor {
     env: f32,
+    pub params: CompressorParams,
 }
 
 impl Compressor {

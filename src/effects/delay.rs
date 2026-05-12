@@ -95,19 +95,41 @@ pub struct DelayParams {
     pub time: f32,
     pub feedback: f32,
     pub delay_type: DelayType,
-    pub sr: f32,
 }
 
-#[derive(Clone, Default)]
+impl Default for DelayParams {
+    fn default() -> Self {
+        Self {
+            time: 0.333,
+            feedback: 0.6,
+            delay_type: DelayType::Standard,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Delay {
     lines: [DelayLine; CHANNELS],
     feedback: [f32; CHANNELS],
     lp: [f32; CHANNELS],
+    pub params: DelayParams,
+    sr: f32,
 }
 
 impl Delay {
-    pub fn process(&mut self, send: [f32; CHANNELS], p: &DelayParams) -> [f32; CHANNELS] {
-        let delay_samples = ((p.time * p.sr) as usize).min(MAX_DELAY_SAMPLES - 1);
+    pub fn new(sr: f32) -> Self {
+        Self {
+            lines: Default::default(),
+            feedback: [0.0; CHANNELS],
+            lp: [0.0; CHANNELS],
+            params: DelayParams::default(),
+            sr,
+        }
+    }
+
+    pub fn process(&mut self, send: [f32; CHANNELS]) -> [f32; CHANNELS] {
+        let p = self.params;
+        let delay_samples = ((p.time * self.sr) as usize).min(MAX_DELAY_SAMPLES - 1);
         let feedback = p.feedback.clamp(0.0, 0.95);
 
         match p.delay_type {

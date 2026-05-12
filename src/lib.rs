@@ -657,35 +657,35 @@ impl Engine {
             set_pos!(verb, orbit.verb_level);
             set_pos!(comb, orbit.comb_level);
             set_pos!(feedback, orbit.fb_level);
-            set_pos!(comp, orbit.params.comp);
-            set!(delaytime, orbit.params.delay_time);
-            set!(delayfeedback, orbit.params.delay_feedback);
-            set!(delaytype, orbit.params.delay_type);
-            set!(verbtype, orbit.params.verb_type);
-            set!(verbdecay, orbit.params.verb_decay);
-            set!(verbdamp, orbit.params.verb_damp);
-            set!(verbpredelay, orbit.params.verb_predelay);
-            set!(verbdiff, orbit.params.verb_diff);
-            set!(verbsize, orbit.params.verb_size);
-            set!(verbprelow, orbit.params.verb_prelow);
-            set!(verbprehigh, orbit.params.verb_prehigh);
-            set!(verblowcut, orbit.params.verb_lowcut);
-            set!(verbhighcut, orbit.params.verb_highcut);
-            set!(verblowgain, orbit.params.verb_lowgain);
-            set!(verbchorus, orbit.params.verb_chorus);
-            set!(verbchorusfreq, orbit.params.verb_chorus_freq);
-            set!(combfreq, orbit.params.comb_freq);
-            set!(combfeedback, orbit.params.comb_feedback);
-            set!(combdamp, orbit.params.comb_damp);
-            set!(fbtime, orbit.params.fb_time);
-            set!(fbdamp, orbit.params.fb_damp);
-            set!(fbcross, orbit.params.fb_cross);
-            set!(fblfo, orbit.params.fb_lfo);
-            set!(fblfodepth, orbit.params.fb_lfo_depth);
-            set!(fblfoshape, orbit.params.fb_lfo_shape);
-            set!(compattack, orbit.params.comp_attack);
-            set!(comprelease, orbit.params.comp_release);
-            set!(comporbit, orbit.params.comp_orbit);
+            set_pos!(comp, orbit.comp.params.amount);
+            set!(delaytime, orbit.delay.params.time);
+            set!(delayfeedback, orbit.delay.params.feedback);
+            set!(delaytype, orbit.delay.params.delay_type);
+            set!(verbtype, orbit.reverb_params.verb_type);
+            set!(verbdecay, orbit.reverb_params.decay);
+            set!(verbdamp, orbit.reverb_params.damp);
+            set!(verbpredelay, orbit.reverb_params.predelay);
+            set!(verbdiff, orbit.reverb_params.diff);
+            set!(verbsize, orbit.reverb_params.size);
+            set!(verbprelow, orbit.reverb_params.prelow);
+            set!(verbprehigh, orbit.reverb_params.prehigh);
+            set!(verblowcut, orbit.reverb_params.lowcut);
+            set!(verbhighcut, orbit.reverb_params.highcut);
+            set!(verblowgain, orbit.reverb_params.lowgain);
+            set!(verbchorus, orbit.reverb_params.chorus);
+            set!(verbchorusfreq, orbit.reverb_params.chorus_freq);
+            set!(combfreq, orbit.comb_params.freq);
+            set!(combfeedback, orbit.comb_params.feedback);
+            set!(combdamp, orbit.comb_params.damp);
+            set!(fbtime, orbit.fb.params.time_ms);
+            set!(fbdamp, orbit.fb.params.damp);
+            set!(fbcross, orbit.fb.params.cross);
+            set!(fblfo, orbit.fb.params.lfo);
+            set!(fblfodepth, orbit.fb.params.lfo_depth);
+            set!(fblfoshape, orbit.fb.params.lfo_shape);
+            set!(compattack, orbit.comp.params.attack);
+            set!(comprelease, orbit.comp.params.release);
+            set!(comporbit, orbit.comp_orbit);
         }
 
         let v = &mut self.voices[idx];
@@ -1116,18 +1116,18 @@ impl Engine {
         for (oi, orbit) in self.orbits.iter_mut().enumerate() {
             let out_pair = oi % num_pairs;
             let pair_offset = out_pair * 2;
-            let p = &orbit.params;
+            let cp = orbit.comp.params;
 
             let total = orbit_bus[oi];
 
-            if p.comp > 0.0 {
-                let sc = p.comp_orbit % MAX_ORBITS;
+            if cp.amount > 0.0 {
+                let sc = orbit.comp_orbit % MAX_ORBITS;
                 let sc_total = orbit_bus[sc];
                 let sc_level = sc_total[0].abs().max(sc_total[1].abs());
-                let attack_coeff = (isr / p.comp_attack.max(0.0001)).min(1.0);
-                let release_coeff = (isr / p.comp_release.max(0.0001)).min(1.0);
+                let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
+                let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
                 let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
-                let gain = (1.0 - env).powf(1.0 + p.comp * 4.0);
+                let gain = (1.0 - env).powf(1.0 + cp.amount * 4.0);
                 for c in 0..CHANNELS {
                     output[base_idx + pair_offset + c] += total[c] * gain;
                 }

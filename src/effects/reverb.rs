@@ -1,5 +1,42 @@
 use crate::dsp::ftz;
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, ReverbType};
+
+#[derive(Clone, Copy)]
+pub struct ReverbParams {
+    pub verb_type: ReverbType,
+    pub decay: f32,
+    pub damp: f32,
+    pub predelay: f32,
+    pub diff: f32,
+    pub size: f32,
+    pub prelow: f32,
+    pub prehigh: f32,
+    pub lowcut: f32,
+    pub highcut: f32,
+    pub lowgain: f32,
+    pub chorus: f32,
+    pub chorus_freq: f32,
+}
+
+impl Default for ReverbParams {
+    fn default() -> Self {
+        Self {
+            verb_type: ReverbType::Space,
+            decay: 0.55,
+            damp: 0.7,
+            predelay: 0.0,
+            diff: 0.6,
+            size: 0.75,
+            prelow: 0.2,
+            prehigh: 0.9,
+            lowcut: 0.5,
+            highcut: 0.7,
+            lowgain: 0.1,
+            chorus: 0.3,
+            chorus_freq: 0.65,
+        }
+    }
+}
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "reverb",
@@ -279,24 +316,17 @@ impl DattorroVerb {
         }
     }
 
-    pub fn process(
-        &mut self,
-        input: f32,
-        decay: f32,
-        damping: f32,
-        predelay: f32,
-        diffusion: f32,
-    ) -> [f32; 2] {
-        let decay = decay.clamp(0.0, 0.99);
-        let damping = damping.clamp(0.0, 1.0);
-        let diffusion = diffusion.clamp(0.0, 1.0);
+    pub fn process(&mut self, input: f32, p: &ReverbParams) -> [f32; 2] {
+        let decay = p.decay.clamp(0.0, 0.99);
+        let damping = p.damp.clamp(0.0, 1.0);
+        let diffusion = p.diff.clamp(0.0, 1.0);
         let diff1 = 0.75 * diffusion;
         let diff2 = 0.625 * diffusion;
         let decay_diff1 = 0.7 * diffusion;
         let decay_diff2 = 0.5 * diffusion;
 
         let pre_delay_samples =
-            ((predelay * self.pre_delay_len as f32) as usize).min(self.pre_delay_len);
+            ((p.predelay * self.pre_delay_len as f32) as usize).min(self.pre_delay_len);
         let input = ftz(input, 0.0001);
         let pre = self.pre_delay.read_write(input, pre_delay_samples);
 
