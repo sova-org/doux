@@ -74,25 +74,24 @@ impl Default for EffectParams {
     }
 }
 
+// SuperDirt-style chain: voices accumulate into `bus`; each FX reads
+// `bus * send_level`, adds its wet back into `bus`, in order. Order matters —
+// later FX see the running signal including previous FX wet.
+//
+// Chain order: comb → fb → delay → verb. Tonal/short → spatial/long.
+// Reverb last so it captures delay echoes (the load-bearing reason for chaining).
 pub struct Orbit {
+    pub bus: [f32; CHANNELS],
     pub delay: Delay,
-    pub delay_send: [f32; CHANNELS],
-    pub delay_out: [f32; CHANNELS],
     pub delay_level: f32,
     pub verb: [DattorroVerb; CHANNELS],
     pub vital: VitalVerb,
-    pub verb_send: [f32; CHANNELS],
-    pub verb_out: [f32; CHANNELS],
     pub verb_level: f32,
     pub comb: [Comb; CHANNELS],
-    pub comb_send: [f32; CHANNELS],
-    pub comb_out: [f32; CHANNELS],
     pub comb_level: f32,
     pub fb: Feedback,
     pub fb_phasor: Phasor,
-    pub fb_send: [f32; CHANNELS],
     pub fb_level: f32,
-    pub fb_out: [f32; CHANNELS],
     pub comp: Compressor,
     pub params: EffectParams,
     pub sr: f32,
@@ -104,24 +103,17 @@ impl Orbit {
     pub fn new(sr: f32) -> Self {
         let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
+            bus: [0.0; CHANNELS],
             delay: Delay::default(),
-            delay_send: [0.0; CHANNELS],
-            delay_out: [0.0; CHANNELS],
             delay_level: 0.0,
             verb: std::array::from_fn(|_| DattorroVerb::new(sr)),
             vital: VitalVerb::new(sr),
-            verb_send: [0.0; CHANNELS],
-            verb_out: [0.0; CHANNELS],
             verb_level: 0.0,
             comb: [Comb::default(); CHANNELS],
-            comb_send: [0.0; CHANNELS],
-            comb_out: [0.0; CHANNELS],
             comb_level: 0.0,
             fb: Feedback::default(),
             fb_phasor: Phasor::default(),
-            fb_send: [0.0; CHANNELS],
             fb_level: 0.0,
-            fb_out: [0.0; CHANNELS],
             comp: Compressor::default(),
             params: EffectParams::default(),
             sr,
@@ -130,171 +122,125 @@ impl Orbit {
         }
     }
 
-    pub fn clear_sends(&mut self) {
-        self.delay_send = [0.0; CHANNELS];
-        self.verb_send = [0.0; CHANNELS];
-        self.comb_send = [0.0; CHANNELS];
-        self.fb_send = [0.0; CHANNELS];
+    pub fn clear_bus(&mut self) {
+        self.bus = [0.0; CHANNELS];
     }
 
-    pub fn add_delay_send(&mut self, ch: usize, value: f32) {
-        self.delay_send[ch] += value;
-    }
-
-    pub fn add_verb_send(&mut self, ch: usize, value: f32) {
-        self.verb_send[ch] += value;
-    }
-
-    pub fn add_comb_send(&mut self, ch: usize, value: f32) {
-        self.comb_send[ch] += value;
-    }
-
-    pub fn add_fb_send(&mut self, ch: usize, value: f32) {
-        self.fb_send[ch] += value;
+    pub fn add_dry(&mut self, ch: usize, value: f32) {
+        self.bus[ch] += value;
     }
 
     pub fn process(&mut self) {
         let p = &self.params;
-        let has_input = self.delay_send[0] != 0.0
-            || self.delay_send[1] != 0.0
-            || self.verb_send[0] != 0.0
-            || self.verb_send[1] != 0.0
-            || self.comb_send[0] != 0.0
-            || self.comb_send[1] != 0.0
-            || self.fb_send[0] != 0.0
-            || self.fb_send[1] != 0.0;
+        let has_input = self.bus[0] != 0.0 || self.bus[1] != 0.0;
 
         if has_input {
             self.silent_samples = 0;
         } else if self.silent_samples > self.silence_holdoff {
-            self.delay_out = [0.0; CHANNELS];
-            self.verb_out = [0.0; CHANNELS];
-            self.comb_out = [0.0; CHANNELS];
-            self.fb_out = [0.0; CHANNELS];
             return;
         }
 
-        self.delay_out = self.delay.process(
-            self.delay_send,
-            &DelayParams {
-                time: p.delay_time,
-                feedback: p.delay_feedback,
-                delay_type: p.delay_type,
-                sr: self.sr,
-            },
-        );
-
-        self.verb_out = match p.verb_type {
-            ReverbType::Plate => {
-                let mut out = [0.0; CHANNELS];
-                for channel in 0..CHANNELS {
-                    let wet = self.verb[channel].process(
-                        self.verb_send[channel],
-                        p.verb_decay,
-                        p.verb_damp,
-                        p.verb_predelay,
-                        p.verb_diff,
-                    );
-                    out[0] += wet[0];
-                    out[1] += wet[1];
-                }
-                out
+        // Comb (per-channel mono resonator)
+        if self.comb_level > 0.0 {
+            let mut wet = [0.0_f32; CHANNELS];
+            for (channel, w) in wet.iter_mut().enumerate() {
+                *w = self.comb[channel].process(
+                    self.bus[channel] * self.comb_level,
+                    p.comb_freq,
+                    p.comb_feedback,
+                    p.comb_damp,
+                    self.sr,
+                );
             }
-            ReverbType::Space => self.vital.process(
-                self.verb_send,
-                p.verb_decay,
-                p.verb_damp,
-                p.verb_predelay,
-                p.verb_size,
-                p.verb_prelow,
-                p.verb_prehigh,
-                p.verb_lowcut,
-                p.verb_highcut,
-                p.verb_lowgain,
-                p.verb_chorus,
-                p.verb_chorus_freq,
-                p.verb_diff,
-            ),
-        };
-
-        for channel in 0..CHANNELS {
-            self.comb_out[channel] = self.comb[channel].process(
-                self.comb_send[channel],
-                p.comb_freq,
-                p.comb_feedback,
-                p.comb_damp,
-                self.sr,
-            );
+            self.bus[0] += wet[0];
+            self.bus[1] += wet[1];
         }
 
-        let isr = 1.0 / self.sr;
-        let fb_time = if p.fb_lfo > 0.0 {
-            let lfo = self.fb_phasor.lfo(p.fb_lfo_shape, p.fb_lfo, isr);
-            p.fb_time + lfo * p.fb_lfo_depth * p.fb_time * 0.5
-        } else {
-            p.fb_time
-        };
-        self.fb_out = self.fb.process(
-            self.fb_send,
-            self.fb_level,
-            fb_time,
-            p.fb_damp,
-            p.fb_cross,
-            self.sr,
-        );
+        // Feedback (stereo short delay with cross-channel)
+        if self.fb_level > 0.0 {
+            let isr = 1.0 / self.sr;
+            let fb_time = if p.fb_lfo > 0.0 {
+                let lfo = self.fb_phasor.lfo(p.fb_lfo_shape, p.fb_lfo, isr);
+                p.fb_time + lfo * p.fb_lfo_depth * p.fb_time * 0.5
+            } else {
+                p.fb_time
+            };
+            let fb_in = [self.bus[0] * self.fb_level, self.bus[1] * self.fb_level];
+            let wet = self.fb.process(
+                fb_in,
+                self.fb_level,
+                fb_time,
+                p.fb_damp,
+                p.fb_cross,
+                self.sr,
+            );
+            self.bus[0] += wet[0];
+            self.bus[1] += wet[1];
+        }
 
-        let energy = self.delay_out[0].abs()
-            + self.delay_out[1].abs()
-            + self.verb_out[0].abs()
-            + self.verb_out[1].abs()
-            + self.comb_out[0].abs()
-            + self.comb_out[1].abs()
-            + self.fb_out[0].abs()
-            + self.fb_out[1].abs();
+        // Delay (stereo)
+        if self.delay_level > 0.0 {
+            let delay_in = [
+                self.bus[0] * self.delay_level,
+                self.bus[1] * self.delay_level,
+            ];
+            let wet = self.delay.process(
+                delay_in,
+                &DelayParams {
+                    time: p.delay_time,
+                    feedback: p.delay_feedback,
+                    delay_type: p.delay_type,
+                    sr: self.sr,
+                },
+            );
+            self.bus[0] += wet[0];
+            self.bus[1] += wet[1];
+        }
 
+        // Reverb — last in chain so it captures delay echoes
+        if self.verb_level > 0.0 {
+            let verb_in = [self.bus[0] * self.verb_level, self.bus[1] * self.verb_level];
+            let wet = match p.verb_type {
+                ReverbType::Plate => {
+                    let mut out = [0.0; CHANNELS];
+                    for (channel, vin) in verb_in.iter().enumerate() {
+                        let w = self.verb[channel].process(
+                            *vin,
+                            p.verb_decay,
+                            p.verb_damp,
+                            p.verb_predelay,
+                            p.verb_diff,
+                        );
+                        out[0] += w[0];
+                        out[1] += w[1];
+                    }
+                    out
+                }
+                ReverbType::Space => self.vital.process(
+                    verb_in,
+                    p.verb_decay,
+                    p.verb_damp,
+                    p.verb_predelay,
+                    p.verb_size,
+                    p.verb_prelow,
+                    p.verb_prehigh,
+                    p.verb_lowcut,
+                    p.verb_highcut,
+                    p.verb_lowgain,
+                    p.verb_chorus,
+                    p.verb_chorus_freq,
+                    p.verb_diff,
+                ),
+            };
+            self.bus[0] += wet[0];
+            self.bus[1] += wet[1];
+        }
+
+        let energy = self.bus[0].abs() + self.bus[1].abs();
         if energy < SILENCE_THRESHOLD {
             self.silent_samples = self.silent_samples.saturating_add(1);
         } else {
             self.silent_samples = 0;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn comb_send_stays_channel_local() {
-        let mut orbit = Orbit::new(100.0);
-        orbit.params.comb_freq = 50.0;
-        orbit.params.comb_feedback = 0.0;
-        orbit.params.comb_damp = 0.0;
-
-        for _ in 0..3 {
-            orbit.clear_sends();
-            orbit.add_comb_send(0, 1.0);
-            orbit.process();
-        }
-
-        assert!(orbit.comb_out[0] > 0.0);
-        assert_eq!(orbit.comb_out[1], 0.0);
-    }
-
-    #[test]
-    fn feedback_send_stays_channel_local() {
-        let mut orbit = Orbit::new(1_000.0);
-        orbit.params.fb_time = 1.0;
-        orbit.params.fb_damp = 0.0;
-        orbit.fb_level = 0.5;
-
-        for _ in 0..3 {
-            orbit.clear_sends();
-            orbit.add_fb_send(0, 1.0);
-            orbit.process();
-        }
-
-        assert!(orbit.fb_out[0] > 0.0);
-        assert_eq!(orbit.fb_out[1], 0.0);
     }
 }

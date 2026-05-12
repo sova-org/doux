@@ -1080,9 +1080,9 @@ impl Engine {
             output[base_idx + c] = 0.0;
         }
 
-        // Clear orbit sends
+        // Clear orbit chain buses
         for orbit in &mut self.orbits {
-            orbit.clear_sends();
+            orbit.clear_bus();
         }
 
         // Process voices - matches dough.c behavior exactly:
@@ -1094,7 +1094,6 @@ impl Engine {
         #[cfg(all(feature = "native", feature = "profiling"))]
         let mut voice_fx_ns = 0u64;
 
-        let mut orbit_dry = [[0.0f32; CHANNELS]; MAX_ORBITS];
         let mut i = 0;
         while i < self.active_voices {
             #[cfg(all(feature = "native", feature = "profiling"))]
@@ -1145,50 +1144,22 @@ impl Engine {
             }
 
             let orbit_idx = self.voices[i].params.orbit % MAX_ORBITS;
-
-            orbit_dry[orbit_idx][0] += self.voices[i].ch[0];
-            orbit_dry[orbit_idx][1] += self.voices[i].ch[1];
-
-            // Send to orbit FX at the orbit's persistent levels (Tidal-style).
             let orbit = &mut self.orbits[orbit_idx];
-            if orbit.delay_level > 0.0 {
-                let level = orbit.delay_level;
-                for c in 0..CHANNELS {
-                    orbit.add_delay_send(c, self.voices[i].ch[c] * level);
-                }
-            }
-            if orbit.verb_level > 0.0 {
-                let level = orbit.verb_level;
-                for c in 0..CHANNELS {
-                    orbit.add_verb_send(c, self.voices[i].ch[c] * level);
-                }
-            }
-            if orbit.comb_level > 0.0 {
-                let level = orbit.comb_level;
-                for c in 0..CHANNELS {
-                    orbit.add_comb_send(c, self.voices[i].ch[c] * level);
-                }
-            }
-            if orbit.fb_level > 0.0 {
-                let level = orbit.fb_level;
-                for c in 0..CHANNELS {
-                    orbit.add_fb_send(c, self.voices[i].ch[c] * level);
-                }
+            for c in 0..CHANNELS {
+                orbit.add_dry(c, self.voices[i].ch[c]);
             }
 
             i += 1;
         }
 
-        // Phase 1: process all orbits, store output levels
-        let mut orbit_levels = [[0.0f32; CHANNELS]; MAX_ORBITS];
+        // Phase 1: run the orbit FX chain. After process(), orbit.bus
+        // already contains dry + all wet contributions.
         #[cfg(all(feature = "native", feature = "profiling"))]
         let orbit_fx_start = std::time::Instant::now();
+        let mut orbit_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
         for (oi, orbit) in self.orbits.iter_mut().enumerate() {
             orbit.process();
-            orbit_levels[oi] = [
-                orbit.delay_out[0] + orbit.verb_out[0] + orbit.comb_out[0] + orbit.fb_out[0],
-                orbit.delay_out[1] + orbit.verb_out[1] + orbit.comb_out[1] + orbit.fb_out[1],
-            ];
+            orbit_bus[oi] = orbit.bus;
         }
         #[cfg(all(feature = "native", feature = "profiling"))]
         let orbit_fx_ns = orbit_fx_start.elapsed().as_nanos() as u64;
@@ -1202,17 +1173,11 @@ impl Engine {
             let pair_offset = out_pair * 2;
             let p = &orbit.params;
 
-            let total = [
-                orbit_dry[oi][0] + orbit_levels[oi][0],
-                orbit_dry[oi][1] + orbit_levels[oi][1],
-            ];
+            let total = orbit_bus[oi];
 
             if p.comp > 0.0 {
                 let sc = p.comp_orbit % MAX_ORBITS;
-                let sc_total = [
-                    orbit_dry[sc][0] + orbit_levels[sc][0],
-                    orbit_dry[sc][1] + orbit_levels[sc][1],
-                ];
+                let sc_total = orbit_bus[sc];
                 let sc_level = sc_total[0].abs().max(sc_total[1].abs());
                 let attack_coeff = (isr / p.comp_attack.max(0.0001)).min(1.0);
                 let release_coeff = (isr / p.comp_release.max(0.0001)).min(1.0);
