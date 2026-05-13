@@ -390,12 +390,13 @@ const INFO_FM: ModuleInfo = ModuleInfo {
             max: 32.0,
         },
         ParamInfo {
-            name: "fmalgo",
+            name: "fmpivot",
             aliases: &[],
-            description: "algorithm (0=cascade, 1=parallel, 2=branch)",
+            description:
+                "op2 routing pivot, wraps: 0=cascade, 0.125=branch, 0.25=parallel, 0.5=inv-cascade",
             default: "0.0",
             min: 0.0,
-            max: 2.0,
+            max: 1.0,
         },
         ParamInfo {
             name: "fmfb",

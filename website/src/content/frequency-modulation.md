@@ -10,7 +10,7 @@ order: 108
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-Any source can be frequency modulated. Frequency modulation (FM) is a technique where the frequency of a carrier wave is varied by an audio signal. This creates complex timbres and can produce rich harmonics, from mellow timbres to harsh digital noise. A second modulator can be enabled with `fm2` for 3-operator FM, with `fmalgo` selecting between cascade, parallel, and branch routing algorithms.
+Any source can be frequency modulated. Frequency modulation (FM) is a technique where the frequency of a carrier wave is varied by an audio signal. This creates complex timbres and can produce rich harmonics, from mellow timbres to harsh digital noise. A second modulator can be enabled with `fm2` for 3-operator FM. Instead of a discrete algorithm selector, `fmpivot` continuously rotates op2's output between op1 and the carrier, sweeping through cascade, branch, parallel, and their phase-inverted variants on a single circle.
 
 <CommandEntry name="fm" type="number" min={0} default={0} mod>
 
@@ -46,7 +46,7 @@ FM modulator waveform shape. Options: `sine`, `tri`, `saw`, `square`, `sh` (samp
 
 <CommandEntry name="fm2" type="number" min={0} default={0} mod>
 
-Modulation index for the second FM operator. When `fm2` is greater than 0, a third operator is introduced. Its routing depends on `fmalgo`. The second operator shares the same waveform (`fmshape`) as the first.
+Modulation index for the second FM operator. When `fm2` is greater than 0, a third operator is introduced. Its routing is controlled by `fmpivot`. The second operator shares the same waveform (`fmshape`) as the first.
 
 <CodeEditor code={`/fm/3/fmh/1/fm2/1.5/fm2h/14/decay/1/gate/1.5/note/36`} rows={2} />
 
@@ -64,15 +64,28 @@ Harmonic ratio of the second FM operator. `fm2h` * carrier frequency defines the
 
 </CommandEntry>
 
-<CommandEntry name="fmalgo" type="number" min={0} max={2} default={0}>
+<CommandEntry name="fmpivot" type="number" min={0} max={1} default={0} mod>
 
-Selects the FM routing algorithm when `fm2` is active. `0` is cascade (fm2 modulates fm1, fm1 modulates carrier), `1` is parallel (fm1 and fm2 both modulate the carrier independently), `2` is branch (fm2 modulates both fm1 and the carrier).
+Continuous op2 routing pivot, wraps. Replaces the old algorithm selector with a single knob that traces a circle in the (op2→op1, op2→carrier) plane. Total op2 modulation magnitude stays constant; only the destination rotates.
 
-<CodeEditor code={`/fm/5/fmh/1/fm2/2/fm2h/7/fmalgo/0/decay/0.6/gate/1/note/40`} rows={2} />
+Named points on the circle:
 
-<CodeEditor code={`/fm/1.5/fmh/2/fm2/1/fm2h/5.19/fmalgo/1/decay/1.5/gate/2/note/67`} rows={2} />
+- `0.000` — cascade (op2 → op1 → carrier)
+- `0.125` — branch (op2 → both, equal-power split)
+- `0.250` — parallel (op2 → carrier, op1 → carrier independently)
+- `0.500` — inverted cascade
+- `0.750` — inverted parallel
+- `1.000` — wraps to cascade
 
-<CodeEditor code={`/fm/2/fmh/0.5/fm2/6/fm2h/3/fmalgo/2/decay/0.2/gate/0.4/note/55`} rows={2} />
+Everything between is reachable; modulating `fmpivot` at LFO rate creates continuous algorithm morphing.
+
+<CodeEditor code={`/fm/5/fmh/1/fm2/2/fm2h/7/fmpivot/0/decay/0.6/gate/1/note/40`} rows={2} />
+
+<CodeEditor code={`/fm/1.5/fmh/2/fm2/1/fm2h/5.19/fmpivot/0.25/decay/1.5/gate/2/note/67`} rows={2} />
+
+<CodeEditor code={`/fm/2/fmh/0.5/fm2/6/fm2h/3/fmpivot/0.125/decay/0.2/gate/0.4/note/55`} rows={2} />
+
+<CodeEditor code={`/fm/4/fmh/2/fm2/3/fm2h/4/fmpivot/0~1:0.3/decay/4/gate/4/note/48`} rows={2} />
 
 </CommandEntry>
 

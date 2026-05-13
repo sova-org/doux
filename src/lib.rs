@@ -942,7 +942,7 @@ impl Engine {
 
         // --- Modulation ---
         copy_opt!(event, v.params, vib, vibmod, vibshape);
-        copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmalgo, fmfb);
+        copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmpivot, fmfb);
         copy_opt!(event, v.params, am, amdepth, amshape);
         copy_opt!(event, v.params, rm, rmdepth, rmshape);
 

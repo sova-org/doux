@@ -102,7 +102,7 @@ pub struct Event {
     pub fmshape: Option<LfoShape>,
     pub fm2: Option<f32>,
     pub fm2h: Option<f32>,
-    pub fmalgo: Option<u8>,
+    pub fmpivot: Option<f32>,
     pub fmfb: Option<f32>,
 
     // AM
@@ -352,7 +352,7 @@ impl Event {
                 "fmshape" => event.fmshape = val.parse().ok(),
                 "fm2" => parse_param!(val, fm2, ParamId::Fm2),
                 "fm2h" => parse_param!(val, fm2h, ParamId::Fm2h),
-                "fmalgo" => event.fmalgo = Self::parse_u8(val),
+                "fmpivot" => parse_param!(val, fmpivot, ParamId::Fmpivot),
                 "fmfb" => parse_param!(val, fmfb, ParamId::Fmfb),
                 "am" => parse_param!(val, am, ParamId::Am),
                 "amdepth" => parse_param!(val, amdepth, ParamId::Amdepth),

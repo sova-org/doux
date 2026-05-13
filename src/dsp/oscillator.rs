@@ -52,6 +52,19 @@ pub(crate) fn poly_blep(t: f32, dt: f32) -> f32 {
     0.0
 }
 
+/// Direction-aware PolyBLEP. When `dt_signed` is negative the discontinuity is
+/// being crossed in reverse (e.g. deep PM pushing read position backwards),
+/// so the correction sign is flipped.
+#[inline]
+pub(crate) fn poly_blep_signed(t: f32, dt_signed: f32) -> f32 {
+    let c = poly_blep(t, dt_signed);
+    if dt_signed >= 0.0 {
+        c
+    } else {
+        -c
+    }
+}
+
 // Two-sample polyBLEP/polyBLAMP lobes indexed by `wrap_frac = 1 − ν`
 // (fraction of the sample period remaining after the event).
 
@@ -186,6 +199,9 @@ pub struct Phasor {
     sh_value: f32,
     /// PRNG state for sample-and-hold randomization.
     sh_seed: u32,
+    /// Previous `phase_offset` passed to `lfo_pm`, used to derive the
+    /// signed per-sample read delta for direction-aware PolyBLEP.
+    last_pm: f32,
 }
 
 impl Default for Phasor {
@@ -194,6 +210,7 @@ impl Default for Phasor {
             phase: 0.0,
             sh_value: 0.0,
             sh_seed: 123456789,
+            last_pm: 0.0,
         }
     }
 }
@@ -231,7 +248,7 @@ impl Phasor {
         let p = offset_phase(p_true, phase_offset);
         self.update(freq, isr);
 
-        match shape {
+        let result = match shape {
             LfoShape::Sine => sinf(p * 2.0 * PI),
             LfoShape::Tri => {
                 if p < 0.5 {
@@ -240,13 +257,17 @@ impl Phasor {
                     3.0 - 4.0 * p
                 }
             }
-            LfoShape::Saw => p * 2.0 - 1.0,
+            LfoShape::Saw => {
+                let dt_eff = (freq * isr + (phase_offset - self.last_pm)).clamp(-0.5, 0.5);
+                p * 2.0 - 1.0 - poly_blep_signed(p, dt_eff)
+            }
             LfoShape::Square => {
-                if p < 0.5 {
-                    1.0
-                } else {
-                    -1.0
-                }
+                let dt_eff = (freq * isr + (phase_offset - self.last_pm)).clamp(-0.5, 0.5);
+                let naive = if p < 0.5 { 1.0 } else { -1.0 };
+                let rise = poly_blep_signed(p, dt_eff);
+                let shifted = if p >= 0.5 { p - 0.5 } else { p + 0.5 };
+                let fall = poly_blep_signed(shifted, dt_eff);
+                naive + rise - fall
             }
             LfoShape::Sh => {
                 if self.phase < p_true {
@@ -255,7 +276,9 @@ impl Phasor {
                 }
                 self.sh_value
             }
-        }
+        };
+        self.last_pm = phase_offset;
+        result
     }
 
     /// Pure sine wave.

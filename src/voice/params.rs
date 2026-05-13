@@ -155,8 +155,11 @@ pub struct VoiceParams {
     pub fm2: f32,
     /// FM operator 2 harmonic ratio (mod2 freq = carrier freq * fm2h).
     pub fm2h: f32,
-    /// FM algorithm (0=cascade, 1=parallel, 2=branch).
-    pub fmalgo: u8,
+    /// Op2 routing pivot in `[0, 1]`, wraps. Traces a circle in the
+    /// (op2→op1, op2→carrier) plane: 0 = cascade, 0.125 = branch,
+    /// 0.25 = parallel, 0.5 = inverted cascade, etc. Total op2 modulation
+    /// magnitude is constant; only the destination rotates.
+    pub fmpivot: f32,
     /// FM feedback amount on the topmost operator.
     pub fmfb: f32,
 
@@ -332,7 +335,7 @@ impl Default for VoiceParams {
             fmshape: LfoShape::Sine,
             fm2: 0.0,
             fm2h: 1.0,
-            fmalgo: 0,
+            fmpivot: 0.0,
             fmfb: 0.0,
             am: 0.0,
             amdepth: 0.5,

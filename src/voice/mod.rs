@@ -382,6 +382,7 @@ impl Voice {
             ParamId::Fmh => self.params.fmh,
             ParamId::Fm2 => self.params.fm2,
             ParamId::Fm2h => self.params.fm2h,
+            ParamId::Fmpivot => self.params.fmpivot,
             ParamId::Fmfb => self.params.fmfb,
             ParamId::Am => self.params.am,
             ParamId::Amdepth => self.params.amdepth,
@@ -478,6 +479,7 @@ impl Voice {
             ParamId::Fmh => self.params.fmh = val,
             ParamId::Fm2 => self.params.fm2 = val,
             ParamId::Fm2h => self.params.fm2h = val,
+            ParamId::Fmpivot => self.params.fmpivot = val,
             ParamId::Fmfb => self.params.fmfb = val,
             ParamId::Am => self.params.am = val,
             ParamId::Amdepth => self.params.amdepth = val,
@@ -535,6 +537,11 @@ impl Voice {
 
         // Phase-modulation synthesis. Carrier freq is unaffected; modulator
         // outputs contribute to `fm_phase_mod` (turns).
+        //
+        // `fmpivot` rotates op2's output through a circle in the
+        // (op2→op1, op2→carrier) plane: 0 = cascade, 0.125 = branch,
+        // 0.25 = parallel, 0.5 = inverted cascade, etc. Total op2 modulation
+        // magnitude `√(a²+b²) = fm2` is constant; only the destination rotates.
         let mut pm = 0.0_f32;
         if self.params.fm > 0.0 || self.params.fm2 > 0.0 {
             let fm1 = self.params.fm;
@@ -545,44 +552,22 @@ impl Voice {
             let fb_turns = (self.fm_fb_prev + self.fm_fb_prev2) * 0.5 * self.params.fmfb * INV_TAU;
 
             if fm2 > 0.0 {
-                match self.params.fmalgo {
-                    // Cascade: fm2 → fm1 → carrier.
-                    0 => {
-                        let mod2_freq = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
-                        self.fm_fb_prev2 = self.fm_fb_prev;
-                        self.fm_fb_prev = mod2;
-                        let mod1_freq = freq * self.params.fmh;
-                        let mod1 =
-                            self.fm_phasor
-                                .lfo_pm(shape, mod1_freq, isr, fm2 * mod2 * INV_TAU);
-                        pm += fm1 * mod1 * INV_TAU;
-                    }
-                    // Parallel: fm1 + fm2 both modulate carrier.
-                    1 => {
-                        let mf1 = freq * self.params.fmh;
-                        let mod1 = self.fm_phasor.lfo(shape, mf1, isr);
-                        pm += fm1 * mod1 * INV_TAU;
-                        let mf2 = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo_pm(shape, mf2, isr, fb_turns);
-                        self.fm_fb_prev2 = self.fm_fb_prev;
-                        self.fm_fb_prev = mod2;
-                        pm += fm2 * mod2 * INV_TAU;
-                    }
-                    // Branch: fm2 → fm1 → carrier and fm2 → carrier.
-                    _ => {
-                        let mod2_freq = freq * self.params.fm2h;
-                        let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
-                        self.fm_fb_prev2 = self.fm_fb_prev;
-                        self.fm_fb_prev = mod2;
-                        let mod1_freq = freq * self.params.fmh;
-                        let mod1 =
-                            self.fm_phasor
-                                .lfo_pm(shape, mod1_freq, isr, fm2 * mod2 * INV_TAU);
-                        pm += fm1 * mod1 * INV_TAU;
-                        pm += fm2 * mod2 * INV_TAU;
-                    }
-                }
+                let theta = self.params.fmpivot * std::f32::consts::TAU;
+                let a = fm2 * cosf(theta); // op2 → op1
+                let b = fm2 * sinf(theta); // op2 → carrier
+
+                let mod2_freq = freq * self.params.fm2h;
+                let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
+                self.fm_fb_prev2 = self.fm_fb_prev;
+                self.fm_fb_prev = mod2;
+
+                let mod1_freq = freq * self.params.fmh;
+                let mod1 = self
+                    .fm_phasor
+                    .lfo_pm(shape, mod1_freq, isr, a * mod2 * INV_TAU);
+
+                pm += fm1 * mod1 * INV_TAU;
+                pm += b * mod2 * INV_TAU;
             } else {
                 let mod1_freq = freq * self.params.fmh;
                 let mod1 = self.fm_phasor.lfo_pm(shape, mod1_freq, isr, fb_turns);
