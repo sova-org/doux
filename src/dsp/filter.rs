@@ -20,7 +20,7 @@
 //!
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
-use super::fastmath::{fast_tan, ftz, par_cosf, par_sinf, pow10};
+use super::fastmath::{fast_tan, fast_tanh_f32, ftz, par_cosf, par_sinf, pow10};
 use crate::types::FilterType;
 use std::f32::consts::PI;
 
@@ -31,7 +31,18 @@ pub enum SvfMode {
     Bp,
 }
 
-/// State Variable Filter (Cytomic / Andy Simper topology) with coefficient caching.
+/// State Variable Filter (Cytomic / Andy Simper topology) with nonlinear feedback.
+///
+/// Linear TPT core with a `tanh` saturator on the bandpass signal `v1` before it
+/// re-enters the integrator state, making the resonance loop nonlinear. Tuning is
+/// preserved at small signals (tanh slope is 1 at 0); at high resonance, self-
+/// oscillation is bounded by the saturator instead of blowing up.
+///
+/// Resonance maps `q ∈ [0, 1]` to damping `k = 2·(1-q)^2.5`. `q = 1` reaches
+/// `k = 0` (pure self-oscillation), stabilized by tanh.
+///
+/// Input is pre-scaled by `1 - 0.5·q` so the resonant peak does not run away in
+/// loudness as `q` rises.
 ///
 /// Coefficients `g`, `k`, `a1`, `a2`, `a3` are recomputed only when `cutoff` or `q`
 /// drift past a 0.1% relative threshold. Public `cutoff` is set by callers between
@@ -68,7 +79,8 @@ impl SvfState {
         let q = q.clamp(0.0, 1.0);
         if self.needs_recalc(freq, q) {
             let g = fast_tan(PI * freq / sr);
-            let k = 2.0 * pow10(-2.0 * q);
+            let r = 1.0 - q;
+            let k = 2.0 * r * r * r * r.sqrt();
             let a1 = 1.0 / (1.0 + g * (g + k));
             let a2 = g * a1;
             let a3 = g * a2;
@@ -81,8 +93,10 @@ impl SvfState {
             self.cached_a3 = a3;
         }
 
+        let input = input * (1.0 - 0.5 * q);
         let v3 = input - self.ic2eq;
-        let v1 = self.cached_a1 * self.ic1eq + self.cached_a2 * v3;
+        let v1_lin = self.cached_a1 * self.ic1eq + self.cached_a2 * v3;
+        let v1 = fast_tanh_f32(v1_lin);
         let v2 = self.ic2eq + self.cached_a2 * self.ic1eq + self.cached_a3 * v3;
 
         self.ic1eq = ftz(2.0 * v1 - self.ic1eq, 1e-20);
