@@ -14,6 +14,6 @@ pub use fastmath::{
     atan2f, cosf, exp2f, fast_tan, fast_tanh_f32, ftz, hermite4, log2f, modpi, ms_to_samples,
     par_cosf, par_sinf, pow10, pow1half, powf, sinf,
 };
-pub use filter::{Biquad, SvfMode, SvfState};
+pub use filter::{Biquad, SvfCascade, SvfMode, SvfState};
 pub use noise::{BrownNoise, PinkNoise};
 pub use oscillator::{polyblep_square, PhaseShape, Phasor};

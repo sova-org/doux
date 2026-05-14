@@ -117,6 +117,22 @@ pub struct VoiceParams {
     pub bpq: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Steep SVF Filters (cascaded 4-pole, 24 dB/oct)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Steep lowpass cutoff in Hz. `None` = bypassed.
+    pub slpf: Option<f32>,
+    /// Steep lowpass resonance (0.0 to 1.0).
+    pub slpq: f32,
+    /// Steep highpass cutoff in Hz. `None` = bypassed.
+    pub shpf: Option<f32>,
+    /// Steep highpass resonance (0.0 to 1.0).
+    pub shpq: f32,
+    /// Steep bandpass center frequency in Hz. `None` = bypassed.
+    pub sbpf: Option<f32>,
+    /// Steep bandpass resonance (0.0 to 1.0).
+    pub sbpq: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // Ladder Filter
     // ─────────────────────────────────────────────────────────────────────
     /// Ladder lowpass cutoff in Hz. `None` = bypassed.
@@ -321,6 +337,12 @@ impl Default for VoiceParams {
             hpq: 0.2,
             bpf: None,
             bpq: 0.2,
+            slpf: None,
+            slpq: 0.2,
+            shpf: None,
+            shpq: 0.2,
+            sbpf: None,
+            sbpq: 0.2,
             llpf: None,
             llpq: 0.2,
             lhpf: None,

@@ -569,6 +569,78 @@ const INFO_BPF: ModuleInfo = ModuleInfo {
     ],
 };
 
+const INFO_SLPF: ModuleInfo = ModuleInfo {
+    name: "slpf",
+    description: "Steep state variable lowpass filter (24 dB/oct, cascaded)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo {
+            name: "slpf",
+            aliases: &[],
+            description: "cutoff frequency in Hz",
+            default: "0.0",
+            min: 0.0,
+            max: 20000.0,
+        },
+        ParamInfo {
+            name: "slpq",
+            aliases: &[],
+            description: "resonance",
+            default: "0.2",
+            min: 0.0,
+            max: 1.0,
+        },
+    ],
+};
+
+const INFO_SHPF: ModuleInfo = ModuleInfo {
+    name: "shpf",
+    description: "Steep state variable highpass filter (24 dB/oct, cascaded)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo {
+            name: "shpf",
+            aliases: &[],
+            description: "cutoff frequency in Hz",
+            default: "0.0",
+            min: 0.0,
+            max: 20000.0,
+        },
+        ParamInfo {
+            name: "shpq",
+            aliases: &[],
+            description: "resonance",
+            default: "0.2",
+            min: 0.0,
+            max: 1.0,
+        },
+    ],
+};
+
+const INFO_SBPF: ModuleInfo = ModuleInfo {
+    name: "sbpf",
+    description: "Steep state variable bandpass filter (24 dB/oct, cascaded)",
+    group: ModuleGroup::Effect,
+    params: &[
+        ParamInfo {
+            name: "sbpf",
+            aliases: &[],
+            description: "center frequency in Hz",
+            default: "0.0",
+            min: 0.0,
+            max: 20000.0,
+        },
+        ParamInfo {
+            name: "sbpq",
+            aliases: &[],
+            description: "resonance",
+            default: "0.2",
+            min: 0.0,
+            max: 1.0,
+        },
+    ],
+};
+
 // ── Registry ────────────────────────────────────────────────────────────
 
 pub const ALL_MODULES: &[&ModuleInfo] = &[
@@ -588,6 +660,9 @@ pub const ALL_MODULES: &[&ModuleInfo] = &[
     &INFO_LPF,
     &INFO_HPF,
     &INFO_BPF,
+    &INFO_SLPF,
+    &INFO_SHPF,
+    &INFO_SBPF,
     &ladder::INFO_LLPF,
     &ladder::INFO_LHPF,
     &ladder::INFO_LBPF,

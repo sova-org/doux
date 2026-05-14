@@ -110,6 +110,32 @@ impl SvfState {
     }
 }
 
+/// Two `SvfState` stages cascaded in series for a 24 dB/oct response.
+///
+/// Stage 1 carries the user's resonance; stage 2 runs at a fixed near-Butterworth
+/// `q = 0.13` (in the curve `k = 2·(1-q)^2.5` this maps to Q ≈ 0.707), giving a
+/// clean single-peak 24 dB/oct rolloff. Distinct in character from the Moog
+/// ladder: no global feedback loop, no "throat" — closer to Curtis/Roland.
+///
+/// Public `cutoff` is set by callers between processing calls; both inner stages
+/// inherit it.
+#[derive(Clone, Copy, Default)]
+pub struct SvfCascade {
+    pub cutoff: f32,
+    a: SvfState,
+    b: SvfState,
+}
+
+impl SvfCascade {
+    #[inline]
+    pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
+        self.a.cutoff = self.cutoff;
+        self.b.cutoff = self.cutoff;
+        let y = self.a.process(input, mode, q, sr);
+        self.b.process(y, mode, 0.13, sr)
+    }
+}
+
 /// Second-order IIR (biquad) filter using Transposed Direct Form II.
 ///
 /// State variables `s1`, `s2` are integrator outputs, not signal history.

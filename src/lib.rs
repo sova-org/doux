@@ -933,6 +933,12 @@ impl Engine {
         copy_opt!(event, v.params, hpq);
         copy_opt_some!(event, v.params, bpf);
         copy_opt!(event, v.params, bpq);
+        copy_opt_some!(event, v.params, slpf);
+        copy_opt!(event, v.params, slpq);
+        copy_opt_some!(event, v.params, shpf);
+        copy_opt!(event, v.params, shpq);
+        copy_opt_some!(event, v.params, sbpf);
+        copy_opt!(event, v.params, sbpq);
         copy_opt_some!(event, v.params, llpf);
         copy_opt!(event, v.params, llpq);
         copy_opt_some!(event, v.params, lhpf);

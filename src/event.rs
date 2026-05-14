@@ -83,6 +83,14 @@ pub struct Event {
     pub bpf: Option<f32>,
     pub bpq: Option<f32>,
 
+    // Steep SVF filters (cascaded 4-pole)
+    pub slpf: Option<f32>,
+    pub slpq: Option<f32>,
+    pub shpf: Option<f32>,
+    pub shpq: Option<f32>,
+    pub sbpf: Option<f32>,
+    pub sbpq: Option<f32>,
+
     // Ladder filter
     pub llpf: Option<f32>,
     pub llpq: Option<f32>,
@@ -338,6 +346,12 @@ impl Event {
                 "hpq" | "hresonance" => parse_param!(val, hpq, ParamId::Hpq),
                 "bpf" | "bandf" => parse_param!(val, bpf, ParamId::Bpf),
                 "bpq" | "bandq" => parse_param!(val, bpq, ParamId::Bpq),
+                "slpf" => parse_param!(val, slpf, ParamId::Slpf),
+                "slpq" => parse_param!(val, slpq, ParamId::Slpq),
+                "shpf" => parse_param!(val, shpf, ParamId::Shpf),
+                "shpq" => parse_param!(val, shpq, ParamId::Shpq),
+                "sbpf" => parse_param!(val, sbpf, ParamId::Sbpf),
+                "sbpq" => parse_param!(val, sbpq, ParamId::Sbpq),
                 "llpf" => parse_param!(val, llpf, ParamId::Llpf),
                 "llpq" => parse_param!(val, llpq, ParamId::Llpq),
                 "lhpf" => parse_param!(val, lhpf, ParamId::Lhpf),

@@ -10,7 +10,9 @@ pub use params::VoiceParams;
 
 use std::f32::consts::PI;
 
-use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode, SvfState};
+use crate::dsp::{
+    cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfCascade, SvfMode, SvfState,
+};
 use crate::effects::{
     crush, distort, Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode,
     Phaser, Smear, Tilt, Wrap,
@@ -66,6 +68,9 @@ pub struct Voice {
     pub lp: [SvfState; CHANNELS],
     pub hp: [SvfState; CHANNELS],
     pub bp: [SvfState; CHANNELS],
+    pub slp: [SvfCascade; CHANNELS],
+    pub shp: [SvfCascade; CHANNELS],
+    pub sbp: [SvfCascade; CHANNELS],
     pub vib_lfo: Phasor,
     pub fm_phasor: Phasor,
     pub fm2_phasor: Phasor,
@@ -147,6 +152,9 @@ impl Default for Voice {
             lp: [SvfState::default(); CHANNELS],
             hp: [SvfState::default(); CHANNELS],
             bp: [SvfState::default(); CHANNELS],
+            slp: [SvfCascade::default(); CHANNELS],
+            shp: [SvfCascade::default(); CHANNELS],
+            sbp: [SvfCascade::default(); CHANNELS],
             vib_lfo: Phasor::default(),
             fm_phasor: Phasor::default(),
             fm2_phasor: Phasor::default(),
@@ -372,6 +380,12 @@ impl Voice {
             ParamId::Hpq => self.params.hpq,
             ParamId::Bpf => self.params.bpf.unwrap_or(1000.0),
             ParamId::Bpq => self.params.bpq,
+            ParamId::Slpf => self.params.slpf.unwrap_or(20000.0),
+            ParamId::Slpq => self.params.slpq,
+            ParamId::Shpf => self.params.shpf.unwrap_or(0.0),
+            ParamId::Shpq => self.params.shpq,
+            ParamId::Sbpf => self.params.sbpf.unwrap_or(1000.0),
+            ParamId::Sbpq => self.params.sbpq,
             ParamId::Llpf => self.params.llpf.unwrap_or(20000.0),
             ParamId::Llpq => self.params.llpq,
             ParamId::Lhpf => self.params.lhpf.unwrap_or(0.0),
@@ -469,6 +483,12 @@ impl Voice {
             ParamId::Hpq => self.params.hpq = val,
             ParamId::Bpf => self.params.bpf = Some(val),
             ParamId::Bpq => self.params.bpq = val,
+            ParamId::Slpf => self.params.slpf = Some(val),
+            ParamId::Slpq => self.params.slpq = val,
+            ParamId::Shpf => self.params.shpf = Some(val),
+            ParamId::Shpq => self.params.shpq = val,
+            ParamId::Sbpf => self.params.sbpf = Some(val),
+            ParamId::Sbpq => self.params.sbpq = val,
             ParamId::Llpf => self.params.llpf = Some(val),
             ParamId::Llpq => self.params.llpq = val,
             ParamId::Lhpf => self.params.lhpf = Some(val),
@@ -727,6 +747,29 @@ impl Voice {
         if self.params.bpf.is_some() {
             for c in 0..nch {
                 self.ch[c] = self.bp[c].process(self.ch[c], SvfMode::Bp, self.params.bpq, self.sr);
+            }
+        }
+
+        // Steep SVF cascades (24 dB/oct)
+        if let Some(slpf) = self.params.slpf {
+            for c in 0..nch {
+                self.slp[c].cutoff = slpf;
+                self.ch[c] =
+                    self.slp[c].process(self.ch[c], SvfMode::Lp, self.params.slpq, self.sr);
+            }
+        }
+        if let Some(shpf) = self.params.shpf {
+            for c in 0..nch {
+                self.shp[c].cutoff = shpf;
+                self.ch[c] =
+                    self.shp[c].process(self.ch[c], SvfMode::Hp, self.params.shpq, self.sr);
+            }
+        }
+        if let Some(sbpf) = self.params.sbpf {
+            for c in 0..nch {
+                self.sbp[c].cutoff = sbpf;
+                self.ch[c] =
+                    self.sbp[c].process(self.ch[c], SvfMode::Bp, self.params.sbpq, self.sr);
             }
         }
 
