@@ -84,6 +84,7 @@ fn main() {
     };
 
     loop {
+        let anchor = engine.time_anchor();
         let streams = match build_audio_streams(&stream_params, engine, cmd_rx) {
             Ok(s) => s,
             Err(e) => {
@@ -92,7 +93,8 @@ fn main() {
             }
         };
 
-        let lost = match doux::osc::run_recoverable(cmd_tx.clone(), args.port, &device_lost) {
+        let lost = match doux::osc::run_recoverable(cmd_tx.clone(), args.port, anchor, &device_lost)
+        {
             Ok(lost) => lost,
             Err(e) => {
                 eprintln!("Error binding OSC port {}: {e}", args.port);

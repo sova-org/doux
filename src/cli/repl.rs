@@ -264,7 +264,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match trimmed {
                     ".quit" | ".q" => break,
                     ".reset" | ".r" => {
-                        let _ = cmd_tx.send(AudioCmd::Evaluate("/doux/reset".into()));
+                        let _ = cmd_tx.send(AudioCmd::Evaluate {
+                            path: "/doux/reset".into(),
+                            tick: None,
+                        });
                     }
                     ".voices" | ".v" => {
                         println!("{}", metrics.active_voices.load(Ordering::Relaxed));
@@ -295,7 +298,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         print_help();
                     }
                     s if !s.is_empty() => {
-                        let _ = cmd_tx.send(AudioCmd::Evaluate(s.into()));
+                        let _ = cmd_tx.send(AudioCmd::Evaluate {
+                            path: s.into(),
+                            tick: None,
+                        });
                     }
                     _ => {}
                 }

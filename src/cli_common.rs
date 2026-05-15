@@ -386,8 +386,12 @@ pub fn build_audio_streams(
 
                         while let Ok(cmd) = cmd_rx.try_recv() {
                             match cmd {
-                                AudioCmd::Evaluate(s) => {
-                                    engine.evaluate(&s);
+                                AudioCmd::Evaluate { path, tick } => {
+                                    let mut event = crate::event::Event::parse(&path, engine.sr);
+                                    if event.tick.is_none() {
+                                        event.tick = tick;
+                                    }
+                                    engine.dispatch_event(event);
                                 }
                                 AudioCmd::Hush => engine.hush(),
                                 AudioCmd::Panic => engine.panic(),

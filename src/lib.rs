@@ -22,13 +22,15 @@ pub mod schedule;
 pub mod soundfont;
 #[cfg(feature = "native")]
 pub mod telemetry;
+#[cfg(feature = "native")]
+pub mod time;
 pub mod types;
 pub mod voice;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
 pub enum AudioCmd {
-    Evaluate(String),
+    Evaluate { path: String, tick: Option<u64> },
     Hush,
     Panic,
 }
@@ -137,6 +139,17 @@ pub struct Engine {
     voice_seed: u32,
     #[cfg(feature = "native")]
     load_gate: bool,
+    #[cfg(feature = "native")]
+    engine_start_unix_micros: u64,
+}
+
+#[cfg(feature = "native")]
+fn now_unix_micros() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
 }
 
 impl Engine {
@@ -222,6 +235,15 @@ impl Engine {
             input_channels: 2,
             voice_seed: 123456789,
             load_gate: false,
+            engine_start_unix_micros: now_unix_micros(),
+        }
+    }
+
+    #[cfg(feature = "native")]
+    pub fn time_anchor(&self) -> time::TimeAnchor {
+        time::TimeAnchor {
+            start_unix_micros: self.engine_start_unix_micros,
+            sample_rate: self.sr,
         }
     }
 
