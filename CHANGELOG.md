@@ -3,6 +3,48 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.36] - 2026-05-15
+
+### Added
+
+- OSC bundle NTP timetags resolve to sample-accurate ticks via `TimeAnchor`. In-band `tick`/`time`/`delta` still override; OSC "immediately" `(0, 1)` fires on receipt
+- Steep 24 dB/oct SVF variants: `slpf`/`slpq`, `shpf`/`shpq`, `sbpf`/`sbpq` 
+- `fmpivot` (continuous 0–1, wraps) replaces `fmalgo`
+
+### Changed
+
+- **[BREAKING]** Orbit FX run as a sequential chain (comb → feedback → delay → reverb), not parallel sends. Reverb now captures delay tails; per-effect send/out buses collapsed to a single orbit bus
+- Per-FX param structs (`DelayParams`, `ReverbParams`, `CombParams`, `FeedbackParams`, `CompressorParams`) replace the monolithic `EffectParams` enum. Send levels live on the orbit
+- SVF: tanh-bounded bandpass feedback; Q curve remapped to `2·(1−q)^2.5` (was `2·10^(-2q)`); input scaled by `1 − 0.5q` so the resonant peak doesn't grow louder with Q
+- REPL "CPU" → "Load" — it's a per-callback time budget ratio (0–2.0), not machine CPU.
+
+### Removed
+
+- Benchmark/profiling harness: `doux-bench`, `src/benchmark.rs`, `benches/engine.rs`, `tests/perf_workflow.rs`, `criterion` dep (~895 LOC)
+- `fmalgo` — see `fmpivot`
+
+## [0.0.35] - 2026-05-08
+
+### Added
+
+- Public `all_modules()` exposes the source/effect registry (names, aliases, params, defaults, ranges) for sova docs
+
+### Changed
+
+- Scope capture buffer → 2048 samples
+
+## [0.0.34] - 2026-05-08
+
+### Changed
+
+- Orbit FX params (`feedback`/`fb`, `fbtime`/`fbt`, `comb`, `combfreq`, `combfeedback`, `comp`, `delay`, `delaytime`, `delayfeedback`, `verb`/`reverb`) demoted from per-voice modulatable to orbit-scoped scalars (SuperDirt semantics)
+- Orbit silence holdoff: hardcoded `48000` samples → sample-rate-aware `1.0s`
+- Drop unused f64 `fast_tanh`; dedupe `PhaseShape::apply_or_pass` across oscillators; simplify `compressor` / `delay` / `sampling`
+
+### Fixed
+
+- Stack overflow on engine init — `Feedback` `[DelayLine<32768>; 2]` per orbit moved off stack to heap `Vec<f32>`
+
 ## [0.0.33] - 2026-05-04
 
 ### Changed
