@@ -154,7 +154,7 @@ fn print_help() {
     println!("  .panic       Immediately silence all voices");
     println!("  .voices      Show active voice count");
     println!("  .time        Show engine time");
-    println!("  .stats, .s   Show engine telemetry (CPU, voices, memory)");
+    println!("  .stats, .s   Show engine telemetry (load, voices, memory)");
     println!("  .help, .h    Show this help");
     println!();
     println!("Any other input is evaluated as a doux pattern.");
@@ -274,12 +274,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("{t:.3}s");
                     }
                     ".stats" | ".s" => {
-                        let cpu = metrics.load.get_load() * 100.0;
+                        let load_pct = metrics.load.get_load() * 100.0;
                         let voices = metrics.active_voices.load(Ordering::Relaxed);
                         let peak = metrics.peak_voices.load(Ordering::Relaxed);
                         let sched = metrics.schedule_depth.load(Ordering::Relaxed);
                         let mem = metrics.sample_pool_mb();
-                        println!("CPU:      {cpu:5.1}%");
+                        println!("Load:     {load_pct:5.1}%");
                         println!("Voices:   {voices:3}/{max_voices}");
                         println!("Peak:     {peak:3}");
                         println!("Schedule: {sched:3}");

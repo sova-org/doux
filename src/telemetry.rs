@@ -210,9 +210,17 @@ impl EngineProfiler {
     }
 }
 
-/// Measures DSP load as ratio of processing time to buffer time.
+/// Measures DSP load: the fraction of the audio callback deadline consumed
+/// by `process_block`.
 ///
-/// Thread-safe via atomics. Load of 1.0 means using all available time.
+/// A load of 1.0 means the engine used the entire buffer period (e.g. all
+/// ~11.6 ms of an 11.6 ms buffer @ 44.1 kHz / 512 samples) — past this the
+/// audio will glitch. Values can reach 2.0 if a callback overruns. The
+/// returned value is exponentially smoothed (default factor 0.6).
+///
+/// This is NOT machine CPU usage. It says nothing about other cores, other
+/// processes, or thermal state — it is purely a per-buffer time-budget ratio
+/// for the audio thread. Thread-safe via atomics.
 pub struct ProcessLoadMeasurer {
     buffer_time_ns: AtomicU64,
     load_fixed: AtomicU32,
