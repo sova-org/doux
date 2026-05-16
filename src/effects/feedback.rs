@@ -5,7 +5,7 @@
 //! resonances, ping-pong, and short rhythmic feedback loops.
 
 use crate::dsp::{ftz, ms_to_samples, Phasor};
-use crate::types::{LfoShape, ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
+use crate::types::{LfoShape, ModuleGroup, ModuleInfo, ParamInfo, StereoFrame, CHANNELS};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "feedback",
@@ -146,12 +146,7 @@ impl Feedback {
     /// gain). Time/damp/cross and LFO modulation come from `self.params`.
     ///
     /// Returns wet signal only (dry is summed separately by the orbit bus).
-    pub fn process(
-        &mut self,
-        input: [f32; CHANNELS],
-        fb_amount: f32,
-        sr: f32,
-    ) -> [f32; CHANNELS] {
+    pub fn process(&mut self, input: [f32; CHANNELS], fb_amount: f32, sr: f32) -> [f32; CHANNELS] {
         let p = self.params;
         let isr = 1.0 / sr;
         let time_ms = if p.lfo > 0.0 {
@@ -188,5 +183,16 @@ impl Feedback {
         self.write(1, input[1] + fb_r * fb_amount);
 
         delayed
+    }
+
+    /// Block-variant wrapper: processes `n` stereo frames in `buf` in place.
+    ///
+    /// Calls `self.process` per sample to preserve the cross-channel feedback
+    /// path exactly.
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, fb_amount: f32, sr: f32) {
+        for slot in buf.iter_mut().take(n) {
+            *slot = self.process(*slot, fb_amount, sr);
+        }
     }
 }

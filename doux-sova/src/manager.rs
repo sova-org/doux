@@ -17,6 +17,7 @@ use doux::config::DouxConfig;
 use doux::error::DouxError;
 use doux::telemetry::EngineMetrics;
 use doux::Engine;
+use doux::EngineConfig;
 use sova_core::clock::SyncTime;
 use sova_core::protocol::audio_engine_proxy::AudioEngineProxy;
 
@@ -249,25 +250,27 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
-        let block_size = config
+        let buffer_size = config
             .buffer_size
             .map(|b| b as usize)
-            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
-        let mut engine = Engine::new_with_metrics(
+            .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
+        let mut engine = Engine::new(EngineConfig {
             sample_rate,
-            actual_channels,
-            config.max_voices,
-            Arc::clone(&metrics),
-            block_size,
-        );
+            output_channels: actual_channels,
+            max_voices: config.max_voices,
+            buffer_size,
+            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            metrics: Arc::clone(&metrics),
+            sample_registry: None,
+        });
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
-            engine.sample_index.extend(index);
+            engine.extend_sample_index(index);
         }
 
-        let registry = Arc::clone(&engine.sample_registry);
-        spawn_preload(&engine.sample_index, sample_rate, &registry);
+        let registry = Arc::clone(engine.sample_registry());
+        spawn_preload(engine.sample_index(), sample_rate, &registry);
 
         Ok(Self {
             pending_engine: Some(engine),
@@ -465,10 +468,7 @@ impl DouxManager {
             .expect("cmd_tx must be set before build_streams")
             .clone();
 
-        // Update sample rate and input channels on engine
-        engine.sr = self.sample_rate;
-        engine.isr = 1.0 / self.sample_rate;
-        engine.input_channels = input_channels;
+        engine.set_input_channels(input_channels);
 
         let mut input_consumer = input_consumer;
         // Pre-allocate to cover typical max buffer sizes so resize() in
@@ -515,15 +515,14 @@ impl DouxManager {
                                         AudioCmd::Hush => engine.hush(),
                                         AudioCmd::Panic => engine.panic(),
                                         AudioCmd::SetSampleIndex(index) => {
-                                            engine.sample_index = index;
+                                            engine.set_sample_index(index);
                                         }
                                         AudioCmd::ExtendSampleIndex(entries) => {
-                                            engine.sample_index.extend(entries);
+                                            engine.extend_sample_index(entries);
                                         }
                                         #[cfg(feature = "soundfont")]
                                         AudioCmd::InstallSoundfont { bank, samples } => {
-                                            engine.sample_registry.insert_batch(samples);
-                                            engine.gm_bank = Some(bank);
+                                            engine.install_soundfont(samples, bank);
                                         }
                                     },
                                     Err(_) => break,
@@ -550,7 +549,7 @@ impl DouxManager {
 
                             let buffer_time_ns =
                                 (buffer_samples as f64 / sample_rate as f64 * 1e9) as u64;
-                            engine.metrics.load.set_buffer_time(buffer_time_ns);
+                            engine.metrics().load.set_buffer_time(buffer_time_ns);
                             engine.process_block(conv, &[], &live_scratch[..raw_len]);
 
                             let target_gain = f32::from_bits(master_gain.load(Ordering::Relaxed));
@@ -668,24 +667,26 @@ impl DouxManager {
 
         // Create fresh engine for the new audio callback
         self.metrics = Arc::new(EngineMetrics::default());
-        let block_size = self
+        let buffer_size = self
             .config
             .buffer_size
             .map(|b| b as usize)
-            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
-        let mut engine = Engine::new_with_metrics(
+            .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
+        let mut engine = Engine::new(EngineConfig {
             sample_rate,
-            actual_channels,
-            self.config.max_voices,
-            Arc::clone(&self.metrics),
-            block_size,
-        );
+            output_channels: actual_channels,
+            max_voices: self.config.max_voices,
+            buffer_size,
+            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            metrics: Arc::clone(&self.metrics),
+            sample_registry: None,
+        });
         for path in &self.config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
-            engine.sample_index.extend(index);
+            engine.extend_sample_index(index);
         }
-        self.registry = Arc::clone(&engine.sample_registry);
-        spawn_preload(&engine.sample_index, sample_rate, &self.registry);
+        self.registry = Arc::clone(engine.sample_registry());
+        spawn_preload(engine.sample_index(), sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
         match self.build_streams() {
@@ -733,24 +734,26 @@ impl DouxManager {
         let actual_channels = compute_channels(&output_device, config.channels);
 
         let metrics = Arc::new(EngineMetrics::default());
-        let block_size = config
+        let buffer_size = config
             .buffer_size
             .map(|b| b as usize)
-            .unwrap_or(doux::types::DEFAULT_NATIVE_BLOCK_SIZE);
-        let mut engine = Engine::new_with_metrics(
+            .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
+        let mut engine = Engine::new(EngineConfig {
             sample_rate,
-            actual_channels,
-            config.max_voices,
-            Arc::clone(&metrics),
-            block_size,
-        );
+            output_channels: actual_channels,
+            max_voices: config.max_voices,
+            buffer_size,
+            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            metrics: Arc::clone(&metrics),
+            sample_registry: None,
+        });
 
         for path in &config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
-            engine.sample_index.extend(index);
+            engine.extend_sample_index(index);
         }
-        self.registry = Arc::clone(&engine.sample_registry);
-        spawn_preload(&engine.sample_index, sample_rate, &self.registry);
+        self.registry = Arc::clone(engine.sample_registry());
+        spawn_preload(engine.sample_index(), sample_rate, &self.registry);
 
         self.pending_engine = Some(engine);
         self.host_selection = host_selection;

@@ -17,7 +17,7 @@
 //! Left and right taps use opposite modulation polarity for stereo width.
 
 use crate::dsp::{ms_to_samples, DelayLine, Phasor};
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "chorus",
@@ -139,5 +139,23 @@ impl Chorus {
 
         const MIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
         [mono * MIX + out_l * MIX, mono * MIX + out_r * MIX]
+    }
+
+    /// Block-rate stereo processing. Mirrors [`Self::process`] across `n` frames.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        rate: f32,
+        depth: f32,
+        delay_ms: f32,
+        sr: f32,
+        isr: f32,
+    ) {
+        for slot in buf.iter_mut().take(n) {
+            *slot = self.process(slot[0], slot[1], rate, depth, delay_ms, sr, isr);
+        }
     }
 }

@@ -1,11 +1,49 @@
 use std::str::FromStr;
 
-pub const WASM_BLOCK_SIZE: usize = 128;
-pub const DEFAULT_NATIVE_BLOCK_SIZE: usize = 512;
+/// Default cpal device buffer size on wasm builds (samples per audio quantum).
+pub const WASM_BUFFER_SIZE: usize = 128;
+/// Default cpal device buffer size on native builds (samples per callback).
+pub const DEFAULT_BUFFER_SIZE: usize = 512;
 pub const CHANNELS: usize = 2;
 pub const DEFAULT_MAX_VOICES: usize = 32;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_ORBITS: usize = 8;
+
+/// Hard ceiling for the DSP inner-block size (`Engine::dsp_block_size`).
+/// Sizes per-voice and per-orbit scratch buffers.
+pub const MAX_BLOCK: usize = 256;
+
+/// Default inner DSP block size in samples.
+pub const DEFAULT_DSP_BLOCK_SIZE: usize = 32;
+
+/// In-range DSP block size, clamped to `[1, MAX_BLOCK]` at construction.
+///
+/// Sizes scratch buffers that are pre-allocated to `MAX_BLOCK`; the type
+/// guarantees the `.get()` value never exceeds the buffer length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DspBlockSize(usize);
+
+impl DspBlockSize {
+    pub const MIN: usize = 1;
+    pub const MAX: usize = MAX_BLOCK;
+
+    pub fn new(n: usize) -> Self {
+        Self(n.clamp(Self::MIN, Self::MAX))
+    }
+
+    pub fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl Default for DspBlockSize {
+    fn default() -> Self {
+        Self(DEFAULT_DSP_BLOCK_SIZE)
+    }
+}
+
+/// One interleaved stereo sample.
+pub type StereoFrame = [f32; CHANNELS];
 
 // --- Metadata ---
 

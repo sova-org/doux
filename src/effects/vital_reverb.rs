@@ -1,5 +1,6 @@
 use crate::dsp::{exp2f, ftz, pow10, sinf};
 use crate::effects::reverb::ReverbParams;
+use crate::types::StereoFrame;
 
 const NUM_CONTAINERS: usize = 4;
 const CONTAINER_SIZE: usize = 4;
@@ -228,7 +229,7 @@ impl VitalVerb {
         }
     }
 
-    pub fn process(&mut self, input: [f32; 2], rp: &ReverbParams) -> [f32; 2] {
+    pub fn process(&mut self, input: StereoFrame, rp: &ReverbParams) -> StereoFrame {
         let sr = self.sr;
         let sr_ratio = sr / BASE_SR;
         let wp = self.write_pos;
@@ -452,6 +453,13 @@ impl VitalVerb {
 
         // Flush denormals.
         [ftz(right, 1e-18), ftz(left, 1e-18)]
+    }
+
+    #[inline]
+    pub fn process_block(&mut self, frames: &mut [StereoFrame], n: usize, params: &ReverbParams) {
+        for slot in frames.iter_mut().take(n) {
+            *slot = self.process(*slot, params);
+        }
     }
 
     pub fn clear(&mut self) {

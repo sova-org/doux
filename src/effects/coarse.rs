@@ -13,7 +13,7 @@
 //! Output: [a, a, a, a, e, e, e, e, ...]
 //! ```
 
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "coarse",
@@ -42,23 +42,17 @@ pub struct Coarse {
 }
 
 impl Coarse {
-    /// Processes one sample through the decimator.
-    ///
-    /// # Parameters
-    ///
-    /// - `input`: Input sample
-    /// - `factor`: Decimation factor (1.0 = bypass, 2.0 = half rate, etc.)
-    ///
-    /// # Returns
-    ///
-    /// The held sample value. Updates only when the internal counter wraps.
+    /// Block-rate variant: processes `n` samples of stereo-frame buffer in place
+    /// on channel `ch`. `factor.max(1.0) as usize` hoists to block entry.
     #[inline]
-    pub fn process(&mut self, input: f32, factor: f32) -> f32 {
-        let n = factor.max(1.0) as usize;
-        if self.t == 0 {
-            self.hold = input;
+    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, factor: f32) {
+        let stride = factor.max(1.0) as usize;
+        for slot in buf.iter_mut().take(n) {
+            if self.t == 0 {
+                self.hold = slot[ch];
+            }
+            self.t = (self.t + 1) % stride;
+            slot[ch] = self.hold;
         }
-        self.t = (self.t + 1) % n;
-        self.hold
     }
 }

@@ -21,7 +21,7 @@
 //! Based on Robert Bristow-Johnson's Audio EQ Cookbook.
 
 use super::fastmath::{fast_tan, fast_tanh_f32, ftz, par_cosf, par_sinf, pow10};
-use crate::types::FilterType;
+use crate::types::{FilterType, StereoFrame};
 use std::f32::consts::PI;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -108,6 +108,59 @@ impl SvfState {
             SvfMode::Hp => input - self.cached_k * v1 - v2,
         }
     }
+
+    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
+    ///
+    /// `cutoff`, `q` are block-rate (set on `self.cutoff` and `q` arg before
+    /// the call). The clamp + `needs_recalc` + coefficient computation runs
+    /// once at block entry; the inner loop is straight-line state update.
+    #[inline]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        mode: SvfMode,
+        q: f32,
+        sr: f32,
+    ) {
+        let freq = self.cutoff.clamp(1.0, sr * 0.45);
+        let q = q.clamp(0.0, 1.0);
+        if self.needs_recalc(freq, q) {
+            let g = fast_tan(PI * freq / sr);
+            let r = 1.0 - q;
+            let k = 2.0 * r * r * r * r.sqrt();
+            let a1 = 1.0 / (1.0 + g * (g + k));
+            let a2 = g * a1;
+            let a3 = g * a2;
+            self.cached_cutoff = freq;
+            self.cached_q = q;
+            self.cached_g = g;
+            self.cached_k = k;
+            self.cached_a1 = a1;
+            self.cached_a2 = a2;
+            self.cached_a3 = a3;
+        }
+        let a1 = self.cached_a1;
+        let a2 = self.cached_a2;
+        let a3 = self.cached_a3;
+        let k = self.cached_k;
+        let in_scale = 1.0 - 0.5 * q;
+        for slot in buf.iter_mut().take(n) {
+            let input = slot[ch] * in_scale;
+            let v3 = input - self.ic2eq;
+            let v1_lin = a1 * self.ic1eq + a2 * v3;
+            let v1 = fast_tanh_f32(v1_lin);
+            let v2 = self.ic2eq + a2 * self.ic1eq + a3 * v3;
+            self.ic1eq = ftz(2.0 * v1 - self.ic1eq, 1e-20);
+            self.ic2eq = ftz(2.0 * v2 - self.ic2eq, 1e-20);
+            slot[ch] = match mode {
+                SvfMode::Lp => v2,
+                SvfMode::Bp => v1,
+                SvfMode::Hp => input - k * v1 - v2,
+            };
+        }
+    }
 }
 
 /// Two `SvfState` stages cascaded in series for a 24 dB/oct response.
@@ -127,12 +180,25 @@ pub struct SvfCascade {
 }
 
 impl SvfCascade {
+    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
+    ///
+    /// Composes two `SvfState::process_block` calls; each inner stage hoists its
+    /// own coefficient compute. Stage A uses caller-supplied `q`; stage B fixed
+    /// at `q = 0.13` (near-Butterworth) for clean 24 dB/oct rolloff.
     #[inline]
-    pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        mode: SvfMode,
+        q: f32,
+        sr: f32,
+    ) {
         self.a.cutoff = self.cutoff;
         self.b.cutoff = self.cutoff;
-        let y = self.a.process(input, mode, q, sr);
-        self.b.process(y, mode, 0.13, sr)
+        self.a.process_block(buf, n, ch, mode, q, sr);
+        self.b.process_block(buf, n, ch, mode, 0.13, sr);
     }
 }
 
@@ -254,6 +320,69 @@ impl Biquad {
         self.s1 = ftz(self.b1 * input - self.a1 * y + self.s2, 1e-20);
         self.s2 = ftz(self.b2 * input - self.a2 * y, 1e-20);
         y
+    }
+
+    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`,
+    /// with `gain = 0.0` (matches `process` convenience wrapper).
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        filter_type: FilterType,
+        freq: f32,
+        q: f32,
+        sr: f32,
+    ) {
+        self.process_block_with_gain(buf, n, ch, filter_type, freq, q, 0.0, sr);
+    }
+
+    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`,
+    /// with explicit `gain` (dB, used by peaking/shelving filters).
+    ///
+    /// Clamp + `needs_recalc` + coefficient compute runs once at block entry;
+    /// the inner loop is straight-line TDF2 state update with cached coefs.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block_with_gain(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        filter_type: FilterType,
+        freq: f32,
+        q: f32,
+        gain: f32,
+        sr: f32,
+    ) {
+        let freq = freq.clamp(1.0, sr * 0.45);
+        let q = q.max(0.05);
+        if self.needs_recalc(freq, q, gain, filter_type) {
+            let (b0, b1, b2, a1, a2) = compute_biquad_coeffs(filter_type, freq, q, gain, sr);
+            self.b0 = b0;
+            self.b1 = b1;
+            self.b2 = b2;
+            self.a1 = a1;
+            self.a2 = a2;
+            self.cached_freq = freq;
+            self.cached_q = q;
+            self.cached_gain = gain;
+            self.cached_filter_type = filter_type;
+        }
+        let b0 = self.b0;
+        let b1 = self.b1;
+        let b2 = self.b2;
+        let a1 = self.a1;
+        let a2 = self.a2;
+        for slot in buf.iter_mut().take(n) {
+            let input = slot[ch];
+            let y = b0 * input + self.s1;
+            self.s1 = ftz(b1 * input - a1 * y + self.s2, 1e-20);
+            self.s2 = ftz(b2 * input - a2 * y, 1e-20);
+            slot[ch] = y;
+        }
     }
 }
 

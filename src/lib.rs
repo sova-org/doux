@@ -58,9 +58,14 @@ use std::sync::Arc;
 pub use telemetry::EngineMetrics;
 #[cfg(feature = "native")]
 use telemetry::ProfilePhase;
+#[cfg(feature = "native")]
+use types::DEFAULT_BUFFER_SIZE;
 #[cfg(not(feature = "native"))]
-use types::WASM_BLOCK_SIZE;
-use types::{ModuleInfo, Source, CHANNELS, MAX_ORBITS};
+use types::WASM_BUFFER_SIZE;
+use types::{
+    DspBlockSize, ModuleInfo, Source, CHANNELS, DEFAULT_DSP_BLOCK_SIZE, DEFAULT_MAX_VOICES,
+    MAX_ORBITS,
+};
 use voice::modulation::ParamId;
 use voice::{modulation, Voice, VoiceParams};
 
@@ -101,41 +106,94 @@ fn soft_clip_sample(input: f32) -> f32 {
     fast_tanh_f32(input)
 }
 
-pub struct Engine {
-    pub sr: f32,
-    pub isr: f32,
-    pub max_voices: usize,
-    pub voices: Vec<Voice>,
-    pub active_voices: usize,
-    pub orbits: [Orbit; MAX_ORBITS],
-    pub schedule: Schedule,
-    pub time: f64,
-    pub tick: u64,
+/// Construction-time configuration for [`Engine`]. Every field is set
+/// once; runtime mutation goes through methods on the Engine itself.
+#[derive(Clone)]
+pub struct EngineConfig {
+    /// Sample rate in Hz. Must match the audio device.
+    pub sample_rate: f32,
+    /// Number of interleaved output channels in `process_block`'s output slice.
     pub output_channels: usize,
-    pub block_size: usize,
-    pub output: Vec<f32>,
-    // Sample storage (WASM only)
-    #[cfg(not(feature = "native"))]
-    pub sample_pool: SamplePool,
-    #[cfg(not(feature = "native"))]
-    pub samples: Vec<SampleInfo>,
-    // Sample index (native uses registry, WASM uses pool)
-    pub sample_index: Vec<SampleEntry>,
-    // Lock-free sample registry (native only)
+    /// Maximum simultaneous voices (polyphony cap).
+    pub max_voices: usize,
+    /// Audio device callback size in samples. Sets pre-allocated buffers.
+    pub buffer_size: usize,
+    /// Inner DSP block size in samples. Clamped to `[1, MAX_BLOCK]` at
+    /// construction; finer-grained value yields lower latency for sample-rate
+    /// scheduling at the cost of throughput.
+    pub dsp_block_size: usize,
+    /// Caller-provided telemetry handle. Clone once before construction so
+    /// the host can read metrics while the audio thread owns the engine.
     #[cfg(feature = "native")]
-    pub sample_registry: Arc<SampleRegistry>,
+    pub metrics: Arc<EngineMetrics>,
+    /// Reuse an existing sample registry (e.g. across device-loss recovery).
+    /// `None` constructs a fresh one.
     #[cfg(feature = "native")]
-    pub sample_loader: SampleLoader,
+    pub sample_registry: Option<Arc<SampleRegistry>>,
+}
+
+impl EngineConfig {
+    /// Native defaults, requires the platform-determined sample rate and
+    /// output-channel count.
+    #[cfg(feature = "native")]
+    pub fn native(sample_rate: f32, output_channels: usize) -> Self {
+        Self {
+            sample_rate,
+            output_channels,
+            max_voices: DEFAULT_MAX_VOICES,
+            buffer_size: DEFAULT_BUFFER_SIZE,
+            dsp_block_size: DEFAULT_DSP_BLOCK_SIZE,
+            metrics: Arc::new(EngineMetrics::default()),
+            sample_registry: None,
+        }
+    }
+
+    /// WASM defaults (worklet-quantum buffer size).
+    #[cfg(not(feature = "native"))]
+    pub fn wasm(sample_rate: f32, output_channels: usize) -> Self {
+        Self {
+            sample_rate,
+            output_channels,
+            max_voices: DEFAULT_MAX_VOICES,
+            buffer_size: WASM_BUFFER_SIZE,
+            dsp_block_size: DEFAULT_DSP_BLOCK_SIZE,
+        }
+    }
+}
+
+pub struct Engine {
+    pub(crate) sr: f32,
+    pub(crate) isr: f32,
+    pub(crate) max_voices: usize,
+    pub(crate) voices: Vec<Voice>,
+    pub(crate) active_voices: usize,
+    pub(crate) orbits: [Orbit; MAX_ORBITS],
+    pub(crate) schedule: Schedule,
+    pub(crate) time: f64,
+    pub(crate) tick: u64,
+    pub(crate) output_channels: usize,
+    pub(crate) buffer_size: usize,
+    /// Inner DSP block size; sized scratch buffers guarantee `.get() ≤ MAX_BLOCK`.
+    pub(crate) dsp_block_size: DspBlockSize,
+    pub(crate) output: Vec<f32>,
+    #[cfg(not(feature = "native"))]
+    pub(crate) sample_pool: SamplePool,
+    #[cfg(not(feature = "native"))]
+    pub(crate) samples: Vec<SampleInfo>,
+    pub(crate) sample_index: Vec<SampleEntry>,
+    #[cfg(feature = "native")]
+    pub(crate) sample_registry: Arc<SampleRegistry>,
+    #[cfg(feature = "native")]
+    pub(crate) sample_loader: SampleLoader,
     #[cfg(feature = "native")]
     recorder: Recorder,
     #[cfg(feature = "native")]
     orbit_rec_bus: Vec<f32>,
-    // Telemetry (native only)
     #[cfg(feature = "native")]
-    pub metrics: Arc<EngineMetrics>,
+    pub(crate) metrics: Arc<EngineMetrics>,
     #[cfg(feature = "soundfont")]
-    pub gm_bank: Option<soundfont::GmBank>,
-    pub input_channels: usize,
+    pub(crate) gm_bank: Option<soundfont::GmBank>,
+    pub(crate) input_channels: usize,
     voice_seed: u32,
     #[cfg(feature = "native")]
     load_gate: bool,
@@ -153,90 +211,108 @@ fn now_unix_micros() -> u64 {
 }
 
 impl Engine {
-    #[cfg(not(feature = "native"))]
-    pub fn new_with_channels(sample_rate: f32, output_channels: usize, max_voices: usize) -> Self {
+    pub fn new(config: EngineConfig) -> Self {
         dsp::fft::init_twiddles();
 
-        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
+        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(config.sample_rate));
+
+        #[cfg(feature = "native")]
+        let (sample_registry, sample_loader) = {
+            let registry = config
+                .sample_registry
+                .unwrap_or_else(|| Arc::new(SampleRegistry::new()));
+            let loader = SampleLoader::new(Arc::clone(&registry));
+            (registry, loader)
+        };
 
         Self {
-            sr: sample_rate,
-            isr: 1.0 / sample_rate,
-            max_voices,
-            voices: vec![Voice::default(); max_voices],
+            sr: config.sample_rate,
+            isr: 1.0 / config.sample_rate,
+            max_voices: config.max_voices,
+            voices: vec![Voice::default(); config.max_voices],
             active_voices: 0,
             orbits,
             schedule: Schedule::new(),
             time: 0.0,
             tick: 0,
-            output_channels,
-            block_size: WASM_BLOCK_SIZE,
-            output: vec![0.0; WASM_BLOCK_SIZE * output_channels],
+            output_channels: config.output_channels,
+            buffer_size: config.buffer_size,
+            dsp_block_size: DspBlockSize::new(config.dsp_block_size),
+            output: vec![0.0; config.buffer_size * config.output_channels],
+            #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
+            #[cfg(not(feature = "native"))]
             samples: Vec::with_capacity(256),
             sample_index: Vec::new(),
-            input_channels: 2,
-            voice_seed: 123456789,
-        }
-    }
-
-    #[cfg(feature = "native")]
-    pub fn new_with_channels(
-        sample_rate: f32,
-        output_channels: usize,
-        max_voices: usize,
-        block_size: usize,
-    ) -> Self {
-        Self::new_with_metrics(
-            sample_rate,
-            output_channels,
-            max_voices,
-            Arc::new(EngineMetrics::default()),
-            block_size,
-        )
-    }
-
-    #[cfg(feature = "native")]
-    pub fn new_with_metrics(
-        sample_rate: f32,
-        output_channels: usize,
-        max_voices: usize,
-        metrics: Arc<EngineMetrics>,
-        block_size: usize,
-    ) -> Self {
-        dsp::fft::init_twiddles();
-
-        let registry = Arc::new(SampleRegistry::new());
-        let loader = SampleLoader::new(Arc::clone(&registry));
-
-        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(sample_rate));
-
-        Self {
-            sr: sample_rate,
-            isr: 1.0 / sample_rate,
-            max_voices,
-            voices: vec![Voice::default(); max_voices],
-            active_voices: 0,
-            orbits,
-            schedule: Schedule::new(),
-            time: 0.0,
-            tick: 0,
-            output_channels,
-            block_size,
-            output: vec![0.0; block_size * output_channels],
-            sample_index: Vec::new(),
-            sample_registry: registry,
-            sample_loader: loader,
-            recorder: Recorder::new(sample_rate),
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * block_size * CHANNELS],
-            metrics,
+            #[cfg(feature = "native")]
+            sample_registry,
+            #[cfg(feature = "native")]
+            sample_loader,
+            #[cfg(feature = "native")]
+            recorder: Recorder::new(config.sample_rate),
+            #[cfg(feature = "native")]
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * config.buffer_size * CHANNELS],
+            #[cfg(feature = "native")]
+            metrics: config.metrics,
             #[cfg(feature = "soundfont")]
             gm_bank: None,
             input_channels: 2,
             voice_seed: 123456789,
+            #[cfg(feature = "native")]
             load_gate: false,
+            #[cfg(feature = "native")]
             engine_start_unix_micros: now_unix_micros(),
         }
+    }
+
+    pub fn sample_rate(&self) -> f32 {
+        self.sr
+    }
+
+    pub fn output_channels(&self) -> usize {
+        self.output_channels
+    }
+
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
+    pub fn dsp_block_size(&self) -> usize {
+        self.dsp_block_size.get()
+    }
+
+    pub fn max_voices(&self) -> usize {
+        self.max_voices
+    }
+
+    pub fn active_voices(&self) -> usize {
+        self.active_voices
+    }
+
+    pub fn sample_index(&self) -> &[SampleEntry] {
+        &self.sample_index
+    }
+
+    pub fn set_sample_index(&mut self, index: Vec<SampleEntry>) {
+        self.sample_index = index;
+    }
+
+    pub fn extend_sample_index<I: IntoIterator<Item = SampleEntry>>(&mut self, entries: I) {
+        self.sample_index.extend(entries);
+    }
+
+    pub fn set_input_channels(&mut self, n: usize) {
+        self.input_channels = n;
+    }
+
+    #[cfg(feature = "native")]
+    pub fn metrics(&self) -> &Arc<EngineMetrics> {
+        &self.metrics
+    }
+
+    #[cfg(feature = "native")]
+    pub fn sample_registry(&self) -> &Arc<SampleRegistry> {
+        &self.sample_registry
     }
 
     #[cfg(feature = "native")]
@@ -250,25 +326,40 @@ impl Engine {
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont(&mut self, path: &std::path::Path) -> Result<(), String> {
         let (samples, bank) = soundfont::load_sf2(path, self.sr)?;
-        let presets = bank.preset_count();
-        let sample_count = samples.len();
         let batch: Vec<_> = samples
             .into_iter()
             .map(|(name, data)| (name, Arc::new(data)))
             .collect();
         self.sample_registry.insert_batch(batch);
         self.gm_bank = Some(bank);
-        println!("SF2: {sample_count} samples, {presets} presets");
         Ok(())
     }
 
+    /// Install a pre-decoded soundfont (samples already loaded, bank parsed).
+    /// Used by callers that decode SF2 off the audio thread.
     #[cfg(feature = "soundfont")]
-    pub fn load_soundfont_from_dir(&mut self, dir: &std::path::Path) {
-        if let Some(sf2_path) = soundfont::find_sf2_file(dir) {
-            if let Err(e) = self.load_soundfont(&sf2_path) {
-                eprintln!("Failed to load soundfont: {e}");
-            }
-        }
+    pub fn install_soundfont(
+        &mut self,
+        samples: Vec<(String, Arc<SampleData>)>,
+        bank: soundfont::GmBank,
+    ) {
+        self.sample_registry.insert_batch(samples);
+        self.gm_bank = Some(bank);
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn gm_bank(&self) -> Option<&soundfont::GmBank> {
+        self.gm_bank.as_ref()
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn take_gm_bank(&mut self) -> Option<soundfont::GmBank> {
+        self.gm_bank.take()
+    }
+
+    #[cfg(feature = "soundfont")]
+    pub fn set_gm_bank(&mut self, bank: soundfont::GmBank) {
+        self.gm_bank = Some(bank);
     }
 
     #[cfg(not(feature = "native"))]
@@ -1005,10 +1096,15 @@ impl Engine {
         v.sync_source_state();
     }
 
-    fn free_voice(&mut self, i: usize) {
-        if self.active_voices > 0 {
-            self.active_voices -= 1;
-            self.voices.swap(i, self.active_voices);
+    /// Frees voice at slot `i` by swapping the last active voice into `i` and
+    /// decrementing `active_voices`. Associated fn so the engine can free
+    /// voices from inside `gen_block` while other `&mut self.*` fields
+    /// (orbits, scratch) are concurrently borrowed via split-borrow.
+    #[inline]
+    fn free_voice_in(voices: &mut [Voice], active_voices: &mut usize, i: usize) {
+        if *active_voices > 0 {
+            *active_voices -= 1;
+            voices.swap(i, *active_voices);
         }
     }
 
@@ -1037,167 +1133,238 @@ impl Engine {
         }
     }
 
-    #[allow(unused_variables)]
-    pub fn gen_sample(
+    /// Phase F: per-chunk voice + orbit + final-mix pass.
+    ///
+    /// `start` is the absolute sample offset within the CPAL buffer; `n` is the
+    /// chunk length (≤ `dsp_block_size` ≤ `MAX_BLOCK`); `total` is the full
+    /// buffer length used for per-orbit recorder addressing.
+    ///
+    /// Layout:
+    /// 1. Clear `orbit.bus[..n]` for every orbit.
+    /// 2. One pass over the active voices. Each voice writes `scratch[..written]`
+    ///    via `Voice::process_block(n, ...)` (or the split prepare/source/fx
+    ///    path under `--features profiling`, which keeps `VoiceSource` and
+    ///    `VoiceFx` ns counters separate). The engine accumulates
+    ///    `scratch[..written]` into `orbit.bus[..written]`. If `written < n`
+    ///    the voice died mid-block and is freed via the swap-and-skip pattern.
+    /// 3. `Orbit::process_block(n)` once per orbit — the FX chain runs at block
+    ///    rate across the chunk.
+    /// 4. Per-frame final mix: per-orbit compressor sidechain (sample-rate by
+    ///    design, see `to_do.md:279`), accumulate into the output buffer at
+    ///    `(start+f)*output_channels`, then per-pair soft-clip.
+    ///
+    /// `#[inline(never)]` — large function; inlining at the (single) call site
+    /// in `process_block` would not shrink the call.
+    #[allow(unused_variables, clippy::too_many_arguments)]
+    #[inline(never)]
+    fn gen_block(
         &mut self,
         output: &mut [f32],
-        sample_idx: usize,
-        block_samples: usize,
+        start: usize,
+        total: usize,
+        n: usize,
         web_pcm: &[f32],
         live_input: &[f32],
+        voice_source_ns: &mut u64,
+        voice_fx_ns: &mut u64,
+        orbit_fx_ns: &mut u64,
+        final_mix_ns: &mut u64,
     ) {
-        let base_idx = sample_idx * self.output_channels;
-        let num_pairs = self.output_channels / 2;
-
-        for c in 0..self.output_channels {
-            output[base_idx + c] = 0.0;
+        if n == 0 {
+            return;
         }
 
-        // Clear orbit chain buses
-        for orbit in &mut self.orbits {
-            orbit.clear_bus();
-        }
-
-        // Process voices - matches dough.c behavior exactly:
-        // When a voice dies, it's freed immediately and the loop continues,
-        // which means the swapped-in voice (from the end) gets skipped this frame.
+        // Split-borrow: `gen_block` touches voices, orbits, scratch and (on
+        // native) the recorder bus concurrently. Destructure at the top so the
+        // borrow checker treats each field independently.
         let isr = self.isr;
-        #[cfg(all(feature = "native", feature = "profiling"))]
-        let mut voice_source_ns = 0u64;
-        #[cfg(all(feature = "native", feature = "profiling"))]
-        let mut voice_fx_ns = 0u64;
+        let input_channels = self.input_channels;
+        let output_channels = self.output_channels;
+        #[cfg(feature = "native")]
+        let recorder_active = self.recorder.target_orbit().is_some();
+
+        // Step 1: clear orbit buses for this chunk.
+        for orbit in &mut self.orbits {
+            orbit.clear_bus(n);
+        }
+
+        // Step 2: voice loop. One pass per chunk.
+        let voices = &mut self.voices;
+        let orbits = &mut self.orbits;
+        let active_voices = &mut self.active_voices;
+        #[cfg(not(feature = "native"))]
+        let pool = self.sample_pool.data.as_slice();
+        #[cfg(not(feature = "native"))]
+        let samples_slice = self.samples.as_slice();
 
         let mut i = 0;
-        while i < self.active_voices {
-            #[cfg(all(feature = "native", feature = "profiling"))]
-            let alive = {
-                let mut alive = false;
-                if let Some((env, freq)) = self.voices[i].prepare_frame(isr) {
-                    let source_start = std::time::Instant::now();
-                    let source_alive = self.voices[i].run_source(
-                        freq,
-                        isr,
-                        web_pcm,
-                        sample_idx,
-                        live_input,
-                        self.input_channels,
-                    );
-                    voice_source_ns += source_start.elapsed().as_nanos() as u64;
+        while i < *active_voices {
+            let voice = &mut voices[i];
 
-                    if source_alive {
-                        let fx_start = std::time::Instant::now();
-                        self.voices[i].apply_filters_and_effects(env, isr);
-                        voice_fx_ns += fx_start.elapsed().as_nanos() as u64;
-                        alive = true;
-                    }
-                }
-                alive
-            };
-            #[cfg(all(feature = "native", not(feature = "profiling")))]
-            #[cfg(feature = "native")]
-            let alive =
-                self.voices[i].process(isr, web_pcm, sample_idx, live_input, self.input_channels);
-            #[cfg(not(feature = "native"))]
-            let alive = {
-                let pool = self.sample_pool.data.as_slice();
-                let samples = self.samples.as_slice();
-                self.voices[i].process(
+            #[cfg(all(feature = "native", feature = "profiling"))]
+            let written = {
+                use std::time::Instant;
+                let Some((env, freq)) = voice.prepare_block(isr, n) else {
+                    Self::free_voice_in(voices, active_voices, i);
+                    continue;
+                };
+
+                let source_start = Instant::now();
+                let w = voice.run_source_block(
+                    freq,
                     isr,
-                    pool,
-                    samples,
+                    n,
                     web_pcm,
-                    sample_idx,
+                    start,
                     live_input,
-                    self.input_channels,
-                )
+                    input_channels,
+                );
+                *voice_source_ns += source_start.elapsed().as_nanos() as u64;
+
+                if w == 0 {
+                    Self::free_voice_in(voices, active_voices, i);
+                    continue;
+                }
+                // Zero the tail so accumulation reads clean frames.
+                for j in w..n {
+                    voice.scratch[j] = [0.0; CHANNELS];
+                }
+
+                let fx_start = Instant::now();
+                voice.apply_filters_and_effects_block(&env, isr, w);
+                *voice_fx_ns += fx_start.elapsed().as_nanos() as u64;
+                w
             };
-            if !alive {
-                self.free_voice(i);
-                continue;
+
+            #[cfg(all(feature = "native", not(feature = "profiling")))]
+            let written = voice.process_block(n, isr, web_pcm, start, live_input, input_channels);
+
+            #[cfg(not(feature = "native"))]
+            let written = voice.process_block(
+                n,
+                isr,
+                pool,
+                samples_slice,
+                web_pcm,
+                start,
+                live_input,
+                input_channels,
+            );
+
+            // Accumulate this voice's output into its orbit bus.
+            let orbit_idx = voice.params.orbit % MAX_ORBITS;
+            let orbit = &mut orbits[orbit_idx];
+            for f in 0..written {
+                for c in 0..CHANNELS {
+                    orbit.bus[f][c] += voice.scratch[f][c];
+                }
             }
 
-            let orbit_idx = self.voices[i].params.orbit % MAX_ORBITS;
-            let orbit = &mut self.orbits[orbit_idx];
-            for c in 0..CHANNELS {
-                orbit.add_dry(c, self.voices[i].ch[c]);
+            if written < n {
+                // Voice died mid-block; swap last active into slot `i` and
+                // re-check the new occupant.
+                Self::free_voice_in(voices, active_voices, i);
+                continue;
             }
 
             i += 1;
         }
 
-        // Phase 1: run the orbit FX chain. After process(), orbit.bus
-        // already contains dry + all wet contributions.
+        // Step 3: orbit FX chain — block-rate.
         #[cfg(all(feature = "native", feature = "profiling"))]
         let orbit_fx_start = std::time::Instant::now();
-        let mut orbit_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
-        for (oi, orbit) in self.orbits.iter_mut().enumerate() {
-            orbit.process();
-            orbit_bus[oi] = orbit.bus;
+        for orbit in orbits.iter_mut() {
+            orbit.process_block(n);
         }
         #[cfg(all(feature = "native", feature = "profiling"))]
-        let orbit_fx_ns = orbit_fx_start.elapsed().as_nanos() as u64;
+        {
+            *orbit_fx_ns += orbit_fx_start.elapsed().as_nanos() as u64;
+        }
 
-        // Phase 2: mix to output with optional sidechain compression
-        let isr = self.isr;
+        // Step 4: per-frame final mix. Compressor envelope follower is
+        // sample-rate by design (`to_do.md:279`) so this loop stays per-sample.
         #[cfg(all(feature = "native", feature = "profiling"))]
         let final_mix_start = std::time::Instant::now();
-        for (oi, orbit) in self.orbits.iter_mut().enumerate() {
-            let out_pair = oi % num_pairs;
-            let pair_offset = out_pair * 2;
-            let cp = orbit.comp.params;
 
-            let total = orbit_bus[oi];
+        let num_pairs = output_channels / 2;
 
-            if cp.amount > 0.0 {
-                let sc = orbit.comp_orbit % MAX_ORBITS;
-                let sc_total = orbit_bus[sc];
-                let sc_level = sc_total[0].abs().max(sc_total[1].abs());
-                let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
-                let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
-                let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
-                let gain = (1.0 - env).powf(1.0 + cp.amount * 4.0);
-                for c in 0..CHANNELS {
-                    output[base_idx + pair_offset + c] += total[c] * gain;
-                }
-                #[cfg(feature = "native")]
-                if self.recorder.target_orbit().is_some() {
-                    let bus_idx = (oi * block_samples + sample_idx) * CHANNELS;
-                    self.orbit_rec_bus[bus_idx] = total[0] * gain;
-                    self.orbit_rec_bus[bus_idx + 1] = total[1] * gain;
-                }
-            } else {
-                for c in 0..CHANNELS {
-                    output[base_idx + pair_offset + c] += total[c];
-                }
-                #[cfg(feature = "native")]
-                if self.recorder.target_orbit().is_some() {
-                    let bus_idx = (oi * block_samples + sample_idx) * CHANNELS;
-                    self.orbit_rec_bus[bus_idx] = total[0];
-                    self.orbit_rec_bus[bus_idx + 1] = total[1];
-                }
+        // Clear all destination slots for this chunk first.
+        for f in 0..n {
+            let base_idx = (start + f) * output_channels;
+            for c in 0..output_channels {
+                output[base_idx + c] = 0.0;
             }
         }
 
-        for pair_index in 0..num_pairs {
-            let pair_base = base_idx + pair_index * CHANNELS;
-            output[pair_base] = soft_clip_sample(output[pair_base]);
-            output[pair_base + 1] = soft_clip_sample(output[pair_base + 1]);
+        #[cfg(feature = "native")]
+        let orbit_rec_bus = &mut self.orbit_rec_bus;
+
+        for f in 0..n {
+            let base_idx = (start + f) * output_channels;
+            let sample_idx = start + f;
+
+            // Snapshot per-orbit bus values for this frame so the sidechain
+            // read sees the post-FX state without re-borrowing.
+            let mut frame_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
+            for (oi, orbit) in orbits.iter().enumerate() {
+                frame_bus[oi] = orbit.bus[f];
+            }
+
+            for (oi, orbit) in orbits.iter_mut().enumerate() {
+                let out_pair = oi % num_pairs;
+                let pair_offset = out_pair * 2;
+                let cp = orbit.comp.params;
+
+                let orbit_frame = frame_bus[oi];
+
+                if cp.amount > 0.0 {
+                    let sc = orbit.comp_orbit % MAX_ORBITS;
+                    let sc_total = frame_bus[sc];
+                    let sc_level = sc_total[0].abs().max(sc_total[1].abs());
+                    let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
+                    let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
+                    let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
+                    let gain = (1.0 - env).powf(1.0 + cp.amount * 4.0);
+                    for c in 0..CHANNELS {
+                        output[base_idx + pair_offset + c] += orbit_frame[c] * gain;
+                    }
+                    #[cfg(feature = "native")]
+                    if recorder_active {
+                        let bus_idx = (oi * total + sample_idx) * CHANNELS;
+                        orbit_rec_bus[bus_idx] = orbit_frame[0] * gain;
+                        orbit_rec_bus[bus_idx + 1] = orbit_frame[1] * gain;
+                    }
+                } else {
+                    for c in 0..CHANNELS {
+                        output[base_idx + pair_offset + c] += orbit_frame[c];
+                    }
+                    #[cfg(feature = "native")]
+                    if recorder_active {
+                        let bus_idx = (oi * total + sample_idx) * CHANNELS;
+                        orbit_rec_bus[bus_idx] = orbit_frame[0];
+                        orbit_rec_bus[bus_idx + 1] = orbit_frame[1];
+                    }
+                }
+            }
+
+            for pair_index in 0..num_pairs {
+                let pair_base = base_idx + pair_index * CHANNELS;
+                output[pair_base] = soft_clip_sample(output[pair_base]);
+                output[pair_base + 1] = soft_clip_sample(output[pair_base + 1]);
+            }
         }
 
         #[cfg(all(feature = "native", feature = "profiling"))]
         {
-            let profiler = &self.metrics.profiler;
-            profiler.record_phase(ProfilePhase::VoiceSource, voice_source_ns);
-            profiler.record_phase(ProfilePhase::VoiceFx, voice_fx_ns);
-            profiler.record_phase(ProfilePhase::OrbitFx, orbit_fx_ns);
-            profiler.record_phase(
-                ProfilePhase::FinalMix,
-                final_mix_start.elapsed().as_nanos() as u64,
-            );
+            *final_mix_ns += final_mix_start.elapsed().as_nanos() as u64;
         }
     }
 
     pub fn process_block(&mut self, output: &mut [f32], web_pcm: &[f32], live_input: &[f32]) {
+        // Wall-clock for the load gate + `BlockTotal` metric. Permitted on the
+        // audio thread per `to_do.md` real-time invariants: resolves via VDSO
+        // (`mach_absolute_time` / `clock_gettime(CLOCK_MONOTONIC)`), no kernel
+        // transition. Load-bearing for overload-driven voice shedding below.
         #[cfg(feature = "native")]
         let start = std::time::Instant::now();
 
@@ -1205,7 +1372,7 @@ impl Engine {
 
         #[cfg(feature = "native")]
         {
-            // SAFETY: orbit_rec_bus is pre-allocated in constructor to block_size capacity.
+            // SAFETY: orbit_rec_bus is pre-allocated in constructor to buffer_size capacity.
             // This debug_assert catches mismatches during development without panicking in release.
             let needed = MAX_ORBITS * samples * CHANNELS;
             debug_assert!(
@@ -1253,22 +1420,83 @@ impl Engine {
 
         #[cfg(all(feature = "native", feature = "profiling"))]
         let mut schedule_elapsed_ns = 0u64;
-        for i in 0..samples {
-            #[cfg(all(feature = "native", feature = "profiling"))]
-            let schedule_start = std::time::Instant::now();
-            self.process_schedule();
+        #[cfg(all(feature = "native", feature = "profiling"))]
+        let mut voice_source_ns = 0u64;
+        #[cfg(all(feature = "native", feature = "profiling"))]
+        let mut voice_fx_ns = 0u64;
+        #[cfg(all(feature = "native", feature = "profiling"))]
+        let mut orbit_fx_ns = 0u64;
+        #[cfg(all(feature = "native", feature = "profiling"))]
+        let mut final_mix_ns = 0u64;
+
+        // Phase F: block-native end-to-end. The schedule loop stays per-sample
+        // (events fire at sample-rate); voices, orbits, and the final mix run
+        // at block rate inside `gen_block`. Chunk size = `dsp_block_size`,
+        // already clamped to `[1, MAX_BLOCK]` by `DspBlockSize::new`, so
+        // `orbit.bus` and `voice.scratch` (both sized `MAX_BLOCK`) never overflow.
+        let bs = self.dsp_block_size.get();
+        let mut chunk_start = 0;
+        while chunk_start < samples {
+            let n = (samples - chunk_start).min(bs);
+
+            for _ in 0..n {
+                #[cfg(all(feature = "native", feature = "profiling"))]
+                let schedule_start = std::time::Instant::now();
+                self.process_schedule();
+                #[cfg(all(feature = "native", feature = "profiling"))]
+                {
+                    schedule_elapsed_ns += schedule_start.elapsed().as_nanos() as u64;
+                }
+                self.tick += 1;
+                self.time = self.tick as f64 / self.sr as f64;
+            }
+
+            // Local block counters; `gen_block` accumulates into them so the
+            // per-phase totals across all chunks land in the engine profiler.
+            let mut vs = 0u64;
+            let mut vf = 0u64;
+            let mut ofx = 0u64;
+            let mut fm = 0u64;
+
+            self.gen_block(
+                output,
+                chunk_start,
+                samples,
+                n,
+                web_pcm,
+                live_input,
+                &mut vs,
+                &mut vf,
+                &mut ofx,
+                &mut fm,
+            );
+
             #[cfg(all(feature = "native", feature = "profiling"))]
             {
-                schedule_elapsed_ns += schedule_start.elapsed().as_nanos() as u64;
+                voice_source_ns += vs;
+                voice_fx_ns += vf;
+                orbit_fx_ns += ofx;
+                final_mix_ns += fm;
             }
-            self.tick += 1;
-            self.time = self.tick as f64 / self.sr as f64;
-            self.gen_sample(output, i, samples, web_pcm, live_input);
+            #[cfg(not(all(feature = "native", feature = "profiling")))]
+            {
+                let _ = vs;
+                let _ = vf;
+                let _ = ofx;
+                let _ = fm;
+            }
+
+            chunk_start += n;
         }
         #[cfg(all(feature = "native", feature = "profiling"))]
-        self.metrics
-            .profiler
-            .record_phase(ProfilePhase::Schedule, schedule_elapsed_ns);
+        {
+            let profiler = &self.metrics.profiler;
+            profiler.record_phase(ProfilePhase::Schedule, schedule_elapsed_ns);
+            profiler.record_phase(ProfilePhase::VoiceSource, voice_source_ns);
+            profiler.record_phase(ProfilePhase::VoiceFx, voice_fx_ns);
+            profiler.record_phase(ProfilePhase::OrbitFx, orbit_fx_ns);
+            profiler.record_phase(ProfilePhase::FinalMix, final_mix_ns);
+        }
 
         #[cfg(feature = "native")]
         {
@@ -1348,7 +1576,7 @@ impl Engine {
             }
         }
 
-        // SAFETY: output is pre-allocated in constructor to block_size capacity.
+        // SAFETY: output is pre-allocated in constructor to buffer_size capacity.
         // If output grew (e.g. dynamic block size), just copy what fits.
         let copy_len = output.len().min(self.output.len());
         self.output[..copy_len].copy_from_slice(&output[..copy_len]);

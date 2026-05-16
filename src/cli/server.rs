@@ -5,11 +5,10 @@
 
 use clap::Parser;
 use doux::cli_common::{
-    build_audio_streams, init_audio_host, recreate_engine, setup_engine_samples, CommonAudioArgs,
-    HostInit, StreamParams,
+    build_audio_streams, init_audio_host, setup_engine_samples, CommonAudioArgs, HostInit,
+    StreamParams,
 };
-use doux::AudioCmd;
-use doux::Engine;
+use doux::{AudioCmd, Engine, EngineConfig, EngineMetrics};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -33,12 +32,12 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let (host, oc, block_size) = match init_audio_host(&args.common) {
+    let (host, oc, buffer_size) = match init_audio_host(&args.common) {
         Ok(HostInit::Ready {
             host,
             output_config,
-            block_size,
-        }) => (host, output_config, block_size),
+            buffer_size,
+        }) => (host, output_config, buffer_size),
         Ok(HostInit::EarlyExit) => return,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -52,21 +51,24 @@ fn main() {
         println!("Buffer: {buf} samples ({latency_ms:.1} ms)");
     }
 
-    let mut engine = Engine::new_with_channels(
-        oc.sample_rate,
-        oc.output_channels,
-        args.common.max_voices,
-        block_size,
-    );
+    let mut engine = Engine::new(EngineConfig {
+        sample_rate: oc.sample_rate,
+        output_channels: oc.output_channels,
+        max_voices: args.common.max_voices,
+        buffer_size,
+        dsp_block_size: args.common.dsp_block_size,
+        metrics: Arc::new(EngineMetrics::default()),
+        sample_registry: None,
+    });
 
     if let Some(ref dir) = args.common.samples {
         setup_engine_samples(&mut engine, dir, args.preload, true);
     }
 
-    let sample_index = engine.sample_index.clone();
-    let sample_registry = Arc::clone(&engine.sample_registry);
+    let sample_index = engine.sample_index().to_vec();
+    let sample_registry = Arc::clone(engine.sample_registry());
     #[cfg(feature = "soundfont")]
-    let gm_bank = engine.gm_bank.take();
+    let gm_bank = engine.take_gm_bank();
 
     let device_lost = Arc::new(AtomicBool::new(false));
 
@@ -112,16 +114,20 @@ fn main() {
         device_lost.store(false, Ordering::Release);
         std::thread::sleep(std::time::Duration::from_secs(1));
 
-        engine = recreate_engine(
-            oc.sample_rate,
-            oc.output_channels,
-            args.common.max_voices,
-            block_size,
-            &sample_index,
-            &sample_registry,
-            #[cfg(feature = "soundfont")]
-            &gm_bank,
-        );
+        engine = Engine::new(EngineConfig {
+            sample_rate: oc.sample_rate,
+            output_channels: oc.output_channels,
+            max_voices: args.common.max_voices,
+            buffer_size,
+            dsp_block_size: args.common.dsp_block_size,
+            metrics: Arc::new(EngineMetrics::default()),
+            sample_registry: Some(Arc::clone(&sample_registry)),
+        });
+        engine.set_sample_index(sample_index.clone());
+        #[cfg(feature = "soundfont")]
+        if let Some(bank) = gm_bank.clone() {
+            engine.set_gm_bank(bank);
+        }
         let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
         cmd_tx = new_tx;
         cmd_rx = new_rx;

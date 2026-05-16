@@ -9,8 +9,8 @@
 //! ┌─────────────────────────────────────────────────────────────────────┐
 //! │ Static Buffers (shared with JS via pointers)                        │
 //! ├─────────────────┬───────────────────────────────────────────────────┤
-//! │ OUTPUT          │ Audio output buffer (WASM_BLOCK_SIZE × CHANNELS f32)   │
-//! │ INPUT_BUFFER    │ Live audio input (WASM_BLOCK_SIZE × CHANNELS f32)      │
+//! │ OUTPUT          │ Audio output buffer (WASM_BUFFER_SIZE × CHANNELS f32)   │
+//! │ INPUT_BUFFER    │ Live audio input (WASM_BUFFER_SIZE × CHANNELS f32)      │
 //! │ EVENT_INPUT     │ Command strings from JS (1024 bytes, null-term)   │
 //! │ SAMPLE_BUFFER   │ Staging area for sample uploads (16MB of f32)     │
 //! │ FRAMEBUFFER     │ Ring buffer for waveform visualization            │
@@ -43,8 +43,8 @@
 
 #![allow(static_mut_refs)]
 
-use crate::types::{CHANNELS, WASM_BLOCK_SIZE};
-use crate::Engine;
+use crate::types::{CHANNELS, WASM_BUFFER_SIZE};
+use crate::{Engine, EngineConfig};
 
 /// Maximum length of command strings from JavaScript.
 const EVENT_INPUT_SIZE: usize = 1024;
@@ -57,7 +57,7 @@ const FRAMEBUFFER_SIZE: usize = 6400;
 static mut ENGINE: Option<Engine> = None;
 
 // Shared memory buffers accessible from JavaScript
-static mut OUTPUT: [f32; WASM_BLOCK_SIZE * CHANNELS] = [0.0; WASM_BLOCK_SIZE * CHANNELS];
+static mut OUTPUT: [f32; WASM_BUFFER_SIZE * CHANNELS] = [0.0; WASM_BUFFER_SIZE * CHANNELS];
 static mut EVENT_INPUT: [u8; EVENT_INPUT_SIZE] = [0; EVENT_INPUT_SIZE];
 static mut FRAMEBUFFER: [f32; FRAMEBUFFER_SIZE] = [0.0; FRAMEBUFFER_SIZE];
 static mut FRAME_IDX: i32 = 0;
@@ -68,7 +68,7 @@ const SAMPLE_BUFFER_SIZE: usize = 4_194_304;
 static mut SAMPLE_BUFFER: [f32; SAMPLE_BUFFER_SIZE] = [0.0; SAMPLE_BUFFER_SIZE];
 
 /// Live audio input buffer (microphone/line-in from Web Audio).
-static mut INPUT_BUFFER: [f32; WASM_BLOCK_SIZE * CHANNELS] = [0.0; WASM_BLOCK_SIZE * CHANNELS];
+static mut INPUT_BUFFER: [f32; WASM_BUFFER_SIZE * CHANNELS] = [0.0; WASM_BUFFER_SIZE * CHANNELS];
 
 // =============================================================================
 // Lifecycle
@@ -80,11 +80,13 @@ static mut INPUT_BUFFER: [f32; WASM_BLOCK_SIZE * CHANNELS] = [0.0; WASM_BLOCK_SI
 #[no_mangle]
 pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
     unsafe {
-        ENGINE = Some(Engine::new_with_channels(
+        ENGINE = Some(Engine::new(EngineConfig {
             sample_rate,
-            crate::types::CHANNELS,
+            output_channels: crate::types::CHANNELS,
             max_voices,
-        ));
+            buffer_size: WASM_BUFFER_SIZE,
+            dsp_block_size: crate::types::DEFAULT_DSP_BLOCK_SIZE,
+        }));
     }
 }
 
@@ -108,7 +110,7 @@ pub extern "C" fn dsp() {
                 let idx = (FRAME_IDX + i as i32) % fb_len;
                 FRAMEBUFFER[idx as usize] = sample;
             }
-            FRAME_IDX = (FRAME_IDX + (WASM_BLOCK_SIZE * CHANNELS) as i32) % fb_len;
+            FRAME_IDX = (FRAME_IDX + (WASM_BUFFER_SIZE * CHANNELS) as i32) % fb_len;
         }
     }
 }
@@ -160,7 +162,7 @@ pub extern "C" fn get_output_pointer() -> *const f32 {
 /// Returns the length of the output buffer in samples.
 #[no_mangle]
 pub extern "C" fn get_output_len() -> usize {
-    WASM_BLOCK_SIZE * CHANNELS
+    WASM_BUFFER_SIZE * CHANNELS
 }
 
 /// Returns mutable pointer to the event input buffer.
@@ -196,7 +198,7 @@ pub extern "C" fn get_input_buffer_pointer() -> *mut f32 {
 /// Returns the length of the input buffer in samples.
 #[no_mangle]
 pub extern "C" fn get_input_buffer_len() -> usize {
-    WASM_BLOCK_SIZE * CHANNELS
+    WASM_BUFFER_SIZE * CHANNELS
 }
 
 /// Returns pointer to the waveform visualization ring buffer.

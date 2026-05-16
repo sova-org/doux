@@ -1,5 +1,5 @@
 use crate::dsp::ftz;
-use crate::types::{DelayType, ModuleGroup, ModuleInfo, ParamInfo, CHANNELS};
+use crate::types::{DelayType, ModuleGroup, ModuleInfo, ParamInfo, StereoFrame, CHANNELS};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "delay",
@@ -197,6 +197,16 @@ impl Delay {
                 }
                 out
             }
+        }
+    }
+
+    /// Block variant: processes `n` stereo frames in-place. Algorithm dispatch
+    /// stays inside the per-sample `process` kernel; this wrapper hoists nothing
+    /// (call-site hoisting is reserved for later phases).
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize) {
+        for slot in buf.iter_mut().take(n) {
+            *slot = self.process(*slot);
         }
     }
 

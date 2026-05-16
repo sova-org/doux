@@ -160,173 +160,205 @@ impl Voice {
         }
     }
 
+    /// Block-rate source generation. Dispatches on `self.params.sound` **once**
+    /// at block entry; each arm runs its own per-sample loop, filling
+    /// `self.scratch[..n]`. Per-sample FM phase modulation ticks inside every
+    /// arm so the FM modulator phasors advance even when the source variant
+    /// doesn't read `self.fm_phase_mod` (matches the legacy `compute_freq`
+    /// ordering exactly).
+    ///
+    /// Returns the number of samples written. Always `n` in this phase — the
+    /// legacy `run_source` returns true unconditionally; sample/sample-stretch
+    /// "done" paths set `force_release` and continue producing zeros until the
+    /// envelope decays.
     #[cfg(feature = "native")]
-    pub(crate) fn run_source(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn run_source_block(
         &mut self,
         freq: f32,
         isr: f32,
-        web_pcm: &[f32],
-        sample_idx: usize,
+        n: usize,
+        _web_pcm: &[f32],
+        _sample_idx: usize,
         live_input: &[f32],
         input_channels: usize,
-    ) -> bool {
+    ) -> usize {
+        let pre_vib = self.fm_carrier_freq();
         match self.params.sound {
             Source::Gm => {
-                if let Some(ref mut rs) = self.registry_sample {
-                    let done = rs.is_done();
-                    if done {
-                        self.dahdsr.force_release();
-                    }
-                    let gain = rs.attenuation * 0.7;
-                    for c in 0..CHANNELS {
-                        self.ch[c] = rs.read(c) * gain;
-                    }
-                    if !done {
-                        // Scale tuning: interpolate between root pitch (0) and chromatic (1)
-                        let ratio = freq / rs.root_freq;
-                        let speed = if rs.scale_tuning == 1.0 {
-                            ratio
-                        } else {
-                            let semitones = 12.0 * ratio.log2();
-                            2.0_f32.powf(semitones * rs.scale_tuning / 12.0)
-                        };
-                        rs.advance(speed);
-                    }
-                    self.nch = CHANNELS;
-                    return true;
-                }
-                self.ch[0] = 0.0;
-                self.ch[1] = 0.0;
-            }
-            Source::Sample => {
-                let stretch = self.params.stretch;
-                if stretch != 1.0 {
-                    let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
-                    match (&self.registry_sample, &self.registry_sample_b) {
-                        (Some(a), Some(b)) if self.sample_blend > 0.0 => {
-                            if self.stretch.needs_init() {
-                                self.stretch.reset(
-                                    a.cursor_start(),
-                                    a.cursor_end(),
-                                    a.is_looping(),
-                                );
-                            }
-                            if self.stretch.is_done() {
-                                self.dahdsr.force_release();
-                            }
-                            self.stretch.ensure_available(&a.data, stretch);
-                            let blend = self.sample_blend;
-                            for c in 0..CHANNELS {
-                                let sa = self.stretch.read(c);
-                                // Sample B reads from a fixed position (start of region)
-                                let sb = b.data.read_interpolated(a.cursor_start() as f32, c);
-                                self.ch[c] = (sa + blend * (sb - sa)) * 0.7;
-                            }
-                            self.stretch.advance(pitch_ratio);
-                        }
-                        (Some(rs), _) => {
-                            if self.stretch.needs_init() {
-                                self.stretch.reset(
-                                    rs.cursor_start(),
-                                    rs.cursor_end(),
-                                    rs.is_looping(),
-                                );
-                            }
-                            if self.stretch.is_done() {
-                                self.dahdsr.force_release();
-                            }
-                            self.stretch.ensure_available(&rs.data, stretch);
-                            for c in 0..CHANNELS {
-                                self.ch[c] = self.stretch.read(c) * 0.7;
-                            }
-                            self.stretch.advance(pitch_ratio);
-                        }
-                        _ => {
-                            self.ch[0] = 0.0;
-                            self.ch[1] = 0.0;
-                        }
-                    }
-                    self.nch = CHANNELS;
-                    return true;
-                }
-                let speed = freq * INV_MIDDLE_C;
-                let blend = self.sample_blend;
-                match (&mut self.registry_sample, &mut self.registry_sample_b) {
-                    (Some(a), Some(b)) if blend > 0.0 => {
-                        let done_a = a.is_done();
-                        let done_b = b.is_done();
-                        if done_a && done_b {
-                            self.dahdsr.force_release();
-                        }
-                        for c in 0..CHANNELS {
-                            self.ch[c] = (a.read(c) + blend * (b.read(c) - a.read(c))) * 0.7;
-                        }
-                        if !done_a {
-                            a.advance(speed);
-                        }
-                        if !done_b {
-                            b.advance(speed);
-                        }
-                        self.nch = CHANNELS;
-                        return true;
-                    }
-                    (Some(rs), _) => {
+                self.nch = CHANNELS;
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    if let Some(ref mut rs) = self.registry_sample {
                         let done = rs.is_done();
                         if done {
                             self.dahdsr.force_release();
                         }
-                        for c in 0..CHANNELS {
-                            self.ch[c] = rs.read(c) * 0.7;
-                        }
+                        let gain = rs.attenuation * 0.7;
+                        let (l, r) = (rs.read(0) * gain, rs.read(1) * gain);
+                        self.scratch[i][0] = l;
+                        self.scratch[i][1] = r;
                         if !done {
+                            let ratio = freq / rs.root_freq;
+                            let speed = if rs.scale_tuning == 1.0 {
+                                ratio
+                            } else {
+                                let semitones = 12.0 * ratio.log2();
+                                2.0_f32.powf(semitones * rs.scale_tuning / 12.0)
+                            };
                             rs.advance(speed);
                         }
-                        self.nch = CHANNELS;
-                        return true;
+                    } else {
+                        self.scratch[i] = [0.0; CHANNELS];
                     }
-                    _ => {
-                        self.ch[0] = 0.0;
-                        self.ch[1] = 0.0;
+                }
+            }
+            Source::Sample => {
+                self.nch = CHANNELS;
+                let stretch = self.params.stretch;
+                if stretch != 1.0 {
+                    let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let blend = self.sample_blend;
+                        match (&self.registry_sample, &self.registry_sample_b) {
+                            (Some(_), Some(_)) if blend > 0.0 => {
+                                if self.stretch.needs_init() {
+                                    let a = self.registry_sample.as_ref().unwrap();
+                                    self.stretch.reset(
+                                        a.cursor_start(),
+                                        a.cursor_end(),
+                                        a.is_looping(),
+                                    );
+                                }
+                                if self.stretch.is_done() {
+                                    self.dahdsr.force_release();
+                                }
+                                let a = self.registry_sample.as_ref().unwrap();
+                                self.stretch.ensure_available(&a.data, stretch);
+                                let a_start = a.cursor_start() as f32;
+                                let sa0 = self.stretch.read(0);
+                                let sa1 = self.stretch.read(1);
+                                let b = self.registry_sample_b.as_ref().unwrap();
+                                let sb0 = b.data.read_interpolated(a_start, 0);
+                                let sb1 = b.data.read_interpolated(a_start, 1);
+                                self.scratch[i][0] = (sa0 + blend * (sb0 - sa0)) * 0.7;
+                                self.scratch[i][1] = (sa1 + blend * (sb1 - sa1)) * 0.7;
+                                self.stretch.advance(pitch_ratio);
+                            }
+                            (Some(_), _) => {
+                                if self.stretch.needs_init() {
+                                    let rs = self.registry_sample.as_ref().unwrap();
+                                    self.stretch.reset(
+                                        rs.cursor_start(),
+                                        rs.cursor_end(),
+                                        rs.is_looping(),
+                                    );
+                                }
+                                if self.stretch.is_done() {
+                                    self.dahdsr.force_release();
+                                }
+                                let rs = self.registry_sample.as_ref().unwrap();
+                                self.stretch.ensure_available(&rs.data, stretch);
+                                self.scratch[i][0] = self.stretch.read(0) * 0.7;
+                                self.scratch[i][1] = self.stretch.read(1) * 0.7;
+                                self.stretch.advance(pitch_ratio);
+                            }
+                            _ => {
+                                self.scratch[i] = [0.0; CHANNELS];
+                            }
+                        }
+                    }
+                    return n;
+                }
+                let speed = freq * INV_MIDDLE_C;
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    let blend = self.sample_blend;
+                    match (&mut self.registry_sample, &mut self.registry_sample_b) {
+                        (Some(a), Some(b)) if blend > 0.0 => {
+                            let done_a = a.is_done();
+                            let done_b = b.is_done();
+                            if done_a && done_b {
+                                self.dahdsr.force_release();
+                            }
+                            self.scratch[i][0] =
+                                (a.read(0) + blend * (b.read(0) - a.read(0))) * 0.7;
+                            self.scratch[i][1] =
+                                (a.read(1) + blend * (b.read(1) - a.read(1))) * 0.7;
+                            if !done_a {
+                                a.advance(speed);
+                            }
+                            if !done_b {
+                                b.advance(speed);
+                            }
+                        }
+                        (Some(rs), _) => {
+                            let done = rs.is_done();
+                            if done {
+                                self.dahdsr.force_release();
+                            }
+                            self.scratch[i][0] = rs.read(0) * 0.7;
+                            self.scratch[i][1] = rs.read(1) * 0.7;
+                            if !done {
+                                rs.advance(speed);
+                            }
+                        }
+                        _ => {
+                            self.scratch[i] = [0.0; CHANNELS];
+                        }
                     }
                 }
             }
             Source::Wavetable => {
                 self.nch = CHANNELS;
-                self.run_wavetable(freq, isr);
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    let frame = self.run_wavetable(freq, isr);
+                    self.scratch[i] = frame;
+                }
             }
             Source::WebSample => {
-                if let Some(ref mut ws) = self.web_sample {
-                    let done = ws.is_done();
-                    if done {
-                        self.dahdsr.force_release();
+                self.nch = CHANNELS;
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    if let Some(ref mut ws) = self.web_sample {
+                        let done = ws.is_done();
+                        if done {
+                            self.dahdsr.force_release();
+                        }
+                        self.scratch[i][0] = ws.read(_web_pcm, 0) * 0.7;
+                        self.scratch[i][1] = ws.read(_web_pcm, 1) * 0.7;
+                        if !done {
+                            ws.advance(freq * INV_MIDDLE_C);
+                        }
+                    } else {
+                        self.scratch[i] = [0.0; CHANNELS];
                     }
-                    for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.7;
-                    }
-                    if !done {
-                        ws.advance(freq * INV_MIDDLE_C);
-                    }
-                    self.nch = CHANNELS;
-                    return true;
                 }
-                self.ch[0] = 0.0;
-                self.ch[1] = 0.0;
             }
             Source::LiveInput => {
-                let nch = input_channels.max(1);
-                if let Some(ch) = self.params.inchan {
+                let input_nch = input_channels.max(1);
+                if let Some(chan) = self.params.inchan {
                     self.nch = 1;
-                    let idx = sample_idx * nch + ch.min(nch - 1);
-                    self.ch[0] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                    let ch = chan.min(input_nch - 1);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let idx = (_sample_idx + i) * input_nch + ch;
+                        let v = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                        self.scratch[i][0] = v;
+                        self.scratch[i][1] = 0.0;
+                    }
                 } else {
                     self.nch = CHANNELS;
-                    let base = sample_idx * nch;
-                    self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
-                    self.ch[1] = live_input
-                        .get(base + 1.min(nch - 1))
-                        .copied()
-                        .unwrap_or(0.0)
-                        * 0.7;
+                    let right_off = 1.min(input_nch - 1);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let base = (_sample_idx + i) * input_nch;
+                        self.scratch[i][0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
+                        self.scratch[i][1] =
+                            live_input.get(base + right_off).copied().unwrap_or(0.0) * 0.7;
+                    }
                 }
             }
             Source::Kick
@@ -337,97 +369,134 @@ impl Voice {
             | Source::Cowbell
             | Source::Cymbal => {
                 self.nch = 1;
-                self.run_drum(freq, isr);
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    let s = self.run_drum(freq, isr);
+                    self.scratch[i][0] = s;
+                    self.scratch[i][1] = 0.0;
+                    // Drum pitch/click envelopes read `self.time` per sample;
+                    // advance inside the block so each sample sees its own
+                    // elapsed-time value (matches legacy per-sample order).
+                    self.time += isr;
+                }
             }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
                 if spread > 0.0 {
-                    self.run_spread(freq, isr);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let s_main = self.run_spread(freq, isr);
+                        let s = self.run_sub(freq, isr, s_main);
+                        self.scratch[i][0] = s;
+                        self.scratch[i][1] = 0.0;
+                    }
                 } else {
-                    self.run_single_osc(freq, isr);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let s_main = self.run_single_osc(freq, isr);
+                        let s = self.run_sub(freq, isr, s_main);
+                        self.scratch[i][0] = s;
+                        self.scratch[i][1] = 0.0;
+                    }
                 }
-                self.run_sub(freq, isr);
             }
         }
-        true
+        n
     }
 
     #[cfg(not(feature = "native"))]
-    pub(crate) fn run_source(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn run_source_block(
         &mut self,
         freq: f32,
         isr: f32,
+        n: usize,
         pool: &[f32],
         samples: &[SampleInfo],
         web_pcm: &[f32],
         sample_idx: usize,
         live_input: &[f32],
         input_channels: usize,
-    ) -> bool {
+    ) -> usize {
+        let pre_vib = self.fm_carrier_freq();
         match self.params.sound {
             Source::Sample => {
-                if let Some(ref mut fs) = self.file_source {
-                    if let Some(info) = samples.get(fs.sample_idx) {
-                        let done = fs.is_done();
-                        if done {
-                            self.dahdsr.force_release();
+                self.nch = CHANNELS;
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    if let Some(ref mut fs) = self.file_source {
+                        if let Some(info) = samples.get(fs.sample_idx) {
+                            let done = fs.is_done();
+                            if done {
+                                self.dahdsr.force_release();
+                            }
+                            let channels = info.channels as usize;
+                            self.scratch[i][0] = fs.read(pool, channels, info.offset, 0) * 0.7;
+                            self.scratch[i][1] = fs.read(pool, channels, info.offset, 1) * 0.7;
+                            if !done {
+                                fs.advance(freq * INV_MIDDLE_C);
+                            }
+                            continue;
                         }
-                        let channels = info.channels as usize;
-                        for c in 0..CHANNELS {
-                            self.ch[c] = fs.read(pool, channels, info.offset, c) * 0.7;
-                        }
-                        if !done {
-                            fs.advance(freq * INV_MIDDLE_C);
-                        }
-                        self.nch = CHANNELS;
-                        return true;
                     }
+                    self.scratch[i] = [0.0; CHANNELS];
                 }
-                self.ch[0] = 0.0;
-                self.ch[1] = 0.0;
             }
             Source::Wavetable => {
                 self.nch = CHANNELS;
-                if self.web_sample.is_some() {
-                    self.run_wavetable_web(freq, isr, web_pcm);
-                } else {
-                    self.run_wavetable_wasm(freq, isr, pool, samples);
+                let use_web = self.web_sample.is_some();
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    let frame = if use_web {
+                        self.run_wavetable_web(freq, isr, web_pcm)
+                    } else {
+                        self.run_wavetable_wasm(freq, isr, pool, samples)
+                    };
+                    self.scratch[i] = frame;
                 }
             }
             Source::WebSample => {
-                if let Some(ref mut ws) = self.web_sample {
-                    let done = ws.is_done();
-                    if done {
-                        self.dahdsr.force_release();
+                self.nch = CHANNELS;
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    if let Some(ref mut ws) = self.web_sample {
+                        let done = ws.is_done();
+                        if done {
+                            self.dahdsr.force_release();
+                        }
+                        self.scratch[i][0] = ws.read(web_pcm, 0) * 0.7;
+                        self.scratch[i][1] = ws.read(web_pcm, 1) * 0.7;
+                        if !done {
+                            ws.advance(freq * INV_MIDDLE_C);
+                        }
+                    } else {
+                        self.scratch[i] = [0.0; CHANNELS];
                     }
-                    for c in 0..CHANNELS {
-                        self.ch[c] = ws.read(web_pcm, c) * 0.7;
-                    }
-                    if !done {
-                        ws.advance(freq * INV_MIDDLE_C);
-                    }
-                    self.nch = CHANNELS;
-                    return true;
                 }
-                self.ch[0] = 0.0;
-                self.ch[1] = 0.0;
             }
             Source::LiveInput => {
-                let nch = input_channels.max(1);
-                if let Some(ch) = self.params.inchan {
+                let input_nch = input_channels.max(1);
+                if let Some(chan) = self.params.inchan {
                     self.nch = 1;
-                    let idx = sample_idx * nch + ch.min(nch - 1);
-                    self.ch[0] = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                    let ch = chan.min(input_nch - 1);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let idx = (sample_idx + i) * input_nch + ch;
+                        let v = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
+                        self.scratch[i][0] = v;
+                        self.scratch[i][1] = 0.0;
+                    }
                 } else {
                     self.nch = CHANNELS;
-                    let base = sample_idx * nch;
-                    self.ch[0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
-                    self.ch[1] = live_input
-                        .get(base + 1.min(nch - 1))
-                        .copied()
-                        .unwrap_or(0.0)
-                        * 0.7;
+                    let right_off = 1.min(input_nch - 1);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let base = (sample_idx + i) * input_nch;
+                        self.scratch[i][0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
+                        self.scratch[i][1] =
+                            live_input.get(base + right_off).copied().unwrap_or(0.0) * 0.7;
+                    }
                 }
             }
             Source::Kick
@@ -438,23 +507,43 @@ impl Voice {
             | Source::Cowbell
             | Source::Cymbal => {
                 self.nch = 1;
-                self.run_drum(freq, isr);
+                for i in 0..n {
+                    self.tick_fm_pm(pre_vib, isr);
+                    let s = self.run_drum(freq, isr);
+                    self.scratch[i][0] = s;
+                    self.scratch[i][1] = 0.0;
+                    // Drum pitch/click envelopes read `self.time` per sample;
+                    // advance inside the block so each sample sees its own
+                    // elapsed-time value (matches legacy per-sample order).
+                    self.time += isr;
+                }
             }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
                 if spread > 0.0 {
-                    self.run_spread(freq, isr);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let s_main = self.run_spread(freq, isr);
+                        let s = self.run_sub(freq, isr, s_main);
+                        self.scratch[i][0] = s;
+                        self.scratch[i][1] = 0.0;
+                    }
                 } else {
-                    self.run_single_osc(freq, isr);
+                    for i in 0..n {
+                        self.tick_fm_pm(pre_vib, isr);
+                        let s_main = self.run_single_osc(freq, isr);
+                        let s = self.run_sub(freq, isr, s_main);
+                        self.scratch[i][0] = s;
+                        self.scratch[i][1] = 0.0;
+                    }
                 }
-                self.run_sub(freq, isr);
             }
         }
-        true
+        n
     }
 
-    fn run_spread(&mut self, freq: f32, isr: f32) {
+    fn run_spread(&mut self, freq: f32, isr: f32) -> f32 {
         if self.params.sound == Source::Add {
             self.ensure_additive_cache();
         }
@@ -493,13 +582,13 @@ impl Voice {
 
         let mid = (left + right) / 2.0;
         let side = (left - right) / 2.0;
-        self.ch[0] = mid / 4.0 * 0.5;
         self.spread_side = side / 4.0 * 0.5;
+        mid / 4.0 * 0.5
     }
 
-    fn run_sub(&mut self, freq: f32, isr: f32) {
+    fn run_sub(&mut self, freq: f32, isr: f32, current: f32) -> f32 {
         if self.params.sub <= 0.0 {
-            return;
+            return current;
         }
         let sub_freq = freq / (1 << self.params.sub_oct as u32) as f32;
         let sample = match self.params.sub_wave {
@@ -507,14 +596,13 @@ impl Voice {
             SubWave::Tri => self.sub_phasor.tri(sub_freq, isr),
             SubWave::Square => self.sub_phasor.pulse(sub_freq, 0.5, isr),
         };
-        self.ch[0] = (self.ch[0] + sample * self.params.sub * 0.5) / (1.0 + self.params.sub);
+        (current + sample * self.params.sub * 0.5) / (1.0 + self.params.sub)
     }
 
-    fn run_single_osc(&mut self, freq: f32, isr: f32) {
+    fn run_single_osc(&mut self, freq: f32, isr: f32) -> f32 {
         let ratio = self.params.sync_ratio;
         if ratio <= 1.0 + SYNC_RATIO_EPS {
-            self.generate_main_osc(freq, isr);
-            return;
+            return self.generate_main_osc(freq, isr);
         }
 
         let master_dt = freq * isr;
@@ -547,7 +635,7 @@ impl Voice {
                 if master_wrapped {
                     self.phasor.phase = p;
                 }
-                self.generate_main_osc(freq * ratio, isr);
+                let mut sample = self.generate_main_osc(freq * ratio, isr);
 
                 if master_wrapped && aa_saw {
                     let phase_at_wrap = wrap_phase(phase_before + (1.0 - wrap_frac) * slave_dt);
@@ -557,40 +645,42 @@ impl Voice {
                     // correct lobe for the actual step height.
                     let d = 1.0 - wrap_frac;
                     let natural = if p < slave_dt { 0.5 * d * d } else { 0.0 };
-                    self.ch[0] += 0.5 * h * blep_post_step(wrap_frac) - natural;
+                    sample += 0.5 * h * blep_post_step(wrap_frac) - natural;
                 }
 
                 if let Some(wfn) = next_wrap_frac {
                     let phase_at_next = wrap_phase(self.phasor.phase + (1.0 - wfn) * slave_dt);
                     let p_next = wrap_phase(self.params.sync_phase + slave_dt * wfn);
                     let h_next = 2.0 * (p_next - phase_at_next);
-                    self.ch[0] += 0.5 * h_next * blep_pre_step(wfn);
+                    sample += 0.5 * h_next * blep_pre_step(wfn);
                 }
+                sample
             }
             SyncMode::Soft => {
                 let dir_old = self.sync_direction;
                 if master_wrapped {
                     self.sync_direction = -self.sync_direction;
                 }
-                self.generate_main_osc(freq * ratio * self.sync_direction, isr);
+                let mut sample = self.generate_main_osc(freq * ratio * self.sync_direction, isr);
 
                 if master_wrapped && aa_saw {
                     // Naïve saw slope per sample = 2·slave_dt·dir; flip → Δm = −4·slave_dt·dir_old.
                     let dm = -4.0 * slave_dt * dir_old;
-                    self.ch[0] += 0.5 * dm * blamp_post_kink(wrap_frac);
+                    sample += 0.5 * dm * blamp_post_kink(wrap_frac);
                 }
 
                 if let Some(wfn) = next_wrap_frac {
                     let dm_next = -4.0 * slave_dt * self.sync_direction;
-                    self.ch[0] += 0.5 * dm_next * blamp_pre_kink(wfn);
+                    sample += 0.5 * dm_next * blamp_pre_kink(wfn);
                 }
+                sample
             }
         }
     }
 
-    fn generate_main_osc(&mut self, freq: f32, isr: f32) {
+    fn generate_main_osc(&mut self, freq: f32, isr: f32) -> f32 {
         let pm = self.fm_phase_mod;
-        self.ch[0] = match self.params.sound {
+        match self.params.sound {
             Source::Tri => self.phasor.tri_shaped(freq, isr, &self.params.shape, pm) * 0.5,
             Source::Sine => self.phasor.sine_shaped(freq, isr, &self.params.shape, pm) * 0.5,
             Source::Saw => self.phasor.saw_shaped(freq, isr, &self.params.shape, pm) * 0.5,
@@ -631,13 +721,15 @@ impl Voice {
                 self.brown_noise.next(w) * 0.5
             }
             _ => 0.0,
-        };
+        }
     }
 
     #[cfg(feature = "native")]
-    fn run_wavetable(&mut self, freq: f32, isr: f32) {
+    #[allow(clippy::needless_range_loop)]
+    fn run_wavetable(&mut self, freq: f32, isr: f32) -> [f32; CHANNELS] {
         // Compute modulated scan before borrowing registry_sample
         let scan = self.get_modulated_scan();
+        let mut out = [0.0; CHANNELS];
 
         if let Some(ref rs) = self.registry_sample {
             let frame_count = rs.data.frame_count as f32;
@@ -665,14 +757,12 @@ impl Voice {
                 let ch = c.min(channels - 1);
                 let sample_a = rs.data.read_interpolated(pos_a, ch);
                 let sample_b = rs.data.read_interpolated(pos_b, ch);
-                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
+                out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
             }
 
             self.phasor.update(freq, isr);
-        } else {
-            self.ch[0] = 0.0;
-            self.ch[1] = 0.0;
         }
+        out
     }
 
     fn get_modulated_scan(&self) -> f32 {
@@ -680,8 +770,15 @@ impl Voice {
     }
 
     #[cfg(not(feature = "native"))]
-    fn run_wavetable_wasm(&mut self, freq: f32, isr: f32, pool: &[f32], samples: &[SampleInfo]) {
+    fn run_wavetable_wasm(
+        &mut self,
+        freq: f32,
+        isr: f32,
+        pool: &[f32],
+        samples: &[SampleInfo],
+    ) -> [f32; CHANNELS] {
         let scan = self.get_modulated_scan();
+        let mut out = [0.0; CHANNELS];
 
         if let Some(ref fs) = self.file_source {
             if let Some(info) = samples.get(fs.sample_idx) {
@@ -712,20 +809,19 @@ impl Voice {
                     let ch = c.min(channels - 1);
                     let sample_a = read_interpolated(pool, offset, channels, frames, pos_a, ch);
                     let sample_b = read_interpolated(pool, offset, channels, frames, pos_b, ch);
-                    self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
+                    out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
                 }
 
                 self.phasor.update(freq, isr);
-                return;
             }
         }
-        self.ch[0] = 0.0;
-        self.ch[1] = 0.0;
+        out
     }
 
     #[cfg(not(feature = "native"))]
-    fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) {
+    fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) -> [f32; CHANNELS] {
         let scan = self.get_modulated_scan();
+        let mut out = [0.0; CHANNELS];
 
         if let Some(ref ws) = self.web_sample {
             let frame_count = ws.frame_count();
@@ -755,14 +851,12 @@ impl Voice {
                 let ch = c.min(channels - 1);
                 let sample_a = read_interpolated(web_pcm, offset, channels, frames, pos_a, ch);
                 let sample_b = read_interpolated(web_pcm, offset, channels, frames, pos_b, ch);
-                self.ch[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
+                out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
             }
 
             self.phasor.update(freq, isr);
-            return;
         }
-        self.ch[0] = 0.0;
-        self.ch[1] = 0.0;
+        out
     }
 }
 
@@ -888,9 +982,9 @@ mod tests {
         plain.params.sound = Source::Saw;
 
         for _ in 0..256 {
-            synced.run_single_osc(freq, isr);
-            plain.run_single_osc(freq, isr);
-            assert_eq!(synced.ch[0].to_bits(), plain.ch[0].to_bits());
+            let sy = synced.run_single_osc(freq, isr);
+            let pl = plain.run_single_osc(freq, isr);
+            assert_eq!(sy.to_bits(), pl.to_bits());
         }
     }
 
@@ -917,8 +1011,7 @@ mod tests {
         let mut prev = 0.0_f32;
         let mut max_jump = 0.0_f32;
         for i in 0..2048 {
-            voice.run_single_osc(freq, isr);
-            let y = voice.ch[0];
+            let y = voice.run_single_osc(freq, isr);
             if i > 0 {
                 let d = (y - prev).abs();
                 if d > max_jump {
@@ -952,8 +1045,7 @@ mod tests {
         let mut y_prev2 = 0.0_f32;
         let mut max_2nd = 0.0_f32;
         for i in 0..2048 {
-            voice.run_single_osc(freq, isr);
-            let y = voice.ch[0];
+            let y = voice.run_single_osc(freq, isr);
             if i >= 2 {
                 let d2 = (y - 2.0 * y_prev + y_prev2).abs();
                 if d2 > max_2nd {

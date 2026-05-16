@@ -485,6 +485,20 @@ impl ParamMod {
         }
     }
 
+    /// Advance the modulation by `n` per-sample steps and return the final value.
+    ///
+    /// Intended for block-rate parameter writes: call once per audio block instead
+    /// of `n` times per sample, then write the returned value to the target field once.
+    #[inline]
+    pub fn tick_block(&mut self, isr: f32, n: usize) -> f32 {
+        // SAFETY: no allocation, all paths advance internal state in place.
+        let mut v = 0.0;
+        for _ in 0..n {
+            v = self.tick(isr);
+        }
+        v
+    }
+
     fn tick_oscillate(&mut self, min: f32, max: f32, shape: ModShape) -> f32 {
         let range = max - min;
         match shape {

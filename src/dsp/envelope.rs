@@ -276,6 +276,39 @@ impl Dahdsr {
             }
         }
     }
+
+    /// Block-rate variant of [`Dahdsr::update`].
+    ///
+    /// Writes up to `n` envelope samples into `env[..n]` and returns the number of
+    /// samples generated before the envelope transitioned to [`DahdsrState::Off`].
+    /// If the envelope remained active for the full block, returns `n`. Any slots
+    /// after early termination are zeroed so callers can rely on `env[..n]` being
+    /// defined.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_block(
+        &mut self,
+        env: &mut [f32],
+        n: usize,
+        isr: f32,
+        delay: f32,
+        attack: f32,
+        hold: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    ) -> usize {
+        for i in 0..n {
+            if self.is_off() {
+                for slot in env.iter_mut().take(n).skip(i) {
+                    *slot = 0.0;
+                }
+                return i;
+            }
+            env[i] = self.update(isr, delay, attack, hold, decay, sustain, release);
+        }
+        n
+    }
 }
 
 /// Parsed envelope parameters with activation flag.

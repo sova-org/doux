@@ -91,4 +91,13 @@ impl Comb {
         self.delay.write(input + fb_signal * feedback);
         delayed
     }
+
+    /// Block-variant: processes `n` samples in place by looping the per-sample
+    /// kernel. Params are constant across the block.
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [f32], n: usize, p: &CombParams, sr: f32) {
+        for slot in buf.iter_mut().take(n) {
+            *slot = self.process(*slot, p, sr);
+        }
+    }
 }

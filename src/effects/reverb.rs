@@ -1,5 +1,5 @@
 use crate::dsp::ftz;
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, ReverbType};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, ReverbType, StereoFrame};
 
 #[derive(Clone, Copy)]
 pub struct ReverbParams {
@@ -316,7 +316,7 @@ impl DattorroVerb {
         }
     }
 
-    pub fn process(&mut self, input: f32, p: &ReverbParams) -> [f32; 2] {
+    pub fn process(&mut self, input: f32, p: &ReverbParams) -> StereoFrame {
         let decay = p.decay.clamp(0.0, 0.99);
         let damping = p.damp.clamp(0.0, 1.0);
         let diffusion = p.diff.clamp(0.0, 1.0);
@@ -376,6 +376,13 @@ impl DattorroVerb {
             - self.delay2_l.read(self.tap7_l);
 
         [out_l * 0.6, out_r * 0.6]
+    }
+
+    #[inline]
+    pub fn process_block(&mut self, frames: &mut [StereoFrame], n: usize, params: &ReverbParams) {
+        for slot in frames.iter_mut().take(n) {
+            *slot = self.process(slot[0], params);
+        }
     }
 
     pub fn clear(&mut self) {

@@ -4,7 +4,7 @@
 //! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
 
 use crate::dsp::{ms_to_samples, DelayLine, Phasor};
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "flanger",
@@ -52,34 +52,36 @@ pub struct Flanger {
 }
 
 impl Flanger {
-    /// Processes one sample.
+    /// Processes a block of stereo frames in place on channel `ch`.
     ///
-    /// - `rate`: LFO speed in Hz (typical: 0.1-2.0)
-    /// - `depth`: Modulation amount `[0.0, 1.0]` (squared for smoother response)
-    /// - `feedback`: Resonance `[0.0, 0.95]`
-    ///
-    /// Returns 50/50 dry/wet mix.
+    /// `depth_curve`, `feedback` clamp, and `delay_span_ms` hoist to block entry;
+    /// LFO ticks per sample and feedback path stays per-sample.
     #[inline]
-    pub fn process(
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
         &mut self,
-        input: f32,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
         rate: f32,
         depth: f32,
         feedback: f32,
         sr: f32,
         isr: f32,
-    ) -> f32 {
-        let lfo_val = self.lfo.sine(rate, isr);
+    ) {
         let depth_curve = depth * depth;
-        let delay_ms = MIN_DELAY_MS + depth_curve * DELAY_RANGE_MS * (lfo_val * 0.5 + 0.5);
-        let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
-
-        let delayed = self.delay.read(delay_samples);
+        let span = depth_curve * DELAY_RANGE_MS;
         let feedback = feedback.clamp(0.0, 0.95);
-
-        self.delay.write(input + self.feedback_sample * feedback);
-        self.feedback_sample = delayed;
-
-        input * 0.5 + delayed * 0.5
+        let max_delay_samples = BUFFER_SIZE as f32 - 2.0;
+        for slot in buf.iter_mut().take(n) {
+            let lfo_val = self.lfo.sine(rate, isr);
+            let delay_ms = MIN_DELAY_MS + span * (lfo_val * 0.5 + 0.5);
+            let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, max_delay_samples);
+            let delayed = self.delay.read(delay_samples);
+            let input = slot[ch];
+            self.delay.write(input + self.feedback_sample * feedback);
+            self.feedback_sample = delayed;
+            slot[ch] = input * 0.5 + delayed * 0.5;
+        }
     }
 }

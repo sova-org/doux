@@ -1,5 +1,5 @@
 use crate::dsp::fast_tan;
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 use std::f32::consts::PI;
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -81,7 +81,17 @@ impl Default for Smear {
 
 impl Smear {
     #[inline]
-    pub fn process(&mut self, input: f32, mix: f32, freq: f32, feedback: f32, sr: f32) -> f32 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        mix: f32,
+        freq: f32,
+        feedback: f32,
+        sr: f32,
+    ) {
         if freq != self.cached_freq || sr != self.cached_sr {
             self.cached_freq = freq;
             self.cached_sr = sr;
@@ -90,13 +100,17 @@ impl Smear {
             self.cached_a = (tan_t - 1.0) / (tan_t + 1.0);
         }
 
-        let x = input + self.prev_out * feedback;
-        let mut wet = x;
-        for stage in &mut self.stages {
-            wet = stage.process(wet, self.cached_a);
+        let a = self.cached_a;
+        let dry = 1.0 - mix;
+        for slot in buf.iter_mut().take(n) {
+            let input = slot[ch];
+            let x = input + self.prev_out * feedback;
+            let mut wet = x;
+            for stage in &mut self.stages {
+                wet = stage.process(wet, a);
+            }
+            self.prev_out = wet;
+            slot[ch] = input * dry + wet * mix;
         }
-        self.prev_out = wet;
-
-        input * (1.0 - mix) + wet * mix
     }
 }

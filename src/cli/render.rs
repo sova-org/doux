@@ -38,6 +38,10 @@ struct Args {
     /// Maximum polyphony (default: 64).
     #[arg(long, default_value = "64")]
     max_voices: usize,
+
+    /// DSP inner block size in samples (clamped to [1, MAX_BLOCK=256]).
+    #[arg(long, default_value = "32")]
+    dsp_block_size: usize,
 }
 
 fn main() {
@@ -47,7 +51,8 @@ fn main() {
         sample_rate: args.sample_rate as f32,
         channels: args.channels as usize,
         max_voices: args.max_voices,
-        block_size: 512,
+        buffer_size: 512,
+        dsp_block_size: args.dsp_block_size,
     };
 
     let mut engine =
@@ -77,4 +82,21 @@ fn main() {
         args.sample_rate,
         args.channels
     );
+
+    #[cfg(feature = "profiling")]
+    {
+        use doux::telemetry::ProfilePhase;
+        let snap = engine.metrics.profiling_snapshot();
+        eprintln!("PROFILE total_samples {}", snap.total_samples);
+        eprintln!("PROFILE total_blocks {}", snap.total_blocks);
+        for phase in ProfilePhase::ALL {
+            let p = snap.phase(phase);
+            eprintln!(
+                "PROFILE {} ns_total={} calls={}",
+                phase.label(),
+                p.total_ns,
+                p.calls
+            );
+        }
+    }
 }

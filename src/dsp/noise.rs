@@ -54,6 +54,17 @@ impl PinkNoise {
         self.b[6] = white * 0.115926;
         pink * 0.11
     }
+
+    /// Processes `n` white noise samples from `white` into `out`.
+    ///
+    /// Block-rate wrapper over [`PinkNoise::next`]. `white` supplies the per-sample
+    /// white-noise input; `out` receives the per-sample pink-noise output.
+    #[inline]
+    pub fn next_block(&mut self, out: &mut [f32], n: usize, white: &[f32]) {
+        for i in 0..n {
+            out[i] = self.next(white[i]);
+        }
+    }
 }
 
 /// Brown noise generator using leaky integration.
@@ -83,5 +94,16 @@ impl BrownNoise {
     pub fn next(&mut self, white: f32) -> f32 {
         self.out = (self.out + 0.02 * white) / 1.02;
         self.out
+    }
+
+    /// Processes `n` white noise samples from `white` into `out`.
+    ///
+    /// Block-rate wrapper over [`BrownNoise::next`]. `white` supplies the per-sample
+    /// white-noise input; `out` receives the per-sample brown-noise output.
+    #[inline]
+    pub fn next_block(&mut self, out: &mut [f32], n: usize, white: &[f32]) {
+        for i in 0..n {
+            out[i] = self.next(white[i]);
+        }
     }
 }

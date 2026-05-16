@@ -52,8 +52,8 @@ fn wrap_phase(phase: f32) -> f32 {
 
 impl Voice {
     #[inline]
-    pub(super) fn run_drum(&mut self, freq: f32, isr: f32) {
-        self.ch[0] = match self.params.sound {
+    pub(super) fn run_drum(&mut self, freq: f32, isr: f32) -> f32 {
+        let raw = match self.params.sound {
             Source::Kick => self.drum_kick(freq, isr),
             Source::Snare => self.drum_snare(freq, isr),
             Source::Hat => self.drum_hat(freq, isr),
@@ -63,7 +63,8 @@ impl Voice {
             Source::Cowbell => self.drum_cowbell(freq, isr),
             Source::Cymbal => self.drum_cymbal(freq, isr),
             _ => 0.0,
-        } * 0.5;
+        };
+        raw * 0.5
     }
 
     #[inline]

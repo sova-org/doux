@@ -1,7 +1,7 @@
 //! 3-band DJ-style EQ using shelving and peaking filters.
 
 use crate::dsp::Biquad;
-use crate::types::{FilterType, ModuleGroup, ModuleInfo, ParamInfo};
+use crate::types::{FilterType, ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "eq",
@@ -71,12 +71,16 @@ pub struct Eq {
 }
 
 impl Eq {
-    /// Process one sample. Gains are in dB (0.0 = bypass).
+    /// Process a block of stereo frames in place on channel `ch`. Gains are in
+    /// dB (0.0 = bypass). Each band's bypass branch and biquad coefficient
+    /// recompute hoist to block entry.
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    pub fn process(
+    pub fn process_block(
         &mut self,
-        input: f32,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
         lo_db: f32,
         mid_db: f32,
         hi_db: f32,
@@ -84,23 +88,42 @@ impl Eq {
         mid_freq: f32,
         hi_freq: f32,
         sr: f32,
-    ) -> f32 {
-        let mut out = input;
+    ) {
         if lo_db != 0.0 {
-            out = self
-                .lo
-                .process_with_gain(out, FilterType::Lowshelf, lo_freq, SHELF_Q, lo_db, sr);
+            self.lo.process_block_with_gain(
+                buf,
+                n,
+                ch,
+                FilterType::Lowshelf,
+                lo_freq,
+                SHELF_Q,
+                lo_db,
+                sr,
+            );
         }
         if mid_db != 0.0 {
-            out = self
-                .mid
-                .process_with_gain(out, FilterType::Peaking, mid_freq, MID_Q, mid_db, sr);
+            self.mid.process_block_with_gain(
+                buf,
+                n,
+                ch,
+                FilterType::Peaking,
+                mid_freq,
+                MID_Q,
+                mid_db,
+                sr,
+            );
         }
         if hi_db != 0.0 {
-            out =
-                self.hi
-                    .process_with_gain(out, FilterType::Highshelf, hi_freq, SHELF_Q, hi_db, sr);
+            self.hi.process_block_with_gain(
+                buf,
+                n,
+                ch,
+                FilterType::Highshelf,
+                hi_freq,
+                SHELF_Q,
+                hi_db,
+                sr,
+            );
         }
-        out
     }
 }

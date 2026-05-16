@@ -12,7 +12,7 @@ use crate::audio::{
     print_diagnostics, HostSelection,
 };
 use crate::error::DouxError;
-use crate::types::DEFAULT_NATIVE_BLOCK_SIZE;
+use crate::types::DEFAULT_BUFFER_SIZE;
 use crate::{AudioCmd, Engine};
 
 const INPUT_BUFFER_SIZE: usize = 8192;
@@ -48,6 +48,10 @@ pub struct CommonAudioArgs {
     #[arg(long, default_value = "32")]
     pub max_voices: usize,
 
+    /// DSP inner block size in samples (clamped to [1, MAX_BLOCK=256]).
+    #[arg(long, default_value = "32")]
+    pub dsp_block_size: usize,
+
     /// Audio host backend: jack, alsa, asio, or auto (default: auto).
     #[arg(long, default_value = "auto")]
     pub host: String,
@@ -64,7 +68,7 @@ pub enum HostInit {
     Ready {
         host: cpal::Host,
         output_config: OutputConfig,
-        block_size: usize,
+        buffer_size: usize,
     },
 }
 
@@ -94,15 +98,15 @@ pub fn init_audio_host(common: &CommonAudioArgs) -> Result<HostInit, DouxError> 
         common.buffer_size,
     )?;
 
-    let block_size = common
+    let buffer_size = common
         .buffer_size
         .map(|b| b as usize)
-        .unwrap_or(DEFAULT_NATIVE_BLOCK_SIZE);
+        .unwrap_or(DEFAULT_BUFFER_SIZE);
 
     Ok(HostInit::Ready {
         host,
         output_config,
-        block_size,
+        buffer_size,
     })
 }
 
@@ -121,13 +125,12 @@ pub fn setup_engine_samples(engine: &mut Engine, dir: &Path, preload: bool, verb
         if verbose {
             println!("Preloading {count} samples...");
         }
-        let sr = engine.sr;
+        let sr = engine.sample_rate();
+        let registry = engine.sample_registry();
         for entry in &index {
             match crate::sampling::decode_sample_file(&entry.path, sr) {
                 Ok(data) => {
-                    engine
-                        .sample_registry
-                        .insert(entry.name.as_ref().to_string(), Arc::new(data));
+                    registry.insert(entry.name.as_ref().to_string(), Arc::new(data));
                 }
                 Err(e) => {
                     eprintln!("Failed to preload {}: {e}", entry.name);
@@ -135,16 +138,20 @@ pub fn setup_engine_samples(engine: &mut Engine, dir: &Path, preload: bool, verb
             }
         }
         if verbose {
-            println!("Preloaded {} samples\n", engine.sample_registry.len());
+            println!("Preloaded {} samples\n", engine.sample_registry().len());
         }
     } else if verbose {
         println!("Found {count} samples (lazy loading enabled)\n");
     }
 
-    engine.sample_index = index;
+    engine.set_sample_index(index);
 
     #[cfg(feature = "soundfont")]
-    engine.load_soundfont_from_dir(dir);
+    if let Some(sf2_path) = crate::soundfont::find_sf2_file(dir) {
+        if let Err(e) = engine.load_soundfont(&sf2_path) {
+            eprintln!("Failed to load soundfont: {e}");
+        }
+    }
 }
 
 pub struct OutputConfig {
@@ -277,9 +284,10 @@ pub struct StreamParams<'a> {
 
 pub fn build_audio_streams(
     params: &StreamParams,
-    mut engine: Engine,
+    engine: Engine,
     cmd_rx: Receiver<AudioCmd>,
 ) -> Result<AudioStreams, DouxError> {
+    let mut engine = engine;
     let input_device = match params.input_spec {
         Some(spec) => params
             .host
@@ -470,24 +478,4 @@ pub fn build_audio_streams(
         output: output_stream,
         input: input_stream,
     })
-}
-
-pub fn recreate_engine(
-    sample_rate: f32,
-    output_channels: usize,
-    max_voices: usize,
-    block_size: usize,
-    sample_index: &[crate::sampling::SampleEntry],
-    sample_registry: &Arc<crate::sampling::SampleRegistry>,
-    #[cfg(feature = "soundfont")] gm_bank: &Option<crate::soundfont::GmBank>,
-) -> Engine {
-    let mut engine =
-        Engine::new_with_channels(sample_rate, output_channels, max_voices, block_size);
-    engine.sample_index = sample_index.to_vec();
-    engine.sample_registry = Arc::clone(sample_registry);
-    #[cfg(feature = "soundfont")]
-    {
-        engine.gm_bank = gm_bank.clone();
-    }
-    engine
 }

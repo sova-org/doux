@@ -448,6 +448,184 @@ impl Phasor {
     }
 
     // -------------------------------------------------------------------------
+    // Block variants - wrap per-sample fns over a caller-provided buffer.
+    // No allocation; `out` must have at least `n` elements.
+    // -------------------------------------------------------------------------
+
+    /// Block variant of [`Phasor::lfo`].
+    #[inline]
+    pub fn lfo_block(&mut self, out: &mut [f32], n: usize, shape: LfoShape, freq: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.lfo(shape, freq, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::lfo_pm`]. `pm` provides per-sample phase offsets
+    /// (turns); must have at least `n` elements.
+    #[inline]
+    pub fn lfo_pm_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        shape: LfoShape,
+        freq: f32,
+        isr: f32,
+        pm: &[f32],
+    ) {
+        for (slot, &pmv) in out.iter_mut().zip(pm.iter()).take(n) {
+            *slot = self.lfo_pm(shape, freq, isr, pmv);
+        }
+    }
+
+    /// Block variant of [`Phasor::sine`].
+    #[inline]
+    pub fn sine_block(&mut self, out: &mut [f32], n: usize, freq: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.sine(freq, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::tri`].
+    #[inline]
+    pub fn tri_block(&mut self, out: &mut [f32], n: usize, freq: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.tri(freq, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::saw`].
+    #[inline]
+    pub fn saw_block(&mut self, out: &mut [f32], n: usize, freq: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.saw(freq, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::zaw`].
+    #[inline]
+    pub fn zaw_block(&mut self, out: &mut [f32], n: usize, freq: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.zaw(freq, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::pulse`].
+    #[inline]
+    pub fn pulse_block(&mut self, out: &mut [f32], n: usize, freq: f32, pw: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.pulse(freq, pw, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::pulze`].
+    #[inline]
+    pub fn pulze_block(&mut self, out: &mut [f32], n: usize, freq: f32, duty: f32, isr: f32) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.pulze(freq, duty, isr);
+        }
+    }
+
+    /// Block variant of [`Phasor::sine_shaped`].
+    #[inline]
+    pub fn sine_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.sine_shaped(freq, isr, shape, phase_offset);
+        }
+    }
+
+    /// Block variant of [`Phasor::tri_shaped`].
+    #[inline]
+    pub fn tri_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.tri_shaped(freq, isr, shape, phase_offset);
+        }
+    }
+
+    /// Block variant of [`Phasor::saw_shaped`].
+    #[inline]
+    pub fn saw_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.saw_shaped(freq, isr, shape, phase_offset);
+        }
+    }
+
+    /// Block variant of [`Phasor::zaw_shaped`].
+    #[inline]
+    pub fn zaw_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.zaw_shaped(freq, isr, shape, phase_offset);
+        }
+    }
+
+    /// Block variant of [`Phasor::pulse_shaped`].
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn pulse_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        pw: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.pulse_shaped(freq, pw, isr, shape, phase_offset);
+        }
+    }
+
+    /// Block variant of [`Phasor::pulze_shaped`].
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn pulze_shaped_block(
+        &mut self,
+        out: &mut [f32],
+        n: usize,
+        freq: f32,
+        duty: f32,
+        isr: f32,
+        shape: &PhaseShape,
+        phase_offset: f32,
+    ) {
+        for slot in out.iter_mut().take(n) {
+            *slot = self.pulze_shaped(freq, duty, isr, shape, phase_offset);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Stateless variants for unison/spread - compute at arbitrary phase
     // -------------------------------------------------------------------------
 

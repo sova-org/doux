@@ -1,7 +1,8 @@
 //! Shared native offline engine runner for rendering and benchmarking.
 
 use crate::sampling::{decode_sample_file, scan_samples_dir};
-use crate::Engine;
+use crate::telemetry::EngineMetrics;
+use crate::{Engine, EngineConfig};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,7 +12,8 @@ pub struct OfflineEngineConfig {
     pub sample_rate: f32,
     pub channels: usize,
     pub max_voices: usize,
-    pub block_size: usize,
+    pub buffer_size: usize,
+    pub dsp_block_size: usize,
 }
 
 impl Default for OfflineEngineConfig {
@@ -20,7 +22,8 @@ impl Default for OfflineEngineConfig {
             sample_rate: 48_000.0,
             channels: 2,
             max_voices: 64,
-            block_size: 512,
+            buffer_size: 512,
+            dsp_block_size: 32,
         }
     }
 }
@@ -37,12 +40,15 @@ pub fn create_engine(
     config: OfflineEngineConfig,
     samples_dir: Option<&Path>,
 ) -> Result<Engine, String> {
-    let mut engine = Engine::new_with_channels(
-        config.sample_rate,
-        config.channels,
-        config.max_voices,
-        config.block_size,
-    );
+    let mut engine = Engine::new(EngineConfig {
+        sample_rate: config.sample_rate,
+        output_channels: config.channels,
+        max_voices: config.max_voices,
+        buffer_size: config.buffer_size,
+        dsp_block_size: config.dsp_block_size,
+        metrics: Arc::new(EngineMetrics::default()),
+        sample_registry: None,
+    });
 
     if let Some(dir) = samples_dir {
         let index = scan_samples_dir(dir);
@@ -50,13 +56,17 @@ pub fn create_engine(
             let data = decode_sample_file(&entry.path, config.sample_rate)
                 .map_err(|err| format!("failed to load {}: {err}", entry.name))?;
             engine
-                .sample_registry
+                .sample_registry()
                 .insert(entry.name.as_ref().to_string(), Arc::new(data));
         }
-        engine.sample_index = index;
+        engine.set_sample_index(index);
 
         #[cfg(feature = "soundfont")]
-        engine.load_soundfont_from_dir(dir);
+        if let Some(sf2_path) = crate::soundfont::find_sf2_file(dir) {
+            if let Err(e) = engine.load_soundfont(&sf2_path) {
+                eprintln!("Failed to load soundfont: {e}");
+            }
+        }
     }
 
     Ok(engine)
@@ -81,9 +91,9 @@ pub fn run_without_capture(engine: &mut Engine, duration_seconds: f32) -> Offlin
 }
 
 fn run_engine(engine: &mut Engine, duration_seconds: f32, capture_output: bool) -> OfflinePass {
-    let total_samples = seconds_to_samples(engine.sr, duration_seconds);
-    let channels = engine.output_channels;
-    let block_samples = engine.block_size.max(1);
+    let total_samples = seconds_to_samples(engine.sample_rate(), duration_seconds);
+    let channels = engine.output_channels();
+    let block_samples = engine.buffer_size().max(1);
     let mut rendered_samples = 0usize;
     let mut blocks = 0usize;
     let mut scratch = vec![0.0f32; block_samples * channels];
