@@ -16,6 +16,13 @@ pub const MAX_BLOCK: usize = 256;
 /// Default inner DSP block size in samples.
 pub const DEFAULT_DSP_BLOCK_SIZE: usize = 32;
 
+/// Worst-case sample rate the engine is sized to support. All sample-rate-
+/// dependent buffer constants (delay lines in `effects/`) are derived from
+/// this so their *time* meaning is preserved across host sample rates.
+/// Raise to 192_000 if 192 kHz support is needed — memory cost scales linearly
+/// (Feedback alone grows from ~512 KB to ~1 MB per orbit).
+pub const MAX_SAMPLE_RATE: usize = 96_000;
+
 /// In-range DSP block size, clamped to `[1, MAX_BLOCK]` at construction.
 ///
 /// Sizes scratch buffers that are pre-allocated to `MAX_BLOCK`; the type

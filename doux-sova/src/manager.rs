@@ -258,8 +258,8 @@ impl DouxManager {
             sample_rate,
             output_channels: actual_channels,
             max_voices: config.max_voices,
-            buffer_size,
-            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: buffer_size,
+            inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&metrics),
             sample_registry: None,
         });
@@ -368,7 +368,12 @@ impl DouxManager {
 
         eprintln!("[doux] input channels: {input_channels}");
 
-        let input_buffer_size = 8192 * (input_channels.max(2) / 2);
+        let host_buffer_size = self
+            .config
+            .buffer_size
+            .map(|b| b as usize)
+            .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
+        let input_buffer_size = host_buffer_size * 4 * input_channels.max(2);
         let (input_producer, input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
 
         let flag = Arc::clone(&self.device_lost);
@@ -677,8 +682,8 @@ impl DouxManager {
             sample_rate,
             output_channels: actual_channels,
             max_voices: self.config.max_voices,
-            buffer_size,
-            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: buffer_size,
+            inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&self.metrics),
             sample_registry: None,
         });
@@ -743,8 +748,8 @@ impl DouxManager {
             sample_rate,
             output_channels: actual_channels,
             max_voices: config.max_voices,
-            buffer_size,
-            dsp_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: buffer_size,
+            inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&metrics),
             sample_registry: None,
         });

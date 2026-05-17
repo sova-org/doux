@@ -3,7 +3,10 @@
 use crate::dsp::{ms_to_samples, DelayLine};
 use crate::types::StereoFrame;
 
-const BUFFER_SIZE: usize = 2048;
+/// Max Haas delay time in ms. Sized for `MAX_SAMPLE_RATE`.
+const MAX_DELAY_MS: usize = 50;
+const BUFFER_SIZE: usize =
+    (crate::types::MAX_SAMPLE_RATE * MAX_DELAY_MS / 1000).next_power_of_two();
 
 /// Mono delay line for Haas effect.
 #[derive(Clone, Copy, Default)]

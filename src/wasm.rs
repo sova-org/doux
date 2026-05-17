@@ -84,8 +84,8 @@ pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
             sample_rate,
             output_channels: crate::types::CHANNELS,
             max_voices,
-            buffer_size: WASM_BUFFER_SIZE,
-            dsp_block_size: crate::types::DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: WASM_BUFFER_SIZE,
+            inner_block_size: crate::types::DEFAULT_DSP_BLOCK_SIZE,
         }));
     }
 }

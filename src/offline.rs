@@ -44,8 +44,8 @@ pub fn create_engine(
         sample_rate: config.sample_rate,
         output_channels: config.channels,
         max_voices: config.max_voices,
-        buffer_size: config.buffer_size,
-        dsp_block_size: config.dsp_block_size,
+        host_buffer_size: config.buffer_size,
+        inner_block_size: config.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
     });
@@ -93,7 +93,7 @@ pub fn run_without_capture(engine: &mut Engine, duration_seconds: f32) -> Offlin
 fn run_engine(engine: &mut Engine, duration_seconds: f32, capture_output: bool) -> OfflinePass {
     let total_samples = seconds_to_samples(engine.sample_rate(), duration_seconds);
     let channels = engine.output_channels();
-    let block_samples = engine.buffer_size().max(1);
+    let block_samples = engine.host_buffer_size().max(1);
     let mut rendered_samples = 0usize;
     let mut blocks = 0usize;
     let mut scratch = vec![0.0f32; block_samples * channels];

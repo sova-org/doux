@@ -64,6 +64,10 @@ impl Orbit {
 
     #[inline]
     pub fn clear_bus(&mut self, n: usize) {
+        debug_assert!(
+            n <= MAX_BLOCK,
+            "Orbit::clear_bus: n={n} > MAX_BLOCK={MAX_BLOCK}"
+        );
         for slot in self.bus.iter_mut().take(n) {
             *slot = [0.0; CHANNELS];
         }
@@ -84,6 +88,10 @@ impl Orbit {
     /// update `silent_samples` accordingly. At `dsp_block_size = 1` (n=1)
     /// this is bit-identical to the legacy per-sample `Orbit::process`.
     pub fn process_block(&mut self, n: usize) {
+        debug_assert!(
+            n <= MAX_BLOCK,
+            "Orbit::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
+        );
         let any_input = self.bus.iter().take(n).any(|s| s[0] != 0.0 || s[1] != 0.0);
 
         if any_input {

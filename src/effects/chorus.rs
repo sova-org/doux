@@ -51,8 +51,10 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
-/// Delay buffer size in samples (~42ms at 48kHz).
-const BUFFER_SIZE: usize = 2048;
+/// Max chorus delay time in ms. Sized for `MAX_SAMPLE_RATE`.
+const MAX_DELAY_MS: usize = 50;
+const BUFFER_SIZE: usize =
+    (crate::types::MAX_SAMPLE_RATE * MAX_DELAY_MS / 1000).next_power_of_two();
 
 /// Number of chorus voices (phase-offset delay taps).
 const VOICES: usize = 3;

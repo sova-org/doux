@@ -64,7 +64,7 @@ use types::DEFAULT_BUFFER_SIZE;
 use types::WASM_BUFFER_SIZE;
 use types::{
     DspBlockSize, ModuleInfo, Source, CHANNELS, DEFAULT_DSP_BLOCK_SIZE, DEFAULT_MAX_VOICES,
-    MAX_ORBITS,
+    MAX_BLOCK, MAX_ORBITS,
 };
 use voice::modulation::ParamId;
 use voice::{modulation, Voice, VoiceParams};
@@ -116,12 +116,14 @@ pub struct EngineConfig {
     pub output_channels: usize,
     /// Maximum simultaneous voices (polyphony cap).
     pub max_voices: usize,
-    /// Audio device callback size in samples. Sets pre-allocated buffers.
-    pub buffer_size: usize,
+    /// Host audio callback size in samples (per channel). Sets pre-allocated
+    /// output buffers. Distinct from `inner_block_size` — this is what the
+    /// device hands us; the inner block is how finely we slice it for DSP.
+    pub host_buffer_size: usize,
     /// Inner DSP block size in samples. Clamped to `[1, MAX_BLOCK]` at
     /// construction; finer-grained value yields lower latency for sample-rate
-    /// scheduling at the cost of throughput.
-    pub dsp_block_size: usize,
+    /// scheduling at the cost of throughput. Always `<= host_buffer_size`.
+    pub inner_block_size: usize,
     /// Caller-provided telemetry handle. Clone once before construction so
     /// the host can read metrics while the audio thread owns the engine.
     #[cfg(feature = "native")]
@@ -141,8 +143,8 @@ impl EngineConfig {
             sample_rate,
             output_channels,
             max_voices: DEFAULT_MAX_VOICES,
-            buffer_size: DEFAULT_BUFFER_SIZE,
-            dsp_block_size: DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: DEFAULT_BUFFER_SIZE,
+            inner_block_size: DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::new(EngineMetrics::default()),
             sample_registry: None,
         }
@@ -155,14 +157,15 @@ impl EngineConfig {
             sample_rate,
             output_channels,
             max_voices: DEFAULT_MAX_VOICES,
-            buffer_size: WASM_BUFFER_SIZE,
-            dsp_block_size: DEFAULT_DSP_BLOCK_SIZE,
+            host_buffer_size: WASM_BUFFER_SIZE,
+            inner_block_size: DEFAULT_DSP_BLOCK_SIZE,
         }
     }
 }
 
 pub struct Engine {
     pub(crate) sr: f32,
+    /// INVARIANT: held equal to `1.0 / sr`. No setter exists.
     pub(crate) isr: f32,
     pub(crate) max_voices: usize,
     pub(crate) voices: Vec<Voice>,
@@ -172,9 +175,9 @@ pub struct Engine {
     pub(crate) time: f64,
     pub(crate) tick: u64,
     pub(crate) output_channels: usize,
-    pub(crate) buffer_size: usize,
+    pub(crate) host_buffer_size: usize,
     /// Inner DSP block size; sized scratch buffers guarantee `.get() ≤ MAX_BLOCK`.
-    pub(crate) dsp_block_size: DspBlockSize,
+    pub(crate) inner_block_size: DspBlockSize,
     pub(crate) output: Vec<f32>,
     #[cfg(not(feature = "native"))]
     pub(crate) sample_pool: SamplePool,
@@ -236,9 +239,9 @@ impl Engine {
             time: 0.0,
             tick: 0,
             output_channels: config.output_channels,
-            buffer_size: config.buffer_size,
-            dsp_block_size: DspBlockSize::new(config.dsp_block_size),
-            output: vec![0.0; config.buffer_size * config.output_channels],
+            host_buffer_size: config.host_buffer_size,
+            inner_block_size: DspBlockSize::new(config.inner_block_size),
+            output: vec![0.0; config.host_buffer_size * config.output_channels],
             #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
@@ -251,7 +254,7 @@ impl Engine {
             #[cfg(feature = "native")]
             recorder: Recorder::new(config.sample_rate),
             #[cfg(feature = "native")]
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * config.buffer_size * CHANNELS],
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * config.host_buffer_size * CHANNELS],
             #[cfg(feature = "native")]
             metrics: config.metrics,
             #[cfg(feature = "soundfont")]
@@ -273,12 +276,12 @@ impl Engine {
         self.output_channels
     }
 
-    pub fn buffer_size(&self) -> usize {
-        self.buffer_size
+    pub fn host_buffer_size(&self) -> usize {
+        self.host_buffer_size
     }
 
-    pub fn dsp_block_size(&self) -> usize {
-        self.dsp_block_size.get()
+    pub fn inner_block_size(&self) -> usize {
+        self.inner_block_size.get()
     }
 
     pub fn max_voices(&self) -> usize {
@@ -1361,6 +1364,13 @@ impl Engine {
     }
 
     pub fn process_block(&mut self, output: &mut [f32], web_pcm: &[f32], live_input: &[f32]) {
+        debug_assert!(
+            output.len() <= self.host_buffer_size * self.output_channels,
+            "process_block: output ({} samples) exceeds pre-allocated capacity ({})",
+            output.len(),
+            self.host_buffer_size * self.output_channels,
+        );
+
         // Wall-clock for the load gate + `BlockTotal` metric. Permitted on the
         // audio thread per `to_do.md` real-time invariants: resolves via VDSO
         // (`mach_absolute_time` / `clock_gettime(CLOCK_MONOTONIC)`), no kernel
@@ -1434,7 +1444,11 @@ impl Engine {
         // at block rate inside `gen_block`. Chunk size = `dsp_block_size`,
         // already clamped to `[1, MAX_BLOCK]` by `DspBlockSize::new`, so
         // `orbit.bus` and `voice.scratch` (both sized `MAX_BLOCK`) never overflow.
-        let bs = self.dsp_block_size.get();
+        let bs = self.inner_block_size.get();
+        debug_assert!(
+            bs <= MAX_BLOCK,
+            "inner_block_size={bs} > MAX_BLOCK={MAX_BLOCK}"
+        );
         let mut chunk_start = 0;
         while chunk_start < samples {
             let n = (samples - chunk_start).min(bs);
@@ -1575,11 +1589,6 @@ impl Engine {
                 }
             }
         }
-
-        // SAFETY: output is pre-allocated in constructor to buffer_size capacity.
-        // If output grew (e.g. dynamic block size), just copy what fits.
-        let copy_len = output.len().min(self.output.len());
-        self.output[..copy_len].copy_from_slice(&output[..copy_len]);
     }
 
     pub fn dsp(&mut self) {

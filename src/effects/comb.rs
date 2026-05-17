@@ -47,7 +47,10 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
-const BUFFER_SIZE: usize = 2048;
+/// Max comb delay time in ms. Sized for `MAX_SAMPLE_RATE`.
+const MAX_DELAY_MS: usize = 50;
+const BUFFER_SIZE: usize =
+    (crate::types::MAX_SAMPLE_RATE * MAX_DELAY_MS / 1000).next_power_of_two();
 
 #[derive(Clone, Copy)]
 pub struct CombParams {

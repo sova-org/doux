@@ -181,8 +181,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_rate: oc.sample_rate,
         output_channels: oc.output_channels,
         max_voices: args.common.max_voices,
-        buffer_size,
-        dsp_block_size: args.common.dsp_block_size,
+        host_buffer_size: buffer_size,
+        inner_block_size: args.common.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
     });
@@ -238,8 +238,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sample_rate: oc.sample_rate,
                 output_channels: oc.output_channels,
                 max_voices,
-                buffer_size,
-                dsp_block_size,
+                host_buffer_size: buffer_size,
+                inner_block_size: dsp_block_size,
                 metrics: Arc::new(EngineMetrics::default()),
                 sample_registry: Some(Arc::clone(&sample_registry)),
             });

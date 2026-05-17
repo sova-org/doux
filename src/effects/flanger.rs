@@ -38,10 +38,11 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
-const BUFFER_SIZE: usize = 512;
 const MIN_DELAY_MS: f32 = 0.5;
 const MAX_DELAY_MS: f32 = 10.0;
 const DELAY_RANGE_MS: f32 = MAX_DELAY_MS - MIN_DELAY_MS;
+/// Sized for `MAX_DELAY_MS` at `MAX_SAMPLE_RATE`.
+const BUFFER_SIZE: usize = (crate::types::MAX_SAMPLE_RATE * 10 / 1000).next_power_of_two();
 
 /// Mono flanger with feedback.
 #[derive(Clone, Copy, Default)]

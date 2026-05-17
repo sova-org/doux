@@ -709,6 +709,10 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> usize {
+        debug_assert!(
+            n <= MAX_BLOCK,
+            "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
+        );
         let Some((env, freq)) = self.prepare_block(isr, n) else {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];
@@ -753,6 +757,10 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> usize {
+        debug_assert!(
+            n <= MAX_BLOCK,
+            "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
+        );
         let Some((env, freq)) = self.prepare_block(isr, n) else {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];

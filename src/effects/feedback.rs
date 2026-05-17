@@ -71,7 +71,9 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
-const BUFFER_SIZE: usize = 32768;
+/// Max feedback delay time in seconds. Sized for `MAX_SAMPLE_RATE`.
+const MAX_DELAY_SECS: usize = 1;
+const BUFFER_SIZE: usize = (crate::types::MAX_SAMPLE_RATE * MAX_DELAY_SECS).next_power_of_two();
 const BUFFER_MASK: usize = BUFFER_SIZE - 1;
 
 #[derive(Clone, Copy)]

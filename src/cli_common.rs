@@ -15,7 +15,9 @@ use crate::error::DouxError;
 use crate::types::DEFAULT_BUFFER_SIZE;
 use crate::{AudioCmd, Engine};
 
-const INPUT_BUFFER_SIZE: usize = 8192;
+/// Input ring depth in host callback periods. Four covers jitter without
+/// adding noticeable latency at typical buffer sizes.
+const INPUT_RING_PERIODS: usize = 4;
 
 /// CLI flags shared by all native binaries that open an audio stream.
 #[derive(clap::Args)]
@@ -302,7 +304,7 @@ pub fn build_audio_streams(
         .and_then(|dev| dev.default_input_config().ok())
         .map_or(0, |cfg| cfg.channels() as usize);
 
-    let input_buffer_size = INPUT_BUFFER_SIZE * (input_channels.max(2) / 2);
+    let input_buffer_size = engine.host_buffer_size() * INPUT_RING_PERIODS * input_channels.max(2);
     let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
 
     engine.input_channels = input_channels;
