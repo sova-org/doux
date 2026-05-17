@@ -390,6 +390,7 @@ pub fn build_audio_streams(
                         return;
                     }
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        crate::dsp::enable_flush_to_zero();
                         conv_buf.resize(data.len(), 0.0f32);
 
                         while let Ok(cmd) = cmd_rx.try_recv() {

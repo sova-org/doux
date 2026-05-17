@@ -99,6 +99,7 @@ fn run_engine(engine: &mut Engine, duration_seconds: f32, capture_output: bool) 
     let mut scratch = vec![0.0f32; block_samples * channels];
     let mut output = capture_output.then(|| vec![0.0f32; total_samples * channels]);
 
+    crate::dsp::enable_flush_to_zero();
     let start = Instant::now();
     while rendered_samples < total_samples {
         let chunk_samples = (total_samples - rendered_samples).min(block_samples);

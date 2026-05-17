@@ -100,6 +100,7 @@ pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
 /// `INPUT_BUFFER`, writes to `OUTPUT`, and appends to `FRAMEBUFFER`.
 #[no_mangle]
 pub extern "C" fn dsp() {
+    crate::dsp::enable_flush_to_zero();
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             engine.process_block(&mut OUTPUT, &SAMPLE_BUFFER, &INPUT_BUFFER);

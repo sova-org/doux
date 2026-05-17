@@ -171,6 +171,46 @@ pub fn ftz(x: f32, limit: f32) -> f32 {
     }
 }
 
+/// Enables FTZ (flush-to-zero on output) and DAZ (denormals-are-zero on input)
+/// on the **calling thread**. Call once at audio-callback entry on every audio
+/// thread that will run DSP.
+///
+/// - `x86_64` with SSE: sets MXCSR bits 15 (FZ) and 6 (DAZ).
+/// - `aarch64`: sets FPCR bit 24 (FZ). DAZ is implicit when FZ is set on AArch64.
+/// - Other arches / `wasm32`: no-op (manual [`ftz`] still applies there).
+///
+/// Cost is one register read + one register write; safe to call per callback.
+#[inline]
+pub fn enable_flush_to_zero() {
+    #[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
+    {
+        // SAFETY: MXCSR is per-thread. We OR in FZ (bit 15) and DAZ (bit 6);
+        // rounding mode and exception masks are preserved.
+        unsafe {
+            use core::arch::x86_64::{_mm_getcsr, _mm_setcsr};
+            _mm_setcsr(_mm_getcsr() | 0x8040);
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: FPCR is per-thread on AArch64. We OR in FZ (bit 24);
+        // rounding mode, DN, and other control bits are preserved.
+        unsafe {
+            let fpcr: u64;
+            core::arch::asm!(
+                "mrs {0}, fpcr",
+                out(reg) fpcr,
+                options(nostack, nomem, preserves_flags),
+            );
+            core::arch::asm!(
+                "msr fpcr, {0}",
+                in(reg) fpcr | (1u64 << 24),
+                options(nostack, nomem, preserves_flags),
+            );
+        }
+    }
+}
+
 /// Fast hyperbolic tangent approximation (f32).
 ///
 /// Rational cubic preserving odd symmetry. Replaces expensive `f32::tanh()`

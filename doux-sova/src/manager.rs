@@ -501,6 +501,7 @@ impl DouxManager {
                             return;
                         }
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            doux::dsp::enable_flush_to_zero();
                             // Clamp to pre-allocated size: never allocate on the RT thread.
                             let usable = (data.len()).min(conv_buf.len());
                             let conv = &mut conv_buf[..usable];
