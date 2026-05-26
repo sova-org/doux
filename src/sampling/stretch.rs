@@ -34,6 +34,14 @@ static OMEGA: LazyLock<[f32; NUM_BINS]> = LazyLock::new(|| {
     o
 });
 
+/// Force `HANN` and `OMEGA` initialization. Call from a non-audio thread
+/// at engine construction so the first stretched-sample play does not
+/// trigger `LazyLock`'s init closure on the RT path.
+pub fn init_tables() {
+    let _ = &*HANN;
+    let _ = &*OMEGA;
+}
+
 #[derive(Clone, Copy)]
 pub struct StretchState {
     output_buf: [[f32; BUF_LEN]; 2],

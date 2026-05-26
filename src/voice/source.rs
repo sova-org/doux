@@ -2,6 +2,8 @@
 
 use std::f32::consts::TAU;
 
+#[cfg(feature = "native")]
+use crate::dsp::log2f;
 use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
 use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
@@ -203,8 +205,7 @@ impl Voice {
                             let speed = if rs.scale_tuning == 1.0 {
                                 ratio
                             } else {
-                                let semitones = 12.0 * ratio.log2();
-                                2.0_f32.powf(semitones * rs.scale_tuning / 12.0)
+                                exp2f(rs.scale_tuning * log2f(ratio))
                             };
                             rs.advance(speed);
                         }

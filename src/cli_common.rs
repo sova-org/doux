@@ -317,15 +317,17 @@ pub fn build_audio_streams(
 
         macro_rules! build_input {
             ($T:ty) => {{
-                let mut scratch: Vec<f32> = Vec::new();
+                // Pre-allocate so the RT callback never grows the heap.
+                // 8192 frames covers all common host buffer sizes.
+                let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                 input_dev.build_input_stream(
                     &input_config.into(),
                     move |data: &[$T], _| {
-                        scratch.resize(data.len(), 0.0);
-                        for (dst, &src) in scratch.iter_mut().zip(data.iter()) {
+                        let usable = data.len().min(scratch.len());
+                        for (dst, &src) in scratch[..usable].iter_mut().zip(data[..usable].iter()) {
                             *dst = <f32 as FromSample<$T>>::from_sample_(src);
                         }
-                        input_producer.push_slice(&scratch);
+                        input_producer.push_slice(&scratch[..usable]);
                     },
                     move |err| match err {
                         cpal::StreamError::DeviceNotAvailable
@@ -373,12 +375,15 @@ pub fn build_audio_streams(
     let nch_in = input_channels.max(1);
     let sr = params.config.sample_rate;
     let ch = params.config.output_channels;
-    let mut scratch = vec![0.0f32; 1024];
+    // Pre-allocate so the RT callback never grows the heap. 8192 frames covers
+    // all common host buffer sizes; mirrors doux-sova's manager.rs sizing.
+    const MAX_BUFFER_FRAMES: usize = 8192;
+    let mut scratch = vec![0.0f32; MAX_BUFFER_FRAMES * nch_in];
     let output_format = params.config.sample_format;
 
     macro_rules! build_output {
         ($T:ty) => {{
-            let mut conv_buf: Vec<f32> = Vec::new();
+            let mut conv_buf: Vec<f32> = vec![0.0f32; MAX_BUFFER_FRAMES * ch];
             let mut panicked = false;
             device.build_output_stream(
                 &params.config.stream_config,
@@ -393,35 +398,35 @@ pub fn build_audio_streams(
                     }
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         crate::dsp::enable_flush_to_zero();
-                        conv_buf.resize(data.len(), 0.0f32);
+                        // Clamp to pre-allocated size: never allocate on the RT thread.
+                        let usable = data.len().min(conv_buf.len());
+                        let conv = &mut conv_buf[..usable];
 
-                        while let Ok(cmd) = cmd_rx.try_recv() {
-                            match cmd {
-                                AudioCmd::Evaluate { path, tick } => {
-                                    let mut event = crate::event::Event::parse(&path, engine.sr);
-                                    if event.tick.is_none() {
-                                        event.tick = tick;
+                        let mut cmd_budget = 64;
+                        while cmd_budget > 0 {
+                            match cmd_rx.try_recv() {
+                                Ok(cmd) => match cmd {
+                                    AudioCmd::DispatchEvent(event) => {
+                                        engine.dispatch_event(event);
                                     }
-                                    engine.dispatch_event(event);
-                                }
-                                AudioCmd::Hush => engine.hush(),
-                                AudioCmd::Panic => engine.panic(),
+                                    AudioCmd::Hush => engine.hush(),
+                                    AudioCmd::Panic => engine.panic(),
+                                },
+                                Err(_) => break,
                             }
+                            cmd_budget -= 1;
                         }
 
-                        let buffer_samples = conv_buf.len() / ch;
-                        let raw_len = buffer_samples * nch_in;
-                        if scratch.len() < raw_len {
-                            scratch.resize(raw_len, 0.0);
-                        }
+                        let buffer_samples = usable / ch;
+                        let raw_len = (buffer_samples * nch_in).min(scratch.len());
                         scratch[..raw_len].fill(0.0);
                         input_consumer.pop_slice(&mut scratch[..raw_len]);
 
                         let buffer_time_ns = (buffer_samples as f64 / sr as f64 * 1e9) as u64;
                         engine.metrics.load.set_buffer_time(buffer_time_ns);
-                        engine.process_block(&mut conv_buf, &[], &scratch[..raw_len]);
+                        engine.process_block(conv, &[], &scratch[..raw_len]);
 
-                        for (out, &src) in data.iter_mut().zip(conv_buf.iter()) {
+                        for (out, &src) in data.iter_mut().zip(conv.iter()) {
                             *out = <$T as FromSample<f32>>::from_sample_(src);
                         }
                     })); // end catch_unwind

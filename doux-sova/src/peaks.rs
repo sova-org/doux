@@ -1,67 +1,44 @@
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const MAX_CHANNELS: usize = 32;
 
 pub struct PeakCapture {
-    buffers: [Box<[f32; MAX_CHANNELS]>; 2],
+    channels: [AtomicU32; MAX_CHANNELS],
     num_channels: usize,
-    write_idx: AtomicU8,
 }
-
-unsafe impl Send for PeakCapture {}
-unsafe impl Sync for PeakCapture {}
 
 impl PeakCapture {
     pub fn new(num_channels: usize) -> Self {
         assert!(num_channels <= MAX_CHANNELS);
         Self {
-            buffers: [Box::new([0.0; MAX_CHANNELS]), Box::new([0.0; MAX_CHANNELS])],
+            channels: [const { AtomicU32::new(0) }; MAX_CHANNELS],
             num_channels,
-            write_idx: AtomicU8::new(0),
         }
     }
 
     /// Called from audio thread: accumulate per-channel peak from interleaved data.
     #[inline]
     pub fn push(&self, data: &[f32], channels: usize) {
-        let buf_idx = self.write_idx.load(Ordering::Relaxed) as usize;
-        let buf_ptr = self.buffers[buf_idx].as_ptr() as *mut f32;
         for frame in data.chunks_exact(channels) {
             for (ch, &sample) in frame.iter().enumerate() {
                 if ch >= self.num_channels {
                     break;
                 }
-                // SAFETY: single writer (audio thread), ch < MAX_CHANNELS
-                unsafe {
-                    let ptr = buf_ptr.add(ch);
-                    let current = *ptr;
-                    let abs = sample.abs();
-                    if abs > current {
-                        *ptr = abs;
-                    }
-                }
+                // `abs()` returns a non-negative f32; for non-negative IEEE 754
+                // floats, `to_bits()` is monotonic in magnitude, so `fetch_max`
+                // on the bit pattern computes the maximum-by-value.
+                let abs_bits = sample.abs().to_bits();
+                self.channels[ch].fetch_max(abs_bits, Ordering::Relaxed);
             }
         }
     }
 
-    /// Called from reader thread: swap buffers, return accumulated peaks, zero consumed buffer.
+    /// Called from reader thread: atomically swap each channel's peak with 0.
     pub fn read_and_reset(&self) -> Vec<f32> {
-        let old = self.write_idx.load(Ordering::Relaxed);
-        let new = 1 - old;
-        // Zero the new write buffer before swapping
-        let new_ptr = self.buffers[new as usize].as_ptr() as *mut f32;
-        for i in 0..self.num_channels {
-            unsafe {
-                *new_ptr.add(i) = 0.0;
-            }
-        }
-        self.write_idx.store(new, Ordering::Release);
-
-        // Read accumulated peaks from old write buffer
-        let old_ptr = self.buffers[old as usize].as_ptr();
         let mut peaks = Vec::with_capacity(self.num_channels);
-        for i in 0..self.num_channels {
-            peaks.push(unsafe { *old_ptr.add(i) });
+        for ch in 0..self.num_channels {
+            let bits = self.channels[ch].swap(0, Ordering::Relaxed);
+            peaks.push(f32::from_bits(bits));
         }
         peaks
     }

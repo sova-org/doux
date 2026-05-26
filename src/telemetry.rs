@@ -312,6 +312,10 @@ pub struct EngineMetrics {
     pub sample_pool_bytes: AtomicU64,
     pub time_bits: AtomicU64,
     pub dropped_events: AtomicU32,
+    /// Count of `AudioCmd` sends that were dropped because the bounded
+    /// command queue was full. Incremented on whichever thread holds the
+    /// sender (OSC receiver, REPL loop, sova receiver). Single relaxed add.
+    pub dropped_cmds: AtomicU32,
 }
 
 impl Default for EngineMetrics {
@@ -325,6 +329,7 @@ impl Default for EngineMetrics {
             sample_pool_bytes: AtomicU64::new(0),
             time_bits: AtomicU64::new(0),
             dropped_events: AtomicU32::new(0),
+            dropped_cmds: AtomicU32::new(0),
         }
     }
 }

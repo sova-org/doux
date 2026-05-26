@@ -30,11 +30,12 @@
 //! - Supports both single messages and bundles (bundles are flattened)
 
 use crate::time::TimeAnchor;
-use crate::AudioCmd;
-use crossbeam_channel::Sender;
+use crate::{AudioCmd, EngineMetrics};
+use crossbeam_channel::{Sender, TrySendError};
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Maximum UDP packet size for incoming OSC messages.
@@ -50,6 +51,7 @@ pub fn run_recoverable(
     port: u16,
     anchor: TimeAnchor,
     device_lost: &AtomicBool,
+    metrics: Arc<EngineMetrics>,
 ) -> std::io::Result<bool> {
     let addr = format!("0.0.0.0:{port}");
     let socket = UdpSocket::bind(&addr)?;
@@ -64,7 +66,7 @@ pub fn run_recoverable(
         match socket.recv_from(&mut buf) {
             Ok((size, _addr)) => {
                 if let Ok(packet) = rosc::decoder::decode_udp(&buf[..size]) {
-                    handle_packet(&tx, &packet.1, &anchor, None);
+                    handle_packet(&tx, &packet.1, &anchor, None, &metrics);
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -84,25 +86,47 @@ fn handle_packet(
     packet: &OscPacket,
     anchor: &TimeAnchor,
     parent_tick: Option<u64>,
+    metrics: &EngineMetrics,
 ) {
     match packet {
-        OscPacket::Message(msg) => handle_message(tx, msg, parent_tick),
+        OscPacket::Message(msg) => handle_message(tx, msg, anchor, parent_tick, metrics),
         OscPacket::Bundle(bundle) => {
             let tick = anchor
                 .ntp_to_tick(bundle.timetag.seconds, bundle.timetag.fractional)
                 .or(parent_tick);
             for p in &bundle.content {
-                handle_packet(tx, p, anchor, tick);
+                handle_packet(tx, p, anchor, tick, metrics);
             }
         }
     }
 }
 
-/// Converts an OSC message to a path string and sends it as an AudioCmd.
-fn handle_message(tx: &Sender<AudioCmd>, msg: &OscMessage, tick: Option<u64>) {
+/// Converts an OSC message to an `Event` and sends it as an AudioCmd.
+///
+/// `Event::parse` runs here on the OSC receiver thread to keep all allocation
+/// off the audio callback. The bundle-timetag `parent_tick` is applied only
+/// when the message itself did not carry an explicit tick.
+fn handle_message(
+    tx: &Sender<AudioCmd>,
+    msg: &OscMessage,
+    anchor: &TimeAnchor,
+    parent_tick: Option<u64>,
+    metrics: &EngineMetrics,
+) {
     let path = osc_to_path(msg);
-    if !path.is_empty() {
-        let _ = tx.send(AudioCmd::Evaluate { path, tick });
+    if path.is_empty() {
+        return;
+    }
+    let mut event = crate::event::Event::parse(&path, anchor.sample_rate);
+    if event.tick.is_none() {
+        event.tick = parent_tick;
+    }
+    match tx.try_send(AudioCmd::DispatchEvent(event)) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+            metrics.dropped_cmds.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
     }
 }
 

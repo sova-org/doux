@@ -8,6 +8,7 @@ use doux::cli_common::{
     build_audio_streams, init_audio_host, setup_engine_samples, CommonAudioArgs, HostInit,
     StreamParams,
 };
+use doux::types::AUDIO_CMD_QUEUE_DEPTH;
 use doux::{AudioCmd, Engine, EngineConfig, EngineMetrics};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -75,7 +76,7 @@ fn main() {
     println!("Listening for OSC on port {}", args.port);
     println!("Press Ctrl+C to stop");
 
-    let (mut cmd_tx, mut cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+    let (mut cmd_tx, mut cmd_rx) = crossbeam_channel::bounded::<AudioCmd>(AUDIO_CMD_QUEUE_DEPTH);
 
     let stream_params = StreamParams {
         host: &host,
@@ -87,6 +88,7 @@ fn main() {
 
     loop {
         let anchor = engine.time_anchor();
+        let metrics = Arc::clone(engine.metrics());
         let streams = match build_audio_streams(&stream_params, engine, cmd_rx) {
             Ok(s) => s,
             Err(e) => {
@@ -95,8 +97,13 @@ fn main() {
             }
         };
 
-        let lost = match doux::osc::run_recoverable(cmd_tx.clone(), args.port, anchor, &device_lost)
-        {
+        let lost = match doux::osc::run_recoverable(
+            cmd_tx.clone(),
+            args.port,
+            anchor,
+            &device_lost,
+            metrics,
+        ) {
             Ok(lost) => lost,
             Err(e) => {
                 eprintln!("Error binding OSC port {}: {e}", args.port);
@@ -128,7 +135,7 @@ fn main() {
         if let Some(bank) = gm_bank.clone() {
             engine.set_gm_bank(bank);
         }
-        let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+        let (new_tx, new_rx) = crossbeam_channel::bounded::<AudioCmd>(AUDIO_CMD_QUEUE_DEPTH);
         cmd_tx = new_tx;
         cmd_rx = new_rx;
     }

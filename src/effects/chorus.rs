@@ -143,7 +143,9 @@ impl Chorus {
         [mono * MIX + out_l * MIX, mono * MIX + out_r * MIX]
     }
 
-    /// Block-rate stereo processing. Mirrors [`Self::process`] across `n` frames.
+    /// Block-rate stereo processing. Mirrors [`Self::process`] across `n` frames,
+    /// hoisting per-block constants (delay bounds, mod range, mix) out of the loop.
+    /// Body is inlined rather than calling [`Self::process`] to keep those hoists.
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(
@@ -156,8 +158,31 @@ impl Chorus {
         sr: f32,
         isr: f32,
     ) {
+        let depth = depth.clamp(0.0, 1.0);
+        let mod_range = delay_ms * 0.8;
+        let min_delay = 1.5_f32;
+        let max_delay = 50.0_f32.min((BUFFER_SIZE as f32 - 2.0) * 1000.0 / sr);
+        let buf_cap = BUFFER_SIZE as f32 - 2.0;
+        const MIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
         for slot in buf.iter_mut().take(n) {
-            *slot = self.process(slot[0], slot[1], rate, depth, delay_ms, sr, isr);
+            let mono = (slot[0] + slot[1]) * 0.5;
+            self.delay.write(mono);
+            let mut out_l = 0.0_f32;
+            let mut out_r = 0.0_f32;
+            for v in 0..VOICES {
+                let lfo = self.lfo[v].sine(rate, isr);
+                let modulation = depth * mod_range * lfo;
+                let dly_l = (delay_ms + modulation).clamp(min_delay, max_delay);
+                let dly_r = (delay_ms - modulation).clamp(min_delay, max_delay);
+                let samp_l = ms_to_samples(dly_l, sr).clamp(1.0, buf_cap);
+                let samp_r = ms_to_samples(dly_r, sr).clamp(1.0, buf_cap);
+                out_l += self.delay.read(samp_l);
+                out_r += self.delay.read(samp_r);
+            }
+            out_l /= VOICES as f32;
+            out_r /= VOICES as f32;
+            slot[0] = mono * MIX + out_l * MIX;
+            slot[1] = mono * MIX + out_r * MIX;
         }
     }
 }

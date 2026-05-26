@@ -112,6 +112,8 @@ struct CachedParams {
     lowcut: f32,
     highcut: f32,
     lowgain: f32,
+    chorus: f32,
+    chorus_freq: f32,
     // Derived values
     decay_samples: f32,
     high_gain_linear: f32,
@@ -122,6 +124,8 @@ struct CachedParams {
     lowcut_coeff: f32,
     highcut_coeff: f32,
     decay_coeffs: [f32; NUM_LINES],
+    chorus_depth: f32,
+    lfo_inc: f32,
 }
 
 impl CachedParams {
@@ -135,6 +139,8 @@ impl CachedParams {
             lowcut: f32::NAN,
             highcut: f32::NAN,
             lowgain: f32::NAN,
+            chorus: f32::NAN,
+            chorus_freq: f32::NAN,
             decay_samples: 0.0,
             high_gain_linear: 0.0,
             low_gain_linear: 0.0,
@@ -144,6 +150,8 @@ impl CachedParams {
             lowcut_coeff: 0.0,
             highcut_coeff: 0.0,
             decay_coeffs: [0.0; NUM_LINES],
+            chorus_depth: 0.0,
+            lfo_inc: 0.0,
         }
     }
 }
@@ -250,9 +258,10 @@ impl VitalVerb {
 
         // Recompute expensive derived values only when source params change.
         let c = &mut self.cached;
+        let size_changed = c.size != size;
         if c.decay != decay
             || c.damp != damp
-            || c.size != size
+            || size_changed
             || c.lowgain != lowgain
             || c.prelow != prelow
             || c.prehigh != prehigh
@@ -290,6 +299,16 @@ impl VitalVerb {
             }
         }
 
+        if c.chorus != chorus_amt || c.chorus_freq != chorus_freq || size_changed {
+            c.chorus = chorus_amt;
+            c.chorus_freq = chorus_freq;
+            c.chorus_depth = chorus_amt * chorus_amt * 2500.0 * sr_ratio * c.size_mult;
+            // Chorus frequency: exp(remap(0,1,-8,3)) Hz, clamp 16Hz.
+            // exp(x) = exp2(x * LOG2_E)
+            let chorus_hz = exp2f((-8.0 + chorus_freq * 11.0) * std::f32::consts::LOG2_E).min(16.0);
+            c.lfo_inc = chorus_hz / sr;
+        }
+
         let high_gain_linear = c.high_gain_linear;
         let low_gain_linear = c.low_gain_linear;
         let size_mult = c.size_mult;
@@ -297,16 +316,11 @@ impl VitalVerb {
         let prehigh_coeff = c.prehigh_coeff;
         let lowcut_coeff = c.lowcut_coeff;
         let highcut_coeff = c.highcut_coeff;
+        let chorus_depth = c.chorus_depth;
+        let lfo_inc = c.lfo_inc;
 
         // Pre-delay in samples.
         let predelay_samples = predelay * MAX_PREDELAY_SEC * sr;
-
-        // Chorus: x^2 * 2500 * sr_ratio * size_mult.
-        let chorus_depth = chorus_amt * chorus_amt * 2500.0 * sr_ratio * size_mult;
-
-        // Chorus frequency: exp(remap(0,1,-8,3)) Hz, clamp 16Hz.
-        let chorus_hz = (-8.0 + chorus_freq * 11.0).exp().min(16.0);
-        let lfo_inc = chorus_hz / sr;
 
         // --- Step 1: Write input to predelay, read back ---
         let mut predelayed = [0.0; 2];

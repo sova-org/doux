@@ -40,6 +40,7 @@ pub fn create_engine(
     config: OfflineEngineConfig,
     samples_dir: Option<&Path>,
 ) -> Result<Engine, String> {
+    #[cfg_attr(not(feature = "soundfont"), allow(unused_mut))]
     let mut engine = Engine::new(EngineConfig {
         sample_rate: config.sample_rate,
         output_channels: config.channels,

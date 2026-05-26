@@ -33,10 +33,13 @@
 //! Any other input is evaluated as a doux pattern.
 
 use clap::Parser;
+use crossbeam_channel::TrySendError;
 use doux::cli_common::{
     build_audio_streams, init_audio_host, setup_engine_samples, CommonAudioArgs, HostInit,
     StreamParams,
 };
+use doux::event::Event;
+use doux::types::AUDIO_CMD_QUEUE_DEPTH;
 use doux::{AudioCmd, Engine, EngineConfig, EngineMetrics};
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
@@ -206,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device_lost = Arc::new(AtomicBool::new(false));
 
-    let (mut cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+    let (mut cmd_tx, cmd_rx) = crossbeam_channel::bounded::<AudioCmd>(AUDIO_CMD_QUEUE_DEPTH);
 
     let stream_params = StreamParams {
         host: &host,
@@ -234,6 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(streams);
             std::thread::sleep(std::time::Duration::from_secs(1));
 
+            #[cfg_attr(not(feature = "soundfont"), allow(unused_mut))]
             let mut engine = Engine::new(EngineConfig {
                 sample_rate: oc.sample_rate,
                 output_channels: oc.output_channels,
@@ -249,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 engine.set_gm_bank(bank);
             }
             metrics = Arc::clone(engine.metrics());
-            let (new_tx, new_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+            let (new_tx, new_rx) = crossbeam_channel::bounded::<AudioCmd>(AUDIO_CMD_QUEUE_DEPTH);
             cmd_tx = new_tx;
 
             match build_audio_streams(&stream_params, engine, new_rx) {
@@ -268,13 +272,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = rl.add_history_entry(&line);
                 let trimmed = line.trim();
 
+                let send_cmd = |cmd: AudioCmd| match cmd_tx.try_send(cmd) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        metrics.dropped_cmds.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(TrySendError::Disconnected(_)) => {}
+                };
                 match trimmed {
                     ".quit" | ".q" => break,
                     ".reset" | ".r" => {
-                        let _ = cmd_tx.send(AudioCmd::Evaluate {
-                            path: "/doux/reset".into(),
-                            tick: None,
-                        });
+                        let event = Event::parse("/doux/reset", oc.sample_rate);
+                        send_cmd(AudioCmd::DispatchEvent(event));
                     }
                     ".voices" | ".v" => {
                         println!("{}", metrics.active_voices.load(Ordering::Relaxed));
@@ -296,19 +305,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Samples:  {mem:.1} MB");
                     }
                     ".hush" => {
-                        let _ = cmd_tx.send(AudioCmd::Hush);
+                        send_cmd(AudioCmd::Hush);
                     }
                     ".panic" => {
-                        let _ = cmd_tx.send(AudioCmd::Panic);
+                        send_cmd(AudioCmd::Panic);
                     }
                     ".help" | ".h" => {
                         print_help();
                     }
                     s if !s.is_empty() => {
-                        let _ = cmd_tx.send(AudioCmd::Evaluate {
-                            path: s.into(),
-                            tick: None,
-                        });
+                        let event = Event::parse(s, oc.sample_rate);
+                        send_cmd(AudioCmd::DispatchEvent(event));
                     }
                     _ => {}
                 }

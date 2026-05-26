@@ -86,7 +86,7 @@ fn main() {
     #[cfg(feature = "profiling")]
     {
         use doux::telemetry::ProfilePhase;
-        let snap = engine.metrics.profiling_snapshot();
+        let snap = engine.metrics().profiling_snapshot();
         eprintln!("PROFILE total_samples {}", snap.total_samples);
         eprintln!("PROFILE total_blocks {}", snap.total_blocks);
         for phase in ProfilePhase::ALL {

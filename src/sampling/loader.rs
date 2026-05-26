@@ -6,6 +6,7 @@
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -26,6 +27,9 @@ pub struct LoadRequest {
 pub struct SampleLoader {
     tx: Option<Sender<LoadRequest>>,
     handle: Option<JoinHandle<()>>,
+    /// Count of `request` calls that were dropped because the channel was full.
+    /// Incremented on the audio thread (RT-safe: single relaxed atomic add).
+    pub dropped_requests: Arc<AtomicU32>,
 }
 
 impl SampleLoader {
@@ -45,13 +49,15 @@ impl SampleLoader {
         Self {
             tx: Some(tx),
             handle: Some(handle),
+            dropped_requests: Arc::new(AtomicU32::new(0)),
         }
     }
 
     /// Requests a sample to be loaded in the background.
     ///
     /// Returns `true` if the request was queued, `false` if the queue is full.
-    /// Non-blocking: will not wait if the channel is at capacity.
+    /// Non-blocking: will not wait if the channel is at capacity. RT-safe —
+    /// the full-channel path bumps an atomic counter instead of logging.
     pub fn request(&self, name: Arc<str>, path: Arc<PathBuf>, target_sr: f32) -> bool {
         let Some(ref tx) = self.tx else {
             return false;
@@ -63,7 +69,7 @@ impl SampleLoader {
         }) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) => {
-                eprintln!("Sample loader queue full, skipping request");
+                self.dropped_requests.fetch_add(1, Ordering::Relaxed);
                 false
             }
             Err(TrySendError::Disconnected(_)) => false,

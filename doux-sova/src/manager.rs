@@ -27,13 +27,14 @@ use crate::scope::ScopeCapture;
 use crate::time::TimeConverter;
 use crate::worker::{EngineWorker, WorkerTask};
 
+/// Held inline (not boxed) so the audio thread does not deallocate a Box on
+/// receive; the size penalty on the cmd channel is acceptable.
+#[allow(clippy::large_enum_variant)]
 pub enum AudioCmd {
     /// Pre-parsed event — RT-safe, no allocations on the audio thread.
     DispatchEvent(doux::event::Event),
     Hush,
     Panic,
-    SetSampleIndex(Vec<doux::sampling::SampleEntry>),
-    ExtendSampleIndex(Vec<doux::sampling::SampleEntry>),
     #[cfg(feature = "soundfont")]
     InstallSoundfont {
         bank: doux::soundfont::GmBank,
@@ -105,6 +106,10 @@ pub struct DouxManager {
     device_lost: Arc<AtomicBool>,
     master_gain: Arc<AtomicU32>,
     registry: Arc<doux::SampleRegistry>,
+    /// Shared with the engine: worker threads publish a new sample index
+    /// by `store`-ing on this ArcSwap. The audio thread reads via the
+    /// engine's snapshot accessor.
+    sample_index: Arc<doux::arc_swap::ArcSwap<Vec<doux::sampling::SampleEntry>>>,
     worker: Option<EngineWorker>,
 }
 
@@ -254,7 +259,7 @@ impl DouxManager {
             .buffer_size
             .map(|b| b as usize)
             .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
-        let mut engine = Engine::new(EngineConfig {
+        let engine = Engine::new(EngineConfig {
             sample_rate,
             output_channels: actual_channels,
             max_voices: config.max_voices,
@@ -270,7 +275,8 @@ impl DouxManager {
         }
 
         let registry = Arc::clone(engine.sample_registry());
-        spawn_preload(engine.sample_index(), sample_rate, &registry);
+        let sample_index = engine.sample_index_handle();
+        spawn_preload(&engine.sample_index(), sample_rate, &registry);
 
         Ok(Self {
             pending_engine: Some(engine),
@@ -289,6 +295,7 @@ impl DouxManager {
             device_lost: Arc::new(AtomicBool::new(false)),
             master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             registry,
+            sample_index,
             worker: None,
         })
     }
@@ -311,14 +318,23 @@ impl DouxManager {
         let proxy = AudioEngineProxy::new(proxy_tx);
 
         // Create the persistent cmd channel that survives reconnections.
-        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<AudioCmd>();
+        // Bounded queue: drops past capacity bump `EngineMetrics::dropped_cmds`
+        // instead of growing the heap from a runaway sender.
+        let (cmd_tx, cmd_rx) =
+            crossbeam_channel::bounded::<AudioCmd>(doux::types::AUDIO_CMD_QUEUE_DEPTH);
         self.cmd_tx = Some(cmd_tx.clone());
         self.cmd_rx = Some(Arc::new(cmd_rx));
 
         self.build_streams()?;
 
         let time_converter = TimeConverter::new(initial_sync_time);
-        let receiver = SovaReceiver::new(cmd_tx, proxy_rx, time_converter, self.sample_rate as f64);
+        let receiver = SovaReceiver::new(
+            cmd_tx,
+            proxy_rx,
+            time_converter,
+            self.sample_rate as f64,
+            Arc::clone(&self.metrics),
+        );
         let handle = std::thread::spawn(move || receiver.run());
         self.receiver_handle = Some(handle);
 
@@ -398,18 +414,18 @@ impl DouxManager {
 
             macro_rules! build_input {
                 ($T:ty) => {{
-                    // Pre-allocate scratch buffer to avoid allocation on RT thread.
-                    // 8192 covers typical callback sizes; resize() below is a no-op
-                    // as long as the callback buffer doesn't exceed this capacity.
+                    // Pre-allocate scratch so the RT callback never grows the heap.
+                    // Clamp to scratch len: oversize host buffers drop the tail
+                    // instead of triggering a Vec::resize allocation.
                     let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                     input_dev.build_input_stream(
                         &input_cfg.into(),
                         move |data: &[$T], _| {
-                            scratch.resize(data.len(), 0.0);
-                            for (dst, &src) in scratch.iter_mut().zip(data.iter()) {
+                            let usable = data.len().min(scratch.len());
+                            for (dst, &src) in scratch[..usable].iter_mut().zip(data[..usable].iter()) {
                                 *dst = <f32 as FromSample<$T>>::from_sample_(src);
                             }
-                            input_producer.push_slice(&scratch);
+                            input_producer.push_slice(&scratch[..usable]);
                         },
                         move |err| match err {
                             cpal::StreamError::DeviceNotAvailable
@@ -520,12 +536,6 @@ impl DouxManager {
                                         }
                                         AudioCmd::Hush => engine.hush(),
                                         AudioCmd::Panic => engine.panic(),
-                                        AudioCmd::SetSampleIndex(index) => {
-                                            engine.set_sample_index(index);
-                                        }
-                                        AudioCmd::ExtendSampleIndex(entries) => {
-                                            engine.extend_sample_index(entries);
-                                        }
                                         #[cfg(feature = "soundfont")]
                                         AudioCmd::InstallSoundfont { bank, samples } => {
                                             engine.install_soundfont(samples, bank);
@@ -634,7 +644,9 @@ impl DouxManager {
         self.worker = Some(EngineWorker::spawn(
             cmd_tx,
             Arc::clone(&self.registry),
+            Arc::clone(&self.sample_index),
             self.sample_rate,
+            Arc::clone(&self.metrics),
         ));
         self.scope = Some(scope);
         self.peaks = Some(peaks);
@@ -678,7 +690,7 @@ impl DouxManager {
             .buffer_size
             .map(|b| b as usize)
             .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
-        let mut engine = Engine::new(EngineConfig {
+        let engine = Engine::new(EngineConfig {
             sample_rate,
             output_channels: actual_channels,
             max_voices: self.config.max_voices,
@@ -692,7 +704,8 @@ impl DouxManager {
             engine.extend_sample_index(index);
         }
         self.registry = Arc::clone(engine.sample_registry());
-        spawn_preload(engine.sample_index(), sample_rate, &self.registry);
+        self.sample_index = engine.sample_index_handle();
+        spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
         match self.build_streams() {
@@ -744,7 +757,7 @@ impl DouxManager {
             .buffer_size
             .map(|b| b as usize)
             .unwrap_or(doux::types::DEFAULT_BUFFER_SIZE);
-        let mut engine = Engine::new(EngineConfig {
+        let engine = Engine::new(EngineConfig {
             sample_rate,
             output_channels: actual_channels,
             max_voices: config.max_voices,
@@ -759,7 +772,8 @@ impl DouxManager {
             engine.extend_sample_index(index);
         }
         self.registry = Arc::clone(engine.sample_registry());
-        spawn_preload(engine.sample_index(), sample_rate, &self.registry);
+        self.sample_index = engine.sample_index_handle();
+        spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
 
         self.pending_engine = Some(engine);
         self.host_selection = host_selection;
@@ -830,9 +844,9 @@ impl DouxManager {
     }
 
     pub fn clear_samples(&mut self) {
-        if let Some(tx) = &self.cmd_tx {
-            let _ = tx.send(AudioCmd::SetSampleIndex(Vec::new()));
-        }
+        // Direct swap — no audio-thread roundtrip. The old Vec is dropped on
+        // this caller's thread (whichever holds the last Arc).
+        self.sample_index.store(Arc::new(Vec::new()));
     }
 
     pub fn hush(&self) {

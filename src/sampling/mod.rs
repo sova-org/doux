@@ -30,4 +30,4 @@ pub use registry::{SampleData, SampleRegistry};
 #[cfg(feature = "native")]
 pub use source::RegistrySample;
 #[cfg(feature = "native")]
-pub use stretch::StretchState;
+pub use stretch::{init_tables as init_stretch_tables, StretchState};

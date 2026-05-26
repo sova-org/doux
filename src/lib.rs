@@ -29,8 +29,12 @@ pub mod voice;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
+#[allow(clippy::large_enum_variant)]
 pub enum AudioCmd {
-    Evaluate { path: String, tick: Option<u64> },
+    /// Pre-parsed event — RT-safe, no allocations on the audio thread.
+    /// Held inline (not boxed) so the audio thread does not deallocate a
+    /// Box on receive.
+    DispatchEvent(event::Event),
     Hush,
     Panic,
 }
@@ -40,8 +44,13 @@ use event::Event;
 
 use orbit::Orbit;
 
+/// Re-export so downstream crates (e.g. `doux-sova`) can name the swap
+/// type used by [`Engine::sample_index_handle`] without adding `arc-swap`
+/// to their own `Cargo.toml`.
 #[cfg(feature = "native")]
-use recorder::Recorder;
+pub use arc_swap;
+#[cfg(feature = "native")]
+use recorder::{Recorder, RecorderJob, RecorderRtResult, RecorderWorker};
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
 use sampling::SampleEntry;
@@ -183,6 +192,9 @@ pub struct Engine {
     pub(crate) sample_pool: SamplePool,
     #[cfg(not(feature = "native"))]
     pub(crate) samples: Vec<SampleInfo>,
+    #[cfg(feature = "native")]
+    pub(crate) sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>>,
+    #[cfg(not(feature = "native"))]
     pub(crate) sample_index: Vec<SampleEntry>,
     #[cfg(feature = "native")]
     pub(crate) sample_registry: Arc<SampleRegistry>,
@@ -190,6 +202,8 @@ pub struct Engine {
     pub(crate) sample_loader: SampleLoader,
     #[cfg(feature = "native")]
     recorder: Recorder,
+    #[cfg(feature = "native")]
+    recorder_worker: RecorderWorker,
     #[cfg(feature = "native")]
     orbit_rec_bus: Vec<f32>,
     #[cfg(feature = "native")]
@@ -216,6 +230,11 @@ fn now_unix_micros() -> u64 {
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         dsp::fft::init_twiddles();
+        // Eagerly init stretch's LazyLock tables off the audio thread so the
+        // first stretched-sample play does not pay the init cost on RT.
+        // Stretch lives under `native` only — WASM has no time-stretch path.
+        #[cfg(feature = "native")]
+        sampling::init_stretch_tables();
 
         let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(config.sample_rate));
 
@@ -227,6 +246,15 @@ impl Engine {
             let loader = SampleLoader::new(Arc::clone(&registry));
             (registry, loader)
         };
+
+        #[cfg(feature = "native")]
+        let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> =
+            Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new()));
+        #[cfg(feature = "native")]
+        let recorder_worker = RecorderWorker::spawn(
+            Arc::clone(&sample_registry),
+            Arc::clone(&sample_index),
+        );
 
         Self {
             sr: config.sample_rate,
@@ -246,6 +274,9 @@ impl Engine {
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
             samples: Vec::with_capacity(256),
+            #[cfg(feature = "native")]
+            sample_index,
+            #[cfg(not(feature = "native"))]
             sample_index: Vec::new(),
             #[cfg(feature = "native")]
             sample_registry,
@@ -253,6 +284,8 @@ impl Engine {
             sample_loader,
             #[cfg(feature = "native")]
             recorder: Recorder::new(config.sample_rate),
+            #[cfg(feature = "native")]
+            recorder_worker,
             #[cfg(feature = "native")]
             orbit_rec_bus: vec![0.0; MAX_ORBITS * config.host_buffer_size * CHANNELS],
             #[cfg(feature = "native")]
@@ -292,14 +325,51 @@ impl Engine {
         self.active_voices
     }
 
+    /// Snapshot of the sample index.
+    ///
+    /// Native: returns an `arc_swap::Guard` that derefs through
+    /// `Arc<Vec<SampleEntry>>` to `Vec<SampleEntry>` / `[SampleEntry]`. The
+    /// load is a single atomic op — RT-safe.
+    #[cfg(feature = "native")]
+    pub fn sample_index(&self) -> arc_swap::Guard<Arc<Vec<SampleEntry>>> {
+        self.sample_index.load()
+    }
+
+    #[cfg(not(feature = "native"))]
     pub fn sample_index(&self) -> &[SampleEntry] {
         &self.sample_index
     }
 
+    /// Handle to the swappable sample-index slot. Worker threads clone this
+    /// to publish a new index without going through the RT thread.
+    #[cfg(feature = "native")]
+    pub fn sample_index_handle(&self) -> Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> {
+        Arc::clone(&self.sample_index)
+    }
+
+    /// Atomically replaces the sample index. `&self` — interior mutation via
+    /// `ArcSwap`. The previous `Vec` is dropped on whichever thread drops the
+    /// last `Arc`; for the worker-driven flow, that's the worker.
+    #[cfg(feature = "native")]
+    pub fn set_sample_index(&self, index: Vec<SampleEntry>) {
+        self.sample_index.store(Arc::new(index));
+    }
+
+    #[cfg(not(feature = "native"))]
     pub fn set_sample_index(&mut self, index: Vec<SampleEntry>) {
         self.sample_index = index;
     }
 
+    /// Appends `entries` to the sample index. Clones the current Vec on the
+    /// caller's thread (off the RT path).
+    #[cfg(feature = "native")]
+    pub fn extend_sample_index<I: IntoIterator<Item = SampleEntry>>(&self, entries: I) {
+        let mut new_index = (*self.sample_index.load_full()).clone();
+        new_index.extend(entries);
+        self.sample_index.store(Arc::new(new_index));
+    }
+
+    #[cfg(not(feature = "native"))]
     pub fn extend_sample_index<I: IntoIterator<Item = SampleEntry>>(&mut self, entries: I) {
         self.sample_index.extend(entries);
     }
@@ -375,8 +445,11 @@ impl Engine {
 
     /// Look up sample folder/n (e.g., "wave_tek/3"). `n` wraps via modulo over the folder count.
     /// Walks the index twice (count, then find) — but each walk is O(n) and shared by all callers.
+    ///
+    /// Returns a cloned [`SampleEntry`] (two `Arc` clones) so the caller does
+    /// not need to keep the [`arc_swap::Guard`] alive.
     #[cfg(feature = "native")]
-    fn lookup_sample_entry(&self, name: &str, n: usize) -> Option<&SampleEntry> {
+    fn lookup_sample_entry(&self, name: &str, n: usize) -> Option<SampleEntry> {
         let name_bytes = name.as_bytes();
         let name_len = name.len();
         let matches = |e: &SampleEntry| {
@@ -384,23 +457,24 @@ impl Engine {
                 && e.name.as_bytes()[name_len] == b'/'
                 && e.name.as_bytes().starts_with(name_bytes)
         };
-        let count = self.sample_index.iter().filter(|e| matches(e)).count();
+        let index = self.sample_index.load();
+        let count = index.iter().filter(|e| matches(e)).count();
         if count == 0 {
             return None;
         }
         let wrapped_n = n % count;
-        self.sample_index
+        index
             .iter()
             .find(|e| matches(e) && e.name[name_len + 1..].parse::<usize>().ok() == Some(wrapped_n))
+            .cloned()
     }
 
     /// Try to get a sample from the registry, or request background loading.
     #[cfg(feature = "native")]
     fn get_registry_sample(&mut self, name: &str, n: usize) -> Option<(Arc<str>, Arc<SampleData>)> {
-        let (sample_name, path) = {
-            let entry = self.lookup_sample_entry(name, n)?;
-            (Arc::clone(&entry.name), Arc::clone(&entry.path))
-        };
+        let entry = self.lookup_sample_entry(name, n)?;
+        let sample_name = entry.name;
+        let path = entry.path;
 
         if let Some(data) = self.sample_registry.get(sample_name.as_ref()) {
             if data.frame_count < data.total_frames {
@@ -475,8 +549,9 @@ impl Engine {
 
     /// Dispatch a pre-parsed event.
     ///
-    /// `play` events are RT-safe: sample note-on now reuses pre-owned metadata and
-    /// only clones `Arc` handles on the callback path. `rec` remains non-RT.
+    /// All paths are RT-safe: `play` reuses pre-owned metadata and only clones
+    /// `Arc` handles on the callback path; `rec` hands the captured buffer to
+    /// a background worker for off-RT finalize.
     pub fn dispatch_event(&mut self, event: Event) -> Option<usize> {
         let cmd = event.cmd.as_deref().unwrap_or("play");
 
@@ -484,7 +559,7 @@ impl Engine {
             "play" => self.play_event(event),
             #[cfg(feature = "native")]
             "rec" => {
-                self.handle_rec(&event);
+                self.handle_rec(event);
                 None
             }
             "hush" => {
@@ -544,27 +619,34 @@ impl Engine {
         self.process_event(&event)
     }
 
-    // NOTE: handle_rec allocates (format!, push, insert) but only fires on recording
-    // toggle-off, not per-block. Acceptable for now; defer to worker thread if needed.
+    /// Dispatch a `rec` event on the audio thread.
+    ///
+    /// On stop, the captured buffer is moved into a `RecorderJob` and shipped
+    /// to the recorder worker via `try_send`. The expensive finalize work
+    /// (`SampleData` construction, `SampleRegistry::insert`, `sample_index`
+    /// update) runs entirely off the RT thread. On queue-full the recording
+    /// is dropped and `EngineMetrics::dropped_cmds` is bumped — same policy
+    /// as control→audio cmd drops.
     #[cfg(feature = "native")]
-    fn handle_rec(&mut self, event: &Event) {
+    fn handle_rec(&mut self, mut event: Event) {
         let overdub = event.overdub.unwrap_or(false);
-        let name = event.sound.as_deref();
+        let name = event.sound.take();
         let orbit = event.orbit;
 
-        if self
+        match self
             .recorder
-            .toggle(name, overdub, orbit, &self.sample_registry)
-            .is_some()
+            .toggle_rt(name, overdub, orbit, &self.sample_registry)
         {
-            if let Some((name, data)) = self.recorder.finalize() {
-                let key = format!("{name}/0");
-                self.sample_registry.insert(key.clone(), data);
-                if !self.sample_index.iter().any(|e| e.name.as_ref() == key) {
-                    self.sample_index.push(SampleEntry {
-                        name: Arc::from(key),
-                        path: Arc::new(std::path::PathBuf::new()),
-                    });
+            RecorderRtResult::None => {}
+            RecorderRtResult::Finalized { name, captured } => {
+                if self
+                    .recorder_worker
+                    .try_send(RecorderJob { name, captured })
+                    .is_err()
+                {
+                    self.metrics
+                        .dropped_cmds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }
@@ -1302,13 +1384,15 @@ impl Engine {
         #[cfg(feature = "native")]
         let orbit_rec_bus = &mut self.orbit_rec_bus;
 
+        // Snapshot per-orbit bus values for the current frame so the sidechain
+        // read sees the post-FX state without re-borrowing. Hoisted out of the
+        // per-sample loop: every slot is overwritten each iteration.
+        let mut frame_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
+
         for f in 0..n {
             let base_idx = (start + f) * output_channels;
             let sample_idx = start + f;
 
-            // Snapshot per-orbit bus values for this frame so the sidechain
-            // read sees the post-FX state without re-borrowing.
-            let mut frame_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
             for (oi, orbit) in orbits.iter().enumerate() {
                 frame_bus[oi] = orbit.bus[f];
             }

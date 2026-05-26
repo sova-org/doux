@@ -9,6 +9,12 @@ pub const DEFAULT_MAX_VOICES: usize = 32;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_ORBITS: usize = 8;
 
+/// Bound on the control→audio command channel. Larger than the per-block
+/// drain budget (64) so a few backed-up events survive one slow callback;
+/// finite so a runaway sender cannot drag the system into unbounded growth.
+/// Drops past this cap are counted in `EngineMetrics::dropped_cmds`.
+pub const AUDIO_CMD_QUEUE_DEPTH: usize = 256;
+
 /// Hard ceiling for the DSP inner-block size (`Engine::dsp_block_size`).
 /// Sizes per-voice and per-orbit scratch buffers.
 pub const MAX_BLOCK: usize = 256;
