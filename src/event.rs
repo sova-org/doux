@@ -210,6 +210,8 @@ pub struct Event {
 
     // Recorder
     pub overdub: Option<bool>,
+    // Stop the active recording (paired stop verbs: endrec/endorec/enddub).
+    pub rec_stop: Option<bool>,
 
     // Live input channel selection
     pub inchan: Option<usize>,
@@ -436,6 +438,7 @@ impl Event {
                 "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
                 "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
+                "endrec" => event.rec_stop = Some(val == "1" || val == "true"),
                 "inchan" => event.inchan = Self::parse_usize(val),
                 _ => {}
             }
@@ -501,6 +504,32 @@ mod tests {
         let (b, end) = e.resolve_range();
         assert!((b - 0.1).abs() < 1e-6);
         assert!((end - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rec_start_captures_name() {
+        let e = Event::parse("/doux/rec/loop", SR);
+        assert_eq!(e.cmd.as_deref(), Some("rec"));
+        assert_eq!(e.sound.as_deref(), Some("loop"));
+        assert_eq!(e.rec_stop, None);
+    }
+
+    #[test]
+    fn rec_stop_sets_flag_not_name() {
+        let e = Event::parse("/doux/rec/endrec/1", SR);
+        assert_eq!(e.cmd.as_deref(), Some("rec"));
+        assert_eq!(e.rec_stop, Some(true));
+        assert_eq!(e.sound, None);
+    }
+
+    #[test]
+    fn rec_orbit_and_overdub() {
+        let e = Event::parse("/doux/rec/drums/orbit/0", SR);
+        assert_eq!(e.sound.as_deref(), Some("drums"));
+        assert_eq!(e.orbit, Some(0));
+        let d = Event::parse("/doux/rec/loop/overdub/1", SR);
+        assert_eq!(d.sound.as_deref(), Some("loop"));
+        assert_eq!(d.overdub, Some(true));
     }
 
     #[test]

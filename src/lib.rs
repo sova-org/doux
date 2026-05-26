@@ -50,7 +50,7 @@ use orbit::Orbit;
 #[cfg(feature = "native")]
 pub use arc_swap;
 #[cfg(feature = "native")]
-use recorder::{Recorder, RecorderJob, RecorderRtResult, RecorderWorker};
+use recorder::Recorder;
 #[cfg(feature = "native")]
 use sampling::RegistrySample;
 use sampling::SampleEntry;
@@ -203,8 +203,6 @@ pub struct Engine {
     #[cfg(feature = "native")]
     recorder: Recorder,
     #[cfg(feature = "native")]
-    recorder_worker: RecorderWorker,
-    #[cfg(feature = "native")]
     orbit_rec_bus: Vec<f32>,
     #[cfg(feature = "native")]
     pub(crate) metrics: Arc<EngineMetrics>,
@@ -251,8 +249,13 @@ impl Engine {
         let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> =
             Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new()));
         #[cfg(feature = "native")]
-        let recorder_worker =
-            RecorderWorker::spawn(Arc::clone(&sample_registry), Arc::clone(&sample_index));
+        let recorder = Recorder::new(
+            config.sample_rate,
+            config.host_buffer_size,
+            Arc::clone(&config.metrics),
+            Arc::clone(&sample_registry),
+            Arc::clone(&sample_index),
+        );
 
         Self {
             sr: config.sample_rate,
@@ -281,9 +284,7 @@ impl Engine {
             #[cfg(feature = "native")]
             sample_loader,
             #[cfg(feature = "native")]
-            recorder: Recorder::new(config.sample_rate),
-            #[cfg(feature = "native")]
-            recorder_worker,
+            recorder,
             #[cfg(feature = "native")]
             orbit_rec_bus: vec![0.0; MAX_ORBITS * config.host_buffer_size * CHANNELS],
             #[cfg(feature = "native")]
@@ -619,34 +620,20 @@ impl Engine {
 
     /// Dispatch a `rec` event on the audio thread.
     ///
-    /// On stop, the captured buffer is moved into a `RecorderJob` and shipped
-    /// to the recorder worker via `try_send`. The expensive finalize work
-    /// (`SampleData` construction, `SampleRegistry::insert`, `sample_index`
-    /// update) runs entirely off the RT thread. On queue-full the recording
-    /// is dropped and `EngineMetrics::dropped_cmds` is bumped — same policy
-    /// as control→audio cmd drops.
+    /// `rec_stop` stops the active recording; otherwise a named `rec`/`dub`
+    /// starts one. The RT side only flips state and pushes samples into the
+    /// capture ring — finalize (`SampleData`, `SampleRegistry::insert`,
+    /// `sample_index` update) and overdub mixing run on the writer thread.
+    /// A nameless start is ignored (the Forth verbs always supply a name).
     #[cfg(feature = "native")]
     fn handle_rec(&mut self, mut event: Event) {
-        let overdub = event.overdub.unwrap_or(false);
-        let name = event.sound.take();
-        let orbit = event.orbit;
-
-        match self
-            .recorder
-            .toggle_rt(name, overdub, orbit, &self.sample_registry)
-        {
-            RecorderRtResult::None => {}
-            RecorderRtResult::Finalized { name, captured } => {
-                if self
-                    .recorder_worker
-                    .try_send(RecorderJob { name, captured })
-                    .is_err()
-                {
-                    self.metrics
-                        .dropped_cmds
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
+        if event.rec_stop.unwrap_or(false) {
+            self.recorder.stop();
+            return;
+        }
+        if let Some(name) = event.sound.take() {
+            self.recorder
+                .start(name, event.overdub.unwrap_or(false), event.orbit);
         }
     }
 

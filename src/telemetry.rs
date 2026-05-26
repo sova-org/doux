@@ -1,8 +1,10 @@
 //! Audio engine telemetry. Native only.
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
+#[cfg(feature = "native")]
+use {arc_swap::ArcSwap, std::sync::Arc};
 
 const LOAD_SCALE: f32 = 1_000_000.0; // fixed-point for atomic float storage
 const DEFAULT_SMOOTHING: f32 = 0.6;
@@ -316,6 +318,20 @@ pub struct EngineMetrics {
     /// command queue was full. Incremented on whichever thread holds the
     /// sender (OSC receiver, REPL loop, sova receiver). Single relaxed add.
     pub dropped_cmds: AtomicU32,
+    /// Live recording state for host UIs. Written by the recorder on the RT
+    /// thread (atomics + one small `Arc` store on start/stop); read anywhere.
+    #[cfg(feature = "native")]
+    pub rec_active: AtomicBool,
+    #[cfg(feature = "native")]
+    pub rec_overdub: AtomicBool,
+    /// `u32::MAX` = master (no specific orbit).
+    #[cfg(feature = "native")]
+    pub rec_orbit: AtomicU32,
+    #[cfg(feature = "native")]
+    pub rec_elapsed_frames: AtomicU64,
+    /// Empty string when idle.
+    #[cfg(feature = "native")]
+    pub rec_name: ArcSwap<String>,
 }
 
 impl Default for EngineMetrics {
@@ -330,6 +346,16 @@ impl Default for EngineMetrics {
             time_bits: AtomicU64::new(0),
             dropped_events: AtomicU32::new(0),
             dropped_cmds: AtomicU32::new(0),
+            #[cfg(feature = "native")]
+            rec_active: AtomicBool::new(false),
+            #[cfg(feature = "native")]
+            rec_overdub: AtomicBool::new(false),
+            #[cfg(feature = "native")]
+            rec_orbit: AtomicU32::new(u32::MAX),
+            #[cfg(feature = "native")]
+            rec_elapsed_frames: AtomicU64::new(0),
+            #[cfg(feature = "native")]
+            rec_name: ArcSwap::new(Arc::new(String::new())),
         }
     }
 }
