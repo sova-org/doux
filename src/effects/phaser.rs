@@ -58,11 +58,29 @@ pub struct Phaser {
 }
 
 impl Phaser {
-    /// Processes a block of stereo frames in place on channel `ch`.
-    ///
-    /// `q`, `max_freq`, `sweep_scaled`, and `freq2_offset` hoist to block entry;
-    /// LFO ticks per sample (modulates notch frequency), and the biquad
-    /// `needs_recalc` threshold gates per-sample coefficient recompute.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process(
+        &mut self,
+        input: f32,
+        rate: f32,
+        depth: f32,
+        center: f32,
+        sweep: f32,
+        sr: f32,
+        isr: f32,
+    ) -> f32 {
+        let q = 2.0 - (depth * 2.0).min(1.9);
+        let max_freq = sr * 0.45;
+        let center2 = center + NOTCH_OFFSET;
+        let lfo_val = self.lfo.sine(rate, isr);
+        let detune = exp2f(lfo_val * sweep * (1.0 / 1200.0));
+        let freq1 = (center * detune).clamp(20.0, max_freq);
+        let freq2 = (center2 * detune).clamp(20.0, max_freq);
+        let out = self.notch1.process(input, FilterType::Notch, freq1, q, sr);
+        self.notch2.process(out, FilterType::Notch, freq2, q, sr)
+    }
+
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(
@@ -82,7 +100,6 @@ impl Phaser {
         let center2 = center + NOTCH_OFFSET;
         for slot in buf.iter_mut().take(n) {
             let lfo_val = self.lfo.sine(rate, isr);
-            // Preserve legacy left-to-right product order: ((lfo · sweep) · 1/1200).
             let detune = exp2f(lfo_val * sweep * (1.0 / 1200.0));
             let freq1 = (center * detune).clamp(20.0, max_freq);
             let freq2 = (center2 * detune).clamp(20.0, max_freq);

@@ -42,8 +42,16 @@ pub struct Coarse {
 }
 
 impl Coarse {
-    /// Block-rate variant: processes `n` samples of stereo-frame buffer in place
-    /// on channel `ch`. `factor.max(1.0) as usize` hoists to block entry.
+    #[inline]
+    pub fn process(&mut self, input: f32, factor: f32) -> f32 {
+        let stride = factor.max(1.0) as usize;
+        if self.t == 0 {
+            self.hold = input;
+        }
+        self.t = (self.t + 1) % stride;
+        self.hold
+    }
+
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, factor: f32) {
         let stride = factor.max(1.0) as usize;

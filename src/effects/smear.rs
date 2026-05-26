@@ -81,6 +81,31 @@ impl Default for Smear {
 
 impl Smear {
     #[inline]
+    fn refresh_coeff(&mut self, freq: f32, sr: f32) {
+        if freq != self.cached_freq || sr != self.cached_sr {
+            self.cached_freq = freq;
+            self.cached_sr = sr;
+            let t = (PI * freq / sr).min(PI * 0.4999);
+            let tan_t = fast_tan(t);
+            self.cached_a = (tan_t - 1.0) / (tan_t + 1.0);
+        }
+    }
+
+    #[inline]
+    pub fn process(&mut self, input: f32, mix: f32, freq: f32, feedback: f32, sr: f32) -> f32 {
+        self.refresh_coeff(freq, sr);
+        let a = self.cached_a;
+        let dry = 1.0 - mix;
+        let x = input + self.prev_out * feedback;
+        let mut wet = x;
+        for stage in &mut self.stages {
+            wet = stage.process(wet, a);
+        }
+        self.prev_out = wet;
+        input * dry + wet * mix
+    }
+
+    #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(
         &mut self,
@@ -92,14 +117,7 @@ impl Smear {
         feedback: f32,
         sr: f32,
     ) {
-        if freq != self.cached_freq || sr != self.cached_sr {
-            self.cached_freq = freq;
-            self.cached_sr = sr;
-            let t = (PI * freq / sr).min(PI * 0.4999);
-            let tan_t = fast_tan(t);
-            self.cached_a = (tan_t - 1.0) / (tan_t + 1.0);
-        }
-
+        self.refresh_coeff(freq, sr);
         let a = self.cached_a;
         let dry = 1.0 - mix;
         for slot in buf.iter_mut().take(n) {

@@ -53,10 +53,29 @@ pub struct Flanger {
 }
 
 impl Flanger {
-    /// Processes a block of stereo frames in place on channel `ch`.
-    ///
-    /// `depth_curve`, `feedback` clamp, and `delay_span_ms` hoist to block entry;
-    /// LFO ticks per sample and feedback path stays per-sample.
+    #[inline]
+    pub fn process(
+        &mut self,
+        input: f32,
+        rate: f32,
+        depth: f32,
+        feedback: f32,
+        sr: f32,
+        isr: f32,
+    ) -> f32 {
+        let depth_curve = depth * depth;
+        let span = depth_curve * DELAY_RANGE_MS;
+        let feedback = feedback.clamp(0.0, 0.95);
+        let max_delay_samples = BUFFER_SIZE as f32 - 2.0;
+        let lfo_val = self.lfo.sine(rate, isr);
+        let delay_ms = MIN_DELAY_MS + span * (lfo_val * 0.5 + 0.5);
+        let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, max_delay_samples);
+        let delayed = self.delay.read(delay_samples);
+        self.delay.write(input + self.feedback_sample * feedback);
+        self.feedback_sample = delayed;
+        input * 0.5 + delayed * 0.5
+    }
+
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(

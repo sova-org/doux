@@ -422,7 +422,9 @@ impl DouxManager {
                         &input_cfg.into(),
                         move |data: &[$T], _| {
                             let usable = data.len().min(scratch.len());
-                            for (dst, &src) in scratch[..usable].iter_mut().zip(data[..usable].iter()) {
+                            for (dst, &src) in
+                                scratch[..usable].iter_mut().zip(data[..usable].iter())
+                            {
                                 *dst = <f32 as FromSample<$T>>::from_sample_(src);
                             }
                             input_producer.push_slice(&scratch[..usable]);

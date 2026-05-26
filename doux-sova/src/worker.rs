@@ -113,9 +113,7 @@ fn run(
                                 }) {
                                     Ok(()) => {}
                                     Err(TrySendError::Full(_)) => {
-                                        metrics
-                                            .dropped_cmds
-                                            .fetch_add(1, Ordering::Relaxed);
+                                        metrics.dropped_cmds.fetch_add(1, Ordering::Relaxed);
                                     }
                                     Err(TrySendError::Disconnected(_)) => {}
                                 }

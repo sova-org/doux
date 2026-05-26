@@ -14,8 +14,8 @@ use crate::dsp::{
     cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfCascade, SvfMode, SvfState,
 };
 use crate::effects::{
-    Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode, Phaser, Smear,
-    Tilt, Wrap,
+    distort, Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode, Phaser,
+    Smear, Tilt, Wrap,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -31,6 +31,57 @@ pub(crate) const MAX_ADDITIVE_PARTIALS: usize = 32;
 const VOICE_OUTPUT_TRIM: f32 = 0.5;
 /// `1 / (2π)`: converts radians to turns for phase-modulation math.
 const INV_TAU: f32 = 0.159_154_94;
+
+/// Per-sample voice stages, in execution order. The block-rate program
+/// (`Voice::stage_program`) is a packed list of exactly the stages active
+/// for the current block; the per-sample executor runs them in array order.
+///
+/// Voice-core stages (`PreGain`, `Vca`, `MonoStereo`, `Width`, `Pan`, `Trim`)
+/// always emit. FX stages conditionally emit based on
+/// `(param is set/non-default) OR (a ParamMod targets the stage's gate
+/// param)`. `DcBlock` emits iff any of the distortion-class stages
+/// (`Coarse`/`Crush`/`Fold`/`Wrap`/`Distort`) emit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum Stage {
+    // Pre-VCA — voice-core
+    PreGain,
+    // Pre-VCA — FX
+    Lpf,
+    Hpf,
+    Bpf,
+    SteepLpf,
+    SteepHpf,
+    SteepBpf,
+    LadderLp,
+    LadderHp,
+    LadderBp,
+    Coarse,
+    Crush,
+    Fold,
+    Wrap,
+    Distort,
+    DcBlock,
+    Am,
+    Rm,
+    Phaser,
+    Flanger,
+    Eq,
+    Tilt,
+    Smear,
+    // VCA + stereo finalize — voice-core (except chorus/haas)
+    Vca,
+    MonoStereo,
+    Chorus,
+    Width,
+    Haas,
+    Pan,
+    Trim,
+}
+
+/// Upper bound on stages a voice can emit per block. Sized to the count of
+/// `Stage` variants with room to spare; allocated inline on `Voice`.
+pub(crate) const MAX_STAGES: usize = 32;
 
 #[derive(Clone, Copy)]
 pub(crate) struct AdditiveCache {
@@ -55,12 +106,58 @@ impl Default for AdditiveCache {
     }
 }
 
-/// Layout: hot fields (touched every block, every active voice) cluster at the
-/// top; cold FX state (24 dB/oct cascades, ladder, distortion stages, EQ/tilt,
-/// phaser/flanger/smear/chorus/haas) sits in the cold tail since most voices
-/// run with the FX gates disabled. Reordering recovers cache locality during
-/// the per-voice block kernel: ≈ 5 KiB working set per voice-block including
-/// scratch and orbit bus, fits in the smallest L1d in the target class.
+/// Cold FX state — pre-allocated, heap-owned via [`Voice::fx`]. Pulling it
+/// out of [`Voice`] keeps the hot-voice working set inside L1d when scanning
+/// `active_voices` during the per-block kernel. One indirection per FX
+/// stage per block; per-sample inner loops still touch only their own field.
+#[derive(Clone)]
+pub struct VoiceFxState {
+    pub slp: [SvfCascade; CHANNELS],
+    pub shp: [SvfCascade; CHANNELS],
+    pub sbp: [SvfCascade; CHANNELS],
+    pub ladder_lp: [LadderFilter; CHANNELS],
+    pub ladder_hp: [LadderFilter; CHANNELS],
+    pub ladder_bp: [LadderFilter; CHANNELS],
+    pub coarse: [Coarse; CHANNELS],
+    pub fold_state: [Fold; CHANNELS],
+    pub wrap_state: [Wrap; CHANNELS],
+    pub dc_block: [DcBlocker; CHANNELS],
+    pub eq: [Eq; CHANNELS],
+    pub tilt: [Tilt; CHANNELS],
+    pub phaser: [Phaser; CHANNELS],
+    pub flanger: [Flanger; CHANNELS],
+    pub smear: [Smear; CHANNELS],
+    pub chorus: Chorus,
+    pub haas: Haas,
+}
+
+impl Default for VoiceFxState {
+    fn default() -> Self {
+        Self {
+            slp: [SvfCascade::default(); CHANNELS],
+            shp: [SvfCascade::default(); CHANNELS],
+            sbp: [SvfCascade::default(); CHANNELS],
+            ladder_lp: [LadderFilter::default(); CHANNELS],
+            ladder_hp: [LadderFilter::default(); CHANNELS],
+            ladder_bp: [LadderFilter::default(); CHANNELS],
+            coarse: [Coarse::default(); CHANNELS],
+            fold_state: [Fold::default(); CHANNELS],
+            wrap_state: [Wrap::default(); CHANNELS],
+            dc_block: [DcBlocker::default(); CHANNELS],
+            eq: [Eq::default(); CHANNELS],
+            tilt: [Tilt::default(); CHANNELS],
+            phaser: [Phaser::default(); CHANNELS],
+            flanger: [Flanger::default(); CHANNELS],
+            smear: [Smear::default(); CHANNELS],
+            chorus: Chorus::default(),
+            haas: Haas::default(),
+        }
+    }
+}
+
+/// Layout: hot fields (touched every block, every active voice) cluster on
+/// `Voice`; cold FX state lives behind [`Voice::fx`] (heap-allocated) so the
+/// hot working set stays inside L1d during the per-voice block kernel.
 #[derive(Clone)]
 pub struct Voice {
     // === Hot: source generation + always-active per-block state ===
@@ -83,7 +180,7 @@ pub struct Voice {
     pub fm_fb_prev: f32,
     pub fm_fb_prev2: f32,
     /// Phase-modulation offset applied to the carrier read, in turns.
-    /// Computed once per sample by `compute_freq`; read by `generate_main_osc`.
+    /// Computed once per sample by `tick_fm_pm`; read by `generate_main_osc`.
     pub fm_phase_mod: f32,
     pub am_lfo: Phasor,
     pub rm_lfo: Phasor,
@@ -121,26 +218,16 @@ pub struct Voice {
     pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
     pub param_mod_count: u8,
 
-    // === Cold: FX state. Conditional per stage; cold for voices with the
-    // gate disabled. Steep SVF cascades alone are ≈ 504 B; clustering at the
-    // tail keeps the hot working set inside L1d.
-    pub slp: [SvfCascade; CHANNELS],
-    pub shp: [SvfCascade; CHANNELS],
-    pub sbp: [SvfCascade; CHANNELS],
-    pub ladder_lp: [LadderFilter; CHANNELS],
-    pub ladder_hp: [LadderFilter; CHANNELS],
-    pub ladder_bp: [LadderFilter; CHANNELS],
-    pub coarse: [Coarse; CHANNELS],
-    pub fold_state: [Fold; CHANNELS],
-    pub wrap_state: [Wrap; CHANNELS],
-    pub dc_block: [DcBlocker; CHANNELS],
-    pub eq: [Eq; CHANNELS],
-    pub tilt: [Tilt; CHANNELS],
-    pub phaser: [Phaser; CHANNELS],
-    pub flanger: Option<Box<[Flanger; CHANNELS]>>,
-    pub smear: [Smear; CHANNELS],
-    pub chorus: Option<Box<Chorus>>,
-    pub haas: Option<Box<Haas>>,
+    /// Cold FX state — pre-allocated on the heap so the hot voice struct
+    /// stays small. One indirection per FX stage per block; per-sample
+    /// loops still operate on inline fields of `*self.fx`.
+    pub fx: Box<VoiceFxState>,
+
+    /// Per-block stage program. Built by [`Voice::build_stage_program`] at
+    /// the top of each `run_source_block`; iterated by [`Voice::finish_sample`]
+    /// once per sample. Only the first `stage_count` entries are valid.
+    pub(crate) stage_program: [Stage; MAX_STAGES],
+    pub(crate) stage_count: u8,
 }
 
 impl Default for Voice {
@@ -196,23 +283,9 @@ impl Default for Voice {
             drum_svf: SvfState::default(),
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
-            slp: [SvfCascade::default(); CHANNELS],
-            shp: [SvfCascade::default(); CHANNELS],
-            sbp: [SvfCascade::default(); CHANNELS],
-            ladder_lp: [LadderFilter::default(); CHANNELS],
-            ladder_hp: [LadderFilter::default(); CHANNELS],
-            ladder_bp: [LadderFilter::default(); CHANNELS],
-            coarse: [Coarse::default(); CHANNELS],
-            fold_state: [Fold::default(); CHANNELS],
-            wrap_state: [Wrap::default(); CHANNELS],
-            dc_block: [DcBlocker::default(); CHANNELS],
-            eq: [Eq::default(); CHANNELS],
-            tilt: [Tilt::default(); CHANNELS],
-            phaser: [Phaser::default(); CHANNELS],
-            flanger: Some(Box::new([Flanger::default(); CHANNELS])),
-            smear: [Smear::default(); CHANNELS],
-            chorus: Some(Box::new(Chorus::default())),
-            haas: Some(Box::new(Haas::default())),
+            fx: Box::new(VoiceFxState::default()),
+            stage_program: [Stage::PreGain; MAX_STAGES],
+            stage_count: 0,
         }
     }
 }
@@ -257,26 +330,8 @@ impl Voice {
             self.stretch = StretchState::default();
         }
         self.web_sample = None;
-        self.phaser = [Phaser::default(); CHANNELS];
-        if let Some(ref mut f) = self.flanger {
-            **f = [Flanger::default(); CHANNELS];
-        }
-        self.smear = [Smear::default(); CHANNELS];
-        if let Some(ref mut c) = self.chorus {
-            **c = Chorus::default();
-        }
-        self.coarse = [Coarse::default(); CHANNELS];
-        self.fold_state = [Fold::default(); CHANNELS];
-        self.wrap_state = [Wrap::default(); CHANNELS];
-        self.dc_block = [DcBlocker::default(); CHANNELS];
-        self.eq = [Eq::default(); CHANNELS];
-        self.tilt = [Tilt::default(); CHANNELS];
-        if let Some(ref mut h) = self.haas {
-            **h = Haas::default();
-        }
-        self.ladder_lp = [LadderFilter::default(); CHANNELS];
-        self.ladder_hp = [LadderFilter::default(); CHANNELS];
-        self.ladder_bp = [LadderFilter::default(); CHANNELS];
+        // Clear all cold FX state in one go — no reallocation.
+        *self.fx = VoiceFxState::default();
         self.param_mods = [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS];
         self.param_mod_count = 0;
         self.triggered = false;
@@ -291,6 +346,7 @@ impl Voice {
         self.sr = 44100.0;
         self.seed = 123456789;
         self.drum_svf = SvfState::default();
+        self.stage_count = 0;
     }
 
     /// No-op: effects are pre-allocated at init.
@@ -443,15 +499,895 @@ impl Voice {
         }
     }
 
-    /// Block-rate param-mod application. Advances each `ParamMod` by `n` per-sample
-    /// steps internally and writes the post-block value to its target once.
+    /// True if any active `ParamMod` targets `id` (the stage's gate param).
     #[inline]
-    fn apply_mods_block(&mut self, isr: f32, n: usize) {
+    fn mod_targets(&self, id: ParamId) -> bool {
+        for k in 0..self.param_mod_count as usize {
+            if self.param_mods[k].0 == id {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Build the per-block stage program: a packed list of exactly the
+    /// stages this voice needs this block. Called once per block before the
+    /// per-sample source loop; iterated by [`Voice::finish_sample`].
+    ///
+    /// Predicate for each FX stage: `(gate currently on) || mod_targets(gate)`.
+    /// `DcBlock` follows from any of the distortion stages emitting. Voice-core
+    /// stages (`PreGain`, `Vca`, `MonoStereo`, `Width`, `Pan`, `Trim`) always
+    /// emit; their per-sample bodies still default-gate `width != 1` /
+    /// `pan != 0.5` / `spread > 0`, so default values are essentially free.
+    pub(crate) fn build_stage_program(&mut self) {
+        let coarse = self.params.coarse.is_some() || self.mod_targets(ParamId::Coarse);
+        let crush = self.params.crush.is_some() || self.mod_targets(ParamId::Crush);
+        let fold = self.params.fold.is_some() || self.mod_targets(ParamId::Fold);
+        let wrap = self.params.wrap.is_some() || self.mod_targets(ParamId::Wrap);
+        let distort = self.params.distort.is_some() || self.mod_targets(ParamId::Distort);
+        let any_dist = coarse || crush || fold || wrap || distort;
+
+        let mut count = 0_u8;
+        macro_rules! push {
+            ($s:expr) => {{
+                self.stage_program[count as usize] = $s;
+                count += 1;
+            }};
+        }
+
+        push!(Stage::PreGain);
+
+        if self.params.lpf.is_some() || self.mod_targets(ParamId::Lpf) {
+            push!(Stage::Lpf);
+        }
+        if self.params.hpf.is_some() || self.mod_targets(ParamId::Hpf) {
+            push!(Stage::Hpf);
+        }
+        if self.params.bpf.is_some() || self.mod_targets(ParamId::Bpf) {
+            push!(Stage::Bpf);
+        }
+        if self.params.slpf.is_some() || self.mod_targets(ParamId::Slpf) {
+            push!(Stage::SteepLpf);
+        }
+        if self.params.shpf.is_some() || self.mod_targets(ParamId::Shpf) {
+            push!(Stage::SteepHpf);
+        }
+        if self.params.sbpf.is_some() || self.mod_targets(ParamId::Sbpf) {
+            push!(Stage::SteepBpf);
+        }
+        if self.params.llpf.is_some() || self.mod_targets(ParamId::Llpf) {
+            push!(Stage::LadderLp);
+        }
+        if self.params.lhpf.is_some() || self.mod_targets(ParamId::Lhpf) {
+            push!(Stage::LadderHp);
+        }
+        if self.params.lbpf.is_some() || self.mod_targets(ParamId::Lbpf) {
+            push!(Stage::LadderBp);
+        }
+
+        if coarse {
+            push!(Stage::Coarse);
+        }
+        if crush {
+            push!(Stage::Crush);
+        }
+        if fold {
+            push!(Stage::Fold);
+        }
+        if wrap {
+            push!(Stage::Wrap);
+        }
+        if distort {
+            push!(Stage::Distort);
+        }
+        if any_dist {
+            push!(Stage::DcBlock);
+        }
+
+        if self.params.am > 0.0 || self.mod_targets(ParamId::Am) {
+            push!(Stage::Am);
+        }
+        if self.params.rm > 0.0 || self.mod_targets(ParamId::Rm) {
+            push!(Stage::Rm);
+        }
+        if self.params.phaser > 0.0 || self.mod_targets(ParamId::Phaser) {
+            push!(Stage::Phaser);
+        }
+        if self.params.flanger > 0.0 || self.mod_targets(ParamId::Flanger) {
+            push!(Stage::Flanger);
+        }
+        if self.params.eqlo != 0.0
+            || self.params.eqmid != 0.0
+            || self.params.eqhi != 0.0
+            || self.mod_targets(ParamId::Eqlo)
+            || self.mod_targets(ParamId::Eqmid)
+            || self.mod_targets(ParamId::Eqhi)
+        {
+            push!(Stage::Eq);
+        }
+        if self.params.tilt != 0.0 || self.mod_targets(ParamId::Tilt) {
+            push!(Stage::Tilt);
+        }
+        if self.params.smear > 0.0 || self.mod_targets(ParamId::Smear) {
+            push!(Stage::Smear);
+        }
+
+        push!(Stage::Vca);
+        push!(Stage::MonoStereo);
+        if self.params.chorus > 0.0 || self.mod_targets(ParamId::Chorus) {
+            push!(Stage::Chorus);
+        }
+        push!(Stage::Width);
+        if self.params.haas > 0.0 || self.mod_targets(ParamId::Haas) {
+            push!(Stage::Haas);
+        }
+        push!(Stage::Pan);
+        push!(Stage::Trim);
+
+        self.stage_count = count;
+    }
+
+    /// Per-sample executor: iterates `self.stage_program[..stage_count]` and
+    /// dispatches each entry through [`Voice::tick_stage`].
+    ///
+    /// Early-exits when `param_mod_count == 0`; that path is handled by
+    /// [`Voice::finish_block`] after the source loop closes, which runs the
+    /// same DSP in block-rate dispatch. With no active mods the two paths
+    /// are mathematically equivalent (filter state machines are identical;
+    /// only loop order changes).
+    #[inline]
+    pub(crate) fn finish_sample(&mut self, env: f32, isr: f32, i: usize) {
+        if self.param_mod_count == 0 {
+            return;
+        }
+        let sr = self.sr;
+        for k in 0..self.stage_count as usize {
+            let stage = self.stage_program[k];
+            self.tick_stage(stage, i, env, sr, isr);
+        }
+    }
+
+    /// Block-rate executor: runs each stage in `stage_program[..stage_count]`
+    /// once over `scratch[..n]`, dispatching to per-stage `process_block`
+    /// APIs. Called from `run_source_block` after the source body has filled
+    /// `scratch[..n]`.
+    ///
+    /// Only active when `param_mod_count == 0`. Per-sample `apply_mods_one`
+    /// would mutate `params` mid-block, so when mods are active the per-sample
+    /// executor in [`Voice::finish_sample`] runs interleaved with the source
+    /// loop. With no mods `params` is stable for the block; block-rate
+    /// dispatch reads each param once at block entry, amortizes coefficient
+    /// recompute, and lets the compiler vectorize the per-stage inner loop.
+    pub(crate) fn finish_block(&mut self, env: &[f32], n: usize, isr: f32) {
+        if self.param_mod_count > 0 {
+            return;
+        }
+        let sr = self.sr;
+        let nch = self.nch;
+        for k in 0..self.stage_count as usize {
+            let stage = self.stage_program[k];
+            self.tick_stage_block(stage, env, n, sr, isr, nch);
+        }
+    }
+
+    /// One block of one stage on `self.scratch[..n]`. Mirrors `tick_stage`
+    /// arms; reads each param once at block entry; inner loop is straight-
+    /// line state update.
+    #[allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+    fn tick_stage_block(
+        &mut self,
+        stage: Stage,
+        env: &[f32],
+        n: usize,
+        sr: f32,
+        isr: f32,
+        nch: usize,
+    ) {
+        match stage {
+            Stage::PreGain => {
+                let gain = self.params.gain;
+                for i in 0..n {
+                    for c in 0..nch {
+                        self.scratch[i][c] *= gain;
+                    }
+                }
+            }
+            Stage::Lpf => {
+                if let Some(lpf) = self.params.lpf {
+                    let q = self.params.lpq;
+                    for c in 0..nch {
+                        self.lp[c].cutoff = lpf;
+                        self.lp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Lp, q, sr);
+                    }
+                }
+            }
+            Stage::Hpf => {
+                if let Some(hpf) = self.params.hpf {
+                    let q = self.params.hpq;
+                    for c in 0..nch {
+                        self.hp[c].cutoff = hpf;
+                        self.hp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Hp, q, sr);
+                    }
+                }
+            }
+            Stage::Bpf => {
+                if let Some(bpf) = self.params.bpf {
+                    let q = self.params.bpq;
+                    for c in 0..nch {
+                        self.bp[c].cutoff = bpf;
+                        self.bp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Bp, q, sr);
+                    }
+                }
+            }
+            Stage::SteepLpf => {
+                if let Some(slpf) = self.params.slpf {
+                    let q = self.params.slpq;
+                    for c in 0..nch {
+                        self.fx.slp[c].cutoff = slpf;
+                        self.fx.slp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            SvfMode::Lp,
+                            q,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::SteepHpf => {
+                if let Some(shpf) = self.params.shpf {
+                    let q = self.params.shpq;
+                    for c in 0..nch {
+                        self.fx.shp[c].cutoff = shpf;
+                        self.fx.shp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            SvfMode::Hp,
+                            q,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::SteepBpf => {
+                if let Some(sbpf) = self.params.sbpf {
+                    let q = self.params.sbpq;
+                    for c in 0..nch {
+                        self.fx.sbp[c].cutoff = sbpf;
+                        self.fx.sbp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            SvfMode::Bp,
+                            q,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::LadderLp => {
+                if let Some(llpf) = self.params.llpf {
+                    let q = self.params.llpq;
+                    for c in 0..nch {
+                        self.fx.ladder_lp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            llpf,
+                            q,
+                            LadderMode::Lp,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::LadderHp => {
+                if let Some(lhpf) = self.params.lhpf {
+                    let q = self.params.lhpq;
+                    for c in 0..nch {
+                        self.fx.ladder_hp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            lhpf,
+                            q,
+                            LadderMode::Hp,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::LadderBp => {
+                if let Some(lbpf) = self.params.lbpf {
+                    let q = self.params.lbpq;
+                    for c in 0..nch {
+                        self.fx.ladder_bp[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            lbpf,
+                            q,
+                            LadderMode::Bp,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::Coarse => {
+                if let Some(factor) = self.params.coarse {
+                    for c in 0..nch {
+                        self.fx.coarse[c].process_block(&mut self.scratch[..n], n, c, factor);
+                    }
+                }
+            }
+            Stage::Crush => {
+                if let Some(crush_bits) = self.params.crush {
+                    let bits = crush_bits.max(1.0);
+                    let x = exp2f(bits - 1.0);
+                    let inv_x = 1.0 / x;
+                    for i in 0..n {
+                        for c in 0..nch {
+                            self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
+                        }
+                    }
+                }
+            }
+            Stage::Fold => {
+                if let Some(amount) = self.params.fold {
+                    for c in 0..nch {
+                        self.fx.fold_state[c].process_block(&mut self.scratch[..n], n, c, amount);
+                    }
+                }
+            }
+            Stage::Wrap => {
+                if let Some(amount) = self.params.wrap {
+                    for c in 0..nch {
+                        self.fx.wrap_state[c].process_block(&mut self.scratch[..n], n, c, amount);
+                    }
+                }
+            }
+            Stage::Distort => {
+                if let Some(amount) = self.params.distort {
+                    let postgain = self.params.distortvol;
+                    for i in 0..n {
+                        for c in 0..nch {
+                            self.scratch[i][c] = distort(self.scratch[i][c], amount, postgain);
+                        }
+                    }
+                }
+            }
+            Stage::DcBlock => {
+                for c in 0..nch {
+                    self.fx.dc_block[c].process_block(&mut self.scratch[..n], n, c);
+                }
+            }
+            Stage::Am => {
+                if self.params.am > 0.0 {
+                    let depth = self.params.amdepth.clamp(0.0, 1.0);
+                    let am = self.params.am;
+                    let shape = self.params.amshape;
+                    for i in 0..n {
+                        let modulator = self.am_lfo.lfo(shape, am, isr);
+                        let factor = 1.0 + modulator * depth;
+                        for c in 0..nch {
+                            self.scratch[i][c] *= factor;
+                        }
+                    }
+                }
+            }
+            Stage::Rm => {
+                if self.params.rm > 0.0 {
+                    let depth = self.params.rmdepth.clamp(0.0, 1.0);
+                    let rm = self.params.rm;
+                    let shape = self.params.rmshape;
+                    for i in 0..n {
+                        let modulator = self.rm_lfo.lfo(shape, rm, isr);
+                        let factor = (1.0 - depth) + modulator * depth;
+                        for c in 0..nch {
+                            self.scratch[i][c] *= factor;
+                        }
+                    }
+                }
+            }
+            Stage::Phaser => {
+                if self.params.phaser > 0.0 {
+                    let rate = self.params.phaser;
+                    let depth = self.params.phaserdepth;
+                    let center = self.params.phasercenter;
+                    let sweep = self.params.phasersweep;
+                    for c in 0..nch {
+                        self.fx.phaser[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            rate,
+                            depth,
+                            center,
+                            sweep,
+                            sr,
+                            isr,
+                        );
+                    }
+                }
+            }
+            Stage::Flanger => {
+                if self.params.flanger > 0.0 {
+                    let rate = self.params.flanger;
+                    let depth = self.params.flangerdepth;
+                    let fb = self.params.flangerfeedback;
+                    for c in 0..nch {
+                        self.fx.flanger[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            rate,
+                            depth,
+                            fb,
+                            sr,
+                            isr,
+                        );
+                    }
+                }
+            }
+            Stage::Eq => {
+                if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
+                    let lo_db = self.params.eqlo;
+                    let mid_db = self.params.eqmid;
+                    let hi_db = self.params.eqhi;
+                    let lo_freq = self.params.eqlofreq;
+                    let mid_freq = self.params.eqmidfreq;
+                    let hi_freq = self.params.eqhifreq;
+                    for c in 0..nch {
+                        self.fx.eq[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            lo_db,
+                            mid_db,
+                            hi_db,
+                            lo_freq,
+                            mid_freq,
+                            hi_freq,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::Tilt => {
+                if self.params.tilt != 0.0 {
+                    let tilt_amt = self.params.tilt;
+                    for c in 0..nch {
+                        self.fx.tilt[c].process_block(&mut self.scratch[..n], n, c, tilt_amt, sr);
+                    }
+                }
+            }
+            Stage::Smear => {
+                if self.params.smear > 0.0 {
+                    let mix = self.params.smear;
+                    let freq = self.params.smearfreq;
+                    let fb = self.params.smearfb;
+                    for c in 0..nch {
+                        self.fx.smear[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            mix,
+                            freq,
+                            fb,
+                            sr,
+                        );
+                    }
+                }
+            }
+            Stage::Vca => {
+                let base = self.params.postgain * self.params.velocity;
+                for i in 0..n {
+                    let g = env[i] * base;
+                    for c in 0..nch {
+                        self.scratch[i][c] *= g;
+                    }
+                }
+            }
+            Stage::MonoStereo => {
+                if nch == 1 {
+                    if self.params.spread > 0.0 {
+                        let base = self.params.postgain * self.params.velocity;
+                        let side_base = self.spread_side * base;
+                        for i in 0..n {
+                            let side = env[i] * side_base;
+                            self.scratch[i][1] = self.scratch[i][0] - side;
+                            self.scratch[i][0] += side;
+                        }
+                    } else {
+                        for i in 0..n {
+                            self.scratch[i][1] = self.scratch[i][0];
+                        }
+                    }
+                }
+            }
+            Stage::Chorus => {
+                if self.params.chorus > 0.0 {
+                    let rate = self.params.chorus;
+                    let depth = self.params.chorusdepth;
+                    let delay_ms = self.params.chorusdelay;
+                    self.fx.chorus.process_block(
+                        &mut self.scratch[..n],
+                        n,
+                        rate,
+                        depth,
+                        delay_ms,
+                        sr,
+                        isr,
+                    );
+                }
+            }
+            Stage::Width => {
+                if self.params.width != 1.0 {
+                    let w = self.params.width.max(0.0);
+                    for i in 0..n {
+                        let mid = (self.scratch[i][0] + self.scratch[i][1]) * 0.5;
+                        let side = (self.scratch[i][0] - self.scratch[i][1]) * 0.5;
+                        self.scratch[i][0] = mid + side * w;
+                        self.scratch[i][1] = mid - side * w;
+                    }
+                }
+            }
+            Stage::Haas => {
+                if self.params.haas > 0.0 {
+                    let ms = self.params.haas;
+                    self.fx
+                        .haas
+                        .process_block(&mut self.scratch[..n], n, ms, sr);
+                }
+            }
+            Stage::Pan => {
+                if self.params.pan != 0.5 {
+                    let pan_pos = self.params.pan * PI / 2.0;
+                    let l = cosf(pan_pos);
+                    let r = sinf(pan_pos);
+                    for i in 0..n {
+                        self.scratch[i][0] *= l;
+                        self.scratch[i][1] *= r;
+                    }
+                }
+            }
+            Stage::Trim => {
+                for i in 0..n {
+                    for c in 0..CHANNELS {
+                        self.scratch[i][c] *= VOICE_OUTPUT_TRIM;
+                    }
+                }
+            }
+        }
+    }
+
+    /// One sample of one stage on `self.scratch[i]`. Match-on-`Stage` compiles
+    /// to a jump table; the dispatch sequence is identical for every sample
+    /// of a given block, so the indirect branch predicts cleanly.
+    #[inline]
+    #[allow(clippy::needless_range_loop)]
+    fn tick_stage(&mut self, stage: Stage, i: usize, env: f32, sr: f32, isr: f32) {
+        let nch = self.nch;
+        match stage {
+            Stage::PreGain => {
+                let gain = self.params.gain;
+                for c in 0..nch {
+                    self.scratch[i][c] *= gain;
+                }
+            }
+            Stage::Lpf => {
+                if let Some(lpf) = self.params.lpf {
+                    let q = self.params.lpq;
+                    for c in 0..nch {
+                        self.lp[c].cutoff = lpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.lp[c].process(x, SvfMode::Lp, q, sr);
+                    }
+                }
+            }
+            Stage::Hpf => {
+                if let Some(hpf) = self.params.hpf {
+                    let q = self.params.hpq;
+                    for c in 0..nch {
+                        self.hp[c].cutoff = hpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.hp[c].process(x, SvfMode::Hp, q, sr);
+                    }
+                }
+            }
+            Stage::Bpf => {
+                if let Some(bpf) = self.params.bpf {
+                    let q = self.params.bpq;
+                    for c in 0..nch {
+                        self.bp[c].cutoff = bpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.bp[c].process(x, SvfMode::Bp, q, sr);
+                    }
+                }
+            }
+            Stage::SteepLpf => {
+                if let Some(slpf) = self.params.slpf {
+                    let q = self.params.slpq;
+                    for c in 0..nch {
+                        self.fx.slp[c].cutoff = slpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.slp[c].process(x, SvfMode::Lp, q, sr);
+                    }
+                }
+            }
+            Stage::SteepHpf => {
+                if let Some(shpf) = self.params.shpf {
+                    let q = self.params.shpq;
+                    for c in 0..nch {
+                        self.fx.shp[c].cutoff = shpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.shp[c].process(x, SvfMode::Hp, q, sr);
+                    }
+                }
+            }
+            Stage::SteepBpf => {
+                if let Some(sbpf) = self.params.sbpf {
+                    let q = self.params.sbpq;
+                    for c in 0..nch {
+                        self.fx.sbp[c].cutoff = sbpf;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.sbp[c].process(x, SvfMode::Bp, q, sr);
+                    }
+                }
+            }
+            Stage::LadderLp => {
+                if let Some(llpf) = self.params.llpf {
+                    let q = self.params.llpq;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.ladder_lp[c].process(x, llpf, q, LadderMode::Lp, sr);
+                    }
+                }
+            }
+            Stage::LadderHp => {
+                if let Some(lhpf) = self.params.lhpf {
+                    let q = self.params.lhpq;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.ladder_hp[c].process(x, lhpf, q, LadderMode::Hp, sr);
+                    }
+                }
+            }
+            Stage::LadderBp => {
+                if let Some(lbpf) = self.params.lbpf {
+                    let q = self.params.lbpq;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.ladder_bp[c].process(x, lbpf, q, LadderMode::Bp, sr);
+                    }
+                }
+            }
+            Stage::Coarse => {
+                if let Some(coarse_factor) = self.params.coarse {
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.coarse[c].process(x, coarse_factor);
+                    }
+                }
+            }
+            Stage::Crush => {
+                if let Some(crush_bits) = self.params.crush {
+                    let bits = crush_bits.max(1.0);
+                    let x = exp2f(bits - 1.0);
+                    let inv_x = 1.0 / x;
+                    for c in 0..nch {
+                        self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
+                    }
+                }
+            }
+            Stage::Fold => {
+                if let Some(fold_amount) = self.params.fold {
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.fold_state[c].process(x, fold_amount);
+                    }
+                }
+            }
+            Stage::Wrap => {
+                if let Some(wrap_amount) = self.params.wrap {
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.wrap_state[c].process(x, wrap_amount);
+                    }
+                }
+            }
+            Stage::Distort => {
+                if let Some(dist_amount) = self.params.distort {
+                    let postgain = self.params.distortvol;
+                    for c in 0..nch {
+                        self.scratch[i][c] = distort(self.scratch[i][c], dist_amount, postgain);
+                    }
+                }
+            }
+            Stage::DcBlock => {
+                // Only meaningful when a distortion stage actually ran on this
+                // sample. Cheap enough to always run when emitted; the cost
+                // is one IIR step per channel.
+                for c in 0..nch {
+                    let x = self.scratch[i][c];
+                    self.scratch[i][c] = self.fx.dc_block[c].process(x);
+                }
+            }
+            Stage::Am => {
+                if self.params.am > 0.0 {
+                    let depth = self.params.amdepth.clamp(0.0, 1.0);
+                    let modulator = self.am_lfo.lfo(self.params.amshape, self.params.am, isr);
+                    let factor = 1.0 + modulator * depth;
+                    for c in 0..nch {
+                        self.scratch[i][c] *= factor;
+                    }
+                }
+            }
+            Stage::Rm => {
+                if self.params.rm > 0.0 {
+                    let depth = self.params.rmdepth.clamp(0.0, 1.0);
+                    let modulator = self.rm_lfo.lfo(self.params.rmshape, self.params.rm, isr);
+                    let factor = (1.0 - depth) + modulator * depth;
+                    for c in 0..nch {
+                        self.scratch[i][c] *= factor;
+                    }
+                }
+            }
+            Stage::Phaser => {
+                if self.params.phaser > 0.0 {
+                    let rate = self.params.phaser;
+                    let depth = self.params.phaserdepth;
+                    let center = self.params.phasercenter;
+                    let sweep = self.params.phasersweep;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.phaser[c].process(x, rate, depth, center, sweep, sr, isr);
+                    }
+                }
+            }
+            Stage::Flanger => {
+                if self.params.flanger > 0.0 {
+                    let rate = self.params.flanger;
+                    let depth = self.params.flangerdepth;
+                    let fb = self.params.flangerfeedback;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.flanger[c].process(x, rate, depth, fb, sr, isr);
+                    }
+                }
+            }
+            Stage::Eq => {
+                if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
+                    let lo_db = self.params.eqlo;
+                    let mid_db = self.params.eqmid;
+                    let hi_db = self.params.eqhi;
+                    let lo_freq = self.params.eqlofreq;
+                    let mid_freq = self.params.eqmidfreq;
+                    let hi_freq = self.params.eqhifreq;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.eq[c]
+                            .process(x, lo_db, mid_db, hi_db, lo_freq, mid_freq, hi_freq, sr);
+                    }
+                }
+            }
+            Stage::Tilt => {
+                if self.params.tilt != 0.0 {
+                    let tilt_amt = self.params.tilt;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.tilt[c].process(x, tilt_amt, sr);
+                    }
+                }
+            }
+            Stage::Smear => {
+                if self.params.smear > 0.0 {
+                    let mix = self.params.smear;
+                    let freq = self.params.smearfreq;
+                    let fb = self.params.smearfb;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.smear[c].process(x, mix, freq, fb, sr);
+                    }
+                }
+            }
+            Stage::Vca => {
+                let voice_gain = env * self.params.postgain * self.params.velocity;
+                for c in 0..nch {
+                    self.scratch[i][c] *= voice_gain;
+                }
+            }
+            Stage::MonoStereo => {
+                if nch == 1 {
+                    if self.params.spread > 0.0 {
+                        let voice_gain = env * self.params.postgain * self.params.velocity;
+                        let side = self.spread_side * voice_gain;
+                        self.scratch[i][1] = self.scratch[i][0] - side;
+                        self.scratch[i][0] += side;
+                    } else {
+                        self.scratch[i][1] = self.scratch[i][0];
+                    }
+                }
+            }
+            Stage::Chorus => {
+                if self.params.chorus > 0.0 {
+                    let rate = self.params.chorus;
+                    let depth = self.params.chorusdepth;
+                    let delay_ms = self.params.chorusdelay;
+                    let stereo = self.fx.chorus.process(
+                        self.scratch[i][0],
+                        self.scratch[i][1],
+                        rate,
+                        depth,
+                        delay_ms,
+                        sr,
+                        isr,
+                    );
+                    self.scratch[i][0] = stereo[0];
+                    self.scratch[i][1] = stereo[1];
+                }
+            }
+            Stage::Width => {
+                if self.params.width != 1.0 {
+                    let w = self.params.width.max(0.0);
+                    let mid = (self.scratch[i][0] + self.scratch[i][1]) * 0.5;
+                    let side = (self.scratch[i][0] - self.scratch[i][1]) * 0.5;
+                    self.scratch[i][0] = mid + side * w;
+                    self.scratch[i][1] = mid - side * w;
+                }
+            }
+            Stage::Haas => {
+                if self.params.haas > 0.0 {
+                    let ms = self.params.haas;
+                    self.scratch[i][1] = self.fx.haas.process(self.scratch[i][1], ms, sr);
+                }
+            }
+            Stage::Pan => {
+                if self.params.pan != 0.5 {
+                    let pan_pos = self.params.pan * PI / 2.0;
+                    let l = cosf(pan_pos);
+                    let r = sinf(pan_pos);
+                    self.scratch[i][0] *= l;
+                    self.scratch[i][1] *= r;
+                }
+            }
+            Stage::Trim => {
+                for c in 0..CHANNELS {
+                    self.scratch[i][c] *= VOICE_OUTPUT_TRIM;
+                }
+            }
+        }
+    }
+
+    /// Sample-rate param-mod application: ticks each `ParamMod` once and writes
+    /// the result to its target. Called once per sample inside the source loop.
+    #[inline]
+    fn apply_mods_one(&mut self, isr: f32) {
         for i in 0..self.param_mod_count as usize {
             let (id, ref mut m) = self.param_mods[i];
-            let val = m.tick_block(isr, n);
+            let val = m.tick(isr);
             self.write_param(id, val);
         }
+    }
+
+    /// Per-sample voice "pre-source" tick: apply param-mods, tick the FM
+    /// modulator phasors at the pre-vib carrier, advance the vib LFO. Returns
+    /// the post-vib carrier freq for the source body to use.
+    #[inline]
+    pub(crate) fn tick_pre(&mut self, isr: f32) -> f32 {
+        if self.param_mod_count > 0 {
+            self.apply_mods_one(isr);
+        }
+        let pre_vib = self.fm_carrier_freq();
+        self.tick_fm_pm(pre_vib, isr);
+        self.compute_freq_one(isr)
     }
 
     fn write_param(&mut self, id: ParamId, val: f32) {
@@ -549,15 +1485,15 @@ impl Voice {
         }
     }
 
-    /// Block-rate carrier frequency: applies `detune`, `speed`, and `vib` once
-    /// per block. Advances `vib_lfo` by one tick. Stores post-vib freq in
+    /// Per-sample carrier frequency: applies `detune`, `speed`, then ticks the
+    /// vibrato LFO and applies `vibmod`. Stores the post-vib value in
     /// `self.current_freq` and returns it.
     ///
-    /// FM phase modulation is **not** computed here; it runs per-sample inside
-    /// [`Voice::run_source_block`] (see `tick_fm_pm`). The pre-vib carrier freq
-    /// used by FM modulators is recomputed there cheaply (detune + speed; same
-    /// block-rate scalars).
-    fn compute_freq_block(&mut self, isr: f32) -> f32 {
+    /// FM phase modulation runs separately in [`Voice::tick_fm_pm`] and uses the
+    /// pre-vib carrier from [`Voice::fm_carrier_freq`] (detune × speed) to
+    /// preserve the legacy ordering `detune → speed → FM → vib`.
+    #[inline]
+    fn compute_freq_one(&mut self, isr: f32) -> f32 {
         let mut freq = self.params.freq;
         if self.params.detune != 0.0 {
             freq *= exp2f(self.params.detune / 1200.0);
@@ -571,10 +1507,9 @@ impl Voice {
         freq
     }
 
-    /// Pre-vib carrier frequency for FM modulators. Cheap: detune + speed only.
-    /// Block-rate inputs (`self.params.detune`, `self.params.speed`) are stable
-    /// for the whole block after `apply_mods_block` runs, so recomputing here
-    /// avoids stashing the value across calls.
+    /// Pre-vib carrier frequency for FM modulators. `detune × speed` only.
+    /// Called once per sample by the source loop after `apply_mods_one`, so
+    /// any per-sample modulation of `detune` or `speed` is honored.
     #[inline]
     pub(crate) fn fm_carrier_freq(&self) -> f32 {
         let mut f = self.params.freq;
@@ -652,17 +1587,11 @@ impl Voice {
         }
     }
 
-    /// Block-rate preamble: trigger the envelope if needed, advance it `n`
-    /// samples, run param-mods (block-rate), and compute the block-rate carrier
-    /// frequency. Returns the stack-allocated envelope buffer and the post-vib
-    /// carrier freq, or `None` if the envelope is `Off` after the block.
-    ///
-    /// **Bit-identity at `n = 1`**: matches the legacy `prepare_frame` ordering
-    /// — `update` first, `is_off()` check second, then `apply_mods` and
-    /// `compute_freq`. The post-update `is_off()` check is load-bearing: if
-    /// the envelope transitions to `Off` during this sample, the voice is
-    /// considered dead and the caller frees it without producing output.
-    pub(crate) fn prepare_block(&mut self, isr: f32, n: usize) -> Option<([f32; MAX_BLOCK], f32)> {
+    /// Block-rate preamble: trigger the envelope (once) and precompute `n`
+    /// envelope samples into a stack-allocated buffer. Param-mods and carrier
+    /// freq are computed per-sample inside the source loop, so they aren't
+    /// touched here. Returns `None` if the envelope is `Off` after the block.
+    pub(crate) fn prepare_block(&mut self, isr: f32, n: usize) -> Option<[f32; MAX_BLOCK]> {
         if !self.triggered {
             self.trigger_envelopes();
             self.triggered = true;
@@ -684,20 +1613,16 @@ impl Voice {
             return None;
         }
 
-        if self.param_mod_count > 0 {
-            self.apply_mods_block(isr, n);
-        }
-
-        Some((env, self.compute_freq_block(isr)))
+        Some(env)
     }
 
-    /// Orchestrates block-internal voice processing. Returns the number of
+    /// Orchestrates per-voice processing for a block. Returns the number of
     /// samples written to `self.scratch[..n]`. Samples beyond `written` are
     /// zeroed so the caller can mix `self.scratch[..n]` unconditionally.
     ///
-    /// Layout: `prepare_block` → `run_source_block` → `apply_filters_and_effects_block`.
-    /// `#[inline(never)]` because the function is large; inlining at every
-    /// call site would blow the caller's I-cache.
+    /// Layout: `prepare_block` precomputes envelope; `run_source_block` runs
+    /// the per-sample DSP chain (param-mods → vib → source → filters →
+    /// effects) inside its per-variant loops.
     #[inline(never)]
     #[cfg(feature = "native")]
     pub fn process_block(
@@ -713,7 +1638,7 @@ impl Voice {
             n <= MAX_BLOCK,
             "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
-        let Some((env, freq)) = self.prepare_block(isr, n) else {
+        let Some(env) = self.prepare_block(isr, n) else {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];
             }
@@ -721,7 +1646,7 @@ impl Voice {
         };
 
         let written = self.run_source_block(
-            freq,
+            &env,
             isr,
             n,
             web_pcm,
@@ -729,17 +1654,9 @@ impl Voice {
             live_input,
             input_channels,
         );
-        if written == 0 {
-            for i in 0..n {
-                self.scratch[i] = [0.0; CHANNELS];
-            }
-            return 0;
-        }
         for i in written..n {
             self.scratch[i] = [0.0; CHANNELS];
         }
-
-        self.apply_filters_and_effects_block(&env, isr, written);
         written
     }
 
@@ -761,7 +1678,7 @@ impl Voice {
             n <= MAX_BLOCK,
             "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
-        let Some((env, freq)) = self.prepare_block(isr, n) else {
+        let Some(env) = self.prepare_block(isr, n) else {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];
             }
@@ -769,7 +1686,7 @@ impl Voice {
         };
 
         let written = self.run_source_block(
-            freq,
+            &env,
             isr,
             n,
             pool,
@@ -779,381 +1696,10 @@ impl Voice {
             live_input,
             input_channels,
         );
-        if written == 0 {
-            for i in 0..n {
-                self.scratch[i] = [0.0; CHANNELS];
-            }
-            return 0;
-        }
         for i in written..n {
             self.scratch[i] = [0.0; CHANNELS];
         }
-
-        self.apply_filters_and_effects_block(&env, isr, written);
         written
-    }
-
-    /// Block-rate FX chain. **Option/branch hoist**: every `if let Some(...)` /
-    /// `if self.params.X > 0.0` gate evaluates **once** at block entry; each
-    /// enabled FX stage then runs its own `for i in 0..n` inner loop over
-    /// `self.scratch[..n]`. The codegen check at the end of Phase D confirms
-    /// the inner loops are free of `Option`-discriminant tests.
-    ///
-    /// Param-rate boundary (see `to_do.md:158-167`):
-    /// - Block-rate (read from `self.params` once at block entry): all filter
-    ///   cutoffs, distortion threshold/depth, EQ gains, gain/postgain/pan,
-    ///   width, haas, phaser/flanger/smear/chorus rates.
-    /// - Sample-rate (advanced n times inside the kernel): AM/RM modulator
-    ///   LFOs, every DSP feedback path (filters, ladder, phaser, flanger,
-    ///   smear, chorus, haas) — preserved by the per-FX `process_block` calls.
-    #[allow(clippy::needless_range_loop)]
-    pub(crate) fn apply_filters_and_effects_block(&mut self, env_buf: &[f32], isr: f32, n: usize) {
-        let nch = self.nch;
-        let sr = self.sr;
-
-        // Pre-filter gain.
-        let gain = self.params.gain;
-        for frame in self.scratch[..n].iter_mut() {
-            for c in 0..nch {
-                frame[c] *= gain;
-            }
-        }
-
-        // SVF filters (LP → HP → BP). Block-rate cutoff write; coefficient
-        // recompute hoists inside `SvfState::process_block`.
-        if let Some(lpf) = self.params.lpf {
-            let q = self.params.lpq;
-            for c in 0..nch {
-                self.lp[c].cutoff = lpf;
-                self.lp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Lp, q, sr);
-            }
-        }
-        if let Some(hpf) = self.params.hpf {
-            let q = self.params.hpq;
-            for c in 0..nch {
-                self.hp[c].cutoff = hpf;
-                self.hp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Hp, q, sr);
-            }
-        }
-        if let Some(bpf) = self.params.bpf {
-            let q = self.params.bpq;
-            for c in 0..nch {
-                self.bp[c].cutoff = bpf;
-                self.bp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Bp, q, sr);
-            }
-        }
-
-        // Steep SVF cascades (24 dB/oct).
-        if let Some(slpf) = self.params.slpf {
-            let q = self.params.slpq;
-            for c in 0..nch {
-                self.slp[c].cutoff = slpf;
-                self.slp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Lp, q, sr);
-            }
-        }
-        if let Some(shpf) = self.params.shpf {
-            let q = self.params.shpq;
-            for c in 0..nch {
-                self.shp[c].cutoff = shpf;
-                self.shp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Hp, q, sr);
-            }
-        }
-        if let Some(sbpf) = self.params.sbpf {
-            let q = self.params.sbpq;
-            for c in 0..nch {
-                self.sbp[c].cutoff = sbpf;
-                self.sbp[c].process_block(&mut self.scratch[..n], n, c, SvfMode::Bp, q, sr);
-            }
-        }
-
-        // Ladder filters.
-        if let Some(llpf) = self.params.llpf {
-            let q = self.params.llpq;
-            for c in 0..nch {
-                self.ladder_lp[c].process_block(
-                    &mut self.scratch[..n],
-                    n,
-                    c,
-                    llpf,
-                    q,
-                    LadderMode::Lp,
-                    sr,
-                );
-            }
-        }
-        if let Some(lhpf) = self.params.lhpf {
-            let q = self.params.lhpq;
-            for c in 0..nch {
-                self.ladder_hp[c].process_block(
-                    &mut self.scratch[..n],
-                    n,
-                    c,
-                    lhpf,
-                    q,
-                    LadderMode::Hp,
-                    sr,
-                );
-            }
-        }
-        if let Some(lbpf) = self.params.lbpf {
-            let q = self.params.lbpq;
-            for c in 0..nch {
-                self.ladder_bp[c].process_block(
-                    &mut self.scratch[..n],
-                    n,
-                    c,
-                    lbpf,
-                    q,
-                    LadderMode::Bp,
-                    sr,
-                );
-            }
-        }
-
-        // Distortion effects.
-        if let Some(coarse_factor) = self.params.coarse {
-            for c in 0..nch {
-                self.coarse[c].process_block(&mut self.scratch[..n], n, c, coarse_factor);
-            }
-        }
-        if let Some(crush_bits) = self.params.crush {
-            let bits = crush_bits.max(1.0);
-            let x = exp2f(bits - 1.0);
-            let inv_x = 1.0 / x;
-            for frame in self.scratch[..n].iter_mut() {
-                for c in 0..nch {
-                    frame[c] = (frame[c] * x).round() * inv_x;
-                }
-            }
-        }
-        if let Some(fold_amount) = self.params.fold {
-            for c in 0..nch {
-                self.fold_state[c].process_block(&mut self.scratch[..n], n, c, fold_amount);
-            }
-        }
-        if let Some(wrap_amount) = self.params.wrap {
-            for c in 0..nch {
-                self.wrap_state[c].process_block(&mut self.scratch[..n], n, c, wrap_amount);
-            }
-        }
-        if let Some(dist_amount) = self.params.distort {
-            let postgain = self.params.distortvol;
-            let k = dist_amount.max(0.0);
-            let one_plus_k = 1.0 + k;
-            for frame in self.scratch[..n].iter_mut() {
-                for c in 0..nch {
-                    let x = frame[c];
-                    frame[c] = (one_plus_k * x / (1.0 + k * x.abs())) * postgain;
-                }
-            }
-        }
-
-        // DC blocker: only if any distortion stage was active.
-        if self.params.coarse.is_some()
-            || self.params.crush.is_some()
-            || self.params.fold.is_some()
-            || self.params.wrap.is_some()
-            || self.params.distort.is_some()
-        {
-            for c in 0..nch {
-                self.dc_block[c].process_block(&mut self.scratch[..n], n, c);
-            }
-        }
-
-        // AM modulation. LFO ticks per sample; depth/shape/rate are block-rate.
-        if self.params.am > 0.0 {
-            let depth = self.params.amdepth.clamp(0.0, 1.0);
-            let shape = self.params.amshape;
-            let rate = self.params.am;
-            for frame in self.scratch[..n].iter_mut() {
-                let modulator = self.am_lfo.lfo(shape, rate, isr);
-                let factor = 1.0 + modulator * depth;
-                for c in 0..nch {
-                    frame[c] *= factor;
-                }
-            }
-        }
-
-        // Ring modulation.
-        if self.params.rm > 0.0 {
-            let depth = self.params.rmdepth.clamp(0.0, 1.0);
-            let shape = self.params.rmshape;
-            let rate = self.params.rm;
-            let one_minus_depth = 1.0 - depth;
-            for frame in self.scratch[..n].iter_mut() {
-                let modulator = self.rm_lfo.lfo(shape, rate, isr);
-                let factor = one_minus_depth + modulator * depth;
-                for c in 0..nch {
-                    frame[c] *= factor;
-                }
-            }
-        }
-
-        // Phaser.
-        if self.params.phaser > 0.0 {
-            let rate = self.params.phaser;
-            let depth = self.params.phaserdepth;
-            let center = self.params.phasercenter;
-            let sweep = self.params.phasersweep;
-            for c in 0..nch {
-                self.phaser[c].process_block(
-                    &mut self.scratch[..n],
-                    n,
-                    c,
-                    rate,
-                    depth,
-                    center,
-                    sweep,
-                    sr,
-                    isr,
-                );
-            }
-        }
-
-        // Flanger (pre-allocated via `ensure_effects`).
-        if self.params.flanger > 0.0 {
-            if let Some(flanger) = self.flanger.as_mut() {
-                let rate = self.params.flanger;
-                let depth = self.params.flangerdepth;
-                let fb = self.params.flangerfeedback;
-                for c in 0..nch {
-                    flanger[c].process_block(
-                        &mut self.scratch[..n],
-                        n,
-                        c,
-                        rate,
-                        depth,
-                        fb,
-                        sr,
-                        isr,
-                    );
-                }
-            }
-        }
-
-        // EQ.
-        if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
-            let lo_db = self.params.eqlo;
-            let mid_db = self.params.eqmid;
-            let hi_db = self.params.eqhi;
-            let lo_freq = self.params.eqlofreq;
-            let mid_freq = self.params.eqmidfreq;
-            let hi_freq = self.params.eqhifreq;
-            for c in 0..nch {
-                self.eq[c].process_block(
-                    &mut self.scratch[..n],
-                    n,
-                    c,
-                    lo_db,
-                    mid_db,
-                    hi_db,
-                    lo_freq,
-                    mid_freq,
-                    hi_freq,
-                    sr,
-                );
-            }
-        }
-
-        // Tilt.
-        if self.params.tilt != 0.0 {
-            let tilt_amt = self.params.tilt;
-            for c in 0..nch {
-                self.tilt[c].process_block(&mut self.scratch[..n], n, c, tilt_amt, sr);
-            }
-        }
-
-        // Smear.
-        if self.params.smear > 0.0 {
-            let mix = self.params.smear;
-            let freq = self.params.smearfreq;
-            let fb = self.params.smearfb;
-            for c in 0..nch {
-                self.smear[c].process_block(&mut self.scratch[..n], n, c, mix, freq, fb, sr);
-            }
-        }
-
-        // VCA: envelope × postgain × velocity. Envelope is per-sample; postgain
-        // and velocity are block-rate.
-        let gain_block = self.params.postgain * self.params.velocity;
-        for (i, frame) in self.scratch[..n].iter_mut().enumerate() {
-            let voice_gain = env_buf[i] * gain_block;
-            for c in 0..nch {
-                frame[c] *= voice_gain;
-            }
-        }
-
-        // Mono sources: spread or duplicate to stereo. The spread side-signal
-        // is scaled by per-sample voice_gain (matches legacy ordering: spread
-        // applied AFTER VCA, so the side amplitude tracks the envelope).
-        if nch == 1 {
-            if self.params.spread > 0.0 {
-                let spread_side = self.spread_side;
-                for (i, frame) in self.scratch[..n].iter_mut().enumerate() {
-                    let voice_gain = env_buf[i] * gain_block;
-                    let side = spread_side * voice_gain;
-                    frame[1] = frame[0] - side;
-                    frame[0] += side;
-                }
-            } else {
-                for frame in self.scratch[..n].iter_mut() {
-                    frame[1] = frame[0];
-                }
-            }
-        }
-
-        // Chorus (pre-allocated via `ensure_effects`).
-        if self.params.chorus > 0.0 {
-            if let Some(chorus) = self.chorus.as_mut() {
-                let rate = self.params.chorus;
-                let depth = self.params.chorusdepth;
-                let delay_ms = self.params.chorusdelay;
-                for frame in self.scratch[..n].iter_mut() {
-                    let stereo = chorus.process(frame[0], frame[1], rate, depth, delay_ms, sr, isr);
-                    frame[0] = stereo[0];
-                    frame[1] = stereo[1];
-                }
-            }
-        }
-
-        // Stereo width (mid-side matrix).
-        if self.params.width != 1.0 {
-            let w = self.params.width.max(0.0);
-            for frame in self.scratch[..n].iter_mut() {
-                let mid = (frame[0] + frame[1]) * 0.5;
-                let side = (frame[0] - frame[1]) * 0.5;
-                frame[0] = mid + side * w;
-                frame[1] = mid - side * w;
-            }
-        }
-
-        // Haas (pre-allocated via `ensure_effects`).
-        if self.params.haas > 0.0 {
-            if let Some(haas) = self.haas.as_mut() {
-                let ms = self.params.haas;
-                for frame in self.scratch[..n].iter_mut() {
-                    frame[1] = haas.process(frame[1], ms, sr);
-                }
-            }
-        }
-
-        // Panning.
-        if self.params.pan != 0.5 {
-            let pan_pos = self.params.pan * PI / 2.0;
-            let l = cosf(pan_pos);
-            let r = sinf(pan_pos);
-            for frame in self.scratch[..n].iter_mut() {
-                frame[0] *= l;
-                frame[1] *= r;
-            }
-        }
-
-        // Output trim.
-        for frame in self.scratch[..n].iter_mut() {
-            for c in 0..CHANNELS {
-                frame[c] *= VOICE_OUTPUT_TRIM;
-            }
-        }
     }
 }
 

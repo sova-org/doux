@@ -251,10 +251,8 @@ impl Engine {
         let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> =
             Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new()));
         #[cfg(feature = "native")]
-        let recorder_worker = RecorderWorker::spawn(
-            Arc::clone(&sample_registry),
-            Arc::clone(&sample_index),
-        );
+        let recorder_worker =
+            RecorderWorker::spawn(Arc::clone(&sample_registry), Arc::clone(&sample_index));
 
         Self {
             sr: config.sample_rate,
@@ -1289,35 +1287,10 @@ impl Engine {
             #[cfg(all(feature = "native", feature = "profiling"))]
             let written = {
                 use std::time::Instant;
-                let Some((env, freq)) = voice.prepare_block(isr, n) else {
-                    Self::free_voice_in(voices, active_voices, i);
-                    continue;
-                };
-
-                let source_start = Instant::now();
-                let w = voice.run_source_block(
-                    freq,
-                    isr,
-                    n,
-                    web_pcm,
-                    start,
-                    live_input,
-                    input_channels,
-                );
-                *voice_source_ns += source_start.elapsed().as_nanos() as u64;
-
-                if w == 0 {
-                    Self::free_voice_in(voices, active_voices, i);
-                    continue;
-                }
-                // Zero the tail so accumulation reads clean frames.
-                for j in w..n {
-                    voice.scratch[j] = [0.0; CHANNELS];
-                }
-
-                let fx_start = Instant::now();
-                voice.apply_filters_and_effects_block(&env, isr, w);
-                *voice_fx_ns += fx_start.elapsed().as_nanos() as u64;
+                let dsp_start = Instant::now();
+                let w = voice.process_block(n, isr, web_pcm, start, live_input, input_channels);
+                *voice_source_ns += dsp_start.elapsed().as_nanos() as u64;
+                let _ = voice_fx_ns;
                 w
             };
 

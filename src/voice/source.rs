@@ -162,22 +162,15 @@ impl Voice {
         }
     }
 
-    /// Block-rate source generation. Dispatches on `self.params.sound` **once**
-    /// at block entry; each arm runs its own per-sample loop, filling
-    /// `self.scratch[..n]`. Per-sample FM phase modulation ticks inside every
-    /// arm so the FM modulator phasors advance even when the source variant
-    /// doesn't read `self.fm_phase_mod` (matches the legacy `compute_freq`
-    /// ordering exactly).
-    ///
-    /// Returns the number of samples written. Always `n` in this phase — the
-    /// legacy `run_source` returns true unconditionally; sample/sample-stretch
-    /// "done" paths set `force_release` and continue producing zeros until the
-    /// envelope decays.
+    /// Per-sample voice DSP for a block. Dispatch on `self.params.sound` hoists
+    /// outside the per-sample loop. Each iteration:
+    /// `apply_mods → fm tick → vib → source body → filters+effects`.
+    /// Mirrors `main`'s `Voice::process` ordering exactly.
     #[cfg(feature = "native")]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
     pub(crate) fn run_source_block(
         &mut self,
-        freq: f32,
+        env: &[f32],
         isr: f32,
         n: usize,
         _web_pcm: &[f32],
@@ -185,12 +178,12 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> usize {
-        let pre_vib = self.fm_carrier_freq();
+        self.build_stage_program();
         match self.params.sound {
             Source::Gm => {
                 self.nch = CHANNELS;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     if let Some(ref mut rs) = self.registry_sample {
                         let done = rs.is_done();
                         if done {
@@ -212,15 +205,16 @@ impl Voice {
                     } else {
                         self.scratch[i] = [0.0; CHANNELS];
                     }
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::Sample => {
                 self.nch = CHANNELS;
                 let stretch = self.params.stretch;
                 if stretch != 1.0 {
-                    let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let freq = self.tick_pre(isr);
+                        let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
                         let blend = self.sample_blend;
                         match (&self.registry_sample, &self.registry_sample_b) {
                             (Some(_), Some(_)) if blend > 0.0 => {
@@ -269,12 +263,14 @@ impl Voice {
                                 self.scratch[i] = [0.0; CHANNELS];
                             }
                         }
+                        self.finish_sample(env[i], isr, i);
                     }
+                    self.finish_block(env, n, isr);
                     return n;
                 }
-                let speed = freq * INV_MIDDLE_C;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
+                    let speed = freq * INV_MIDDLE_C;
                     let blend = self.sample_blend;
                     match (&mut self.registry_sample, &mut self.registry_sample_b) {
                         (Some(a), Some(b)) if blend > 0.0 => {
@@ -309,20 +305,21 @@ impl Voice {
                             self.scratch[i] = [0.0; CHANNELS];
                         }
                     }
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::Wavetable => {
                 self.nch = CHANNELS;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
-                    let frame = self.run_wavetable(freq, isr);
-                    self.scratch[i] = frame;
+                    let freq = self.tick_pre(isr);
+                    self.scratch[i] = self.run_wavetable(freq, isr);
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::WebSample => {
                 self.nch = CHANNELS;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     if let Some(ref mut ws) = self.web_sample {
                         let done = ws.is_done();
                         if done {
@@ -336,6 +333,7 @@ impl Voice {
                     } else {
                         self.scratch[i] = [0.0; CHANNELS];
                     }
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::LiveInput => {
@@ -344,21 +342,23 @@ impl Voice {
                     self.nch = 1;
                     let ch = chan.min(input_nch - 1);
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let _ = self.tick_pre(isr);
                         let idx = (_sample_idx + i) * input_nch + ch;
                         let v = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
                         self.scratch[i][0] = v;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 } else {
                     self.nch = CHANNELS;
                     let right_off = 1.min(input_nch - 1);
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let _ = self.tick_pre(isr);
                         let base = (_sample_idx + i) * input_nch;
                         self.scratch[i][0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
                         self.scratch[i][1] =
                             live_input.get(base + right_off).copied().unwrap_or(0.0) * 0.7;
+                        self.finish_sample(env[i], isr, i);
                     }
                 }
             }
@@ -371,14 +371,12 @@ impl Voice {
             | Source::Cymbal => {
                 self.nch = 1;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     let s = self.run_drum(freq, isr);
                     self.scratch[i][0] = s;
                     self.scratch[i][1] = 0.0;
-                    // Drum pitch/click envelopes read `self.time` per sample;
-                    // advance inside the block so each sample sees its own
-                    // elapsed-time value (matches legacy per-sample order).
                     self.time += isr;
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             _ => {
@@ -386,31 +384,34 @@ impl Voice {
                 let spread = self.params.spread;
                 if spread > 0.0 {
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let freq = self.tick_pre(isr);
                         let s_main = self.run_spread(freq, isr);
                         let s = self.run_sub(freq, isr, s_main);
                         self.scratch[i][0] = s;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 } else {
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let freq = self.tick_pre(isr);
                         let s_main = self.run_single_osc(freq, isr);
                         let s = self.run_sub(freq, isr, s_main);
                         self.scratch[i][0] = s;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 }
             }
         }
+        self.finish_block(env, n, isr);
         n
     }
 
     #[cfg(not(feature = "native"))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
     pub(crate) fn run_source_block(
         &mut self,
-        freq: f32,
+        env: &[f32],
         isr: f32,
         n: usize,
         pool: &[f32],
@@ -420,12 +421,13 @@ impl Voice {
         live_input: &[f32],
         input_channels: usize,
     ) -> usize {
-        let pre_vib = self.fm_carrier_freq();
+        self.build_stage_program();
         match self.params.sound {
             Source::Sample => {
                 self.nch = CHANNELS;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
+                    let mut wrote = false;
                     if let Some(ref mut fs) = self.file_source {
                         if let Some(info) = samples.get(fs.sample_idx) {
                             let done = fs.is_done();
@@ -438,29 +440,33 @@ impl Voice {
                             if !done {
                                 fs.advance(freq * INV_MIDDLE_C);
                             }
-                            continue;
+                            wrote = true;
                         }
                     }
-                    self.scratch[i] = [0.0; CHANNELS];
+                    if !wrote {
+                        self.scratch[i] = [0.0; CHANNELS];
+                    }
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::Wavetable => {
                 self.nch = CHANNELS;
                 let use_web = self.web_sample.is_some();
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     let frame = if use_web {
                         self.run_wavetable_web(freq, isr, web_pcm)
                     } else {
                         self.run_wavetable_wasm(freq, isr, pool, samples)
                     };
                     self.scratch[i] = frame;
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::WebSample => {
                 self.nch = CHANNELS;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     if let Some(ref mut ws) = self.web_sample {
                         let done = ws.is_done();
                         if done {
@@ -474,6 +480,7 @@ impl Voice {
                     } else {
                         self.scratch[i] = [0.0; CHANNELS];
                     }
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             Source::LiveInput => {
@@ -482,21 +489,23 @@ impl Voice {
                     self.nch = 1;
                     let ch = chan.min(input_nch - 1);
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let _ = self.tick_pre(isr);
                         let idx = (sample_idx + i) * input_nch + ch;
                         let v = live_input.get(idx).copied().unwrap_or(0.0) * 0.7;
                         self.scratch[i][0] = v;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 } else {
                     self.nch = CHANNELS;
                     let right_off = 1.min(input_nch - 1);
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let _ = self.tick_pre(isr);
                         let base = (sample_idx + i) * input_nch;
                         self.scratch[i][0] = live_input.get(base).copied().unwrap_or(0.0) * 0.7;
                         self.scratch[i][1] =
                             live_input.get(base + right_off).copied().unwrap_or(0.0) * 0.7;
+                        self.finish_sample(env[i], isr, i);
                     }
                 }
             }
@@ -509,14 +518,12 @@ impl Voice {
             | Source::Cymbal => {
                 self.nch = 1;
                 for i in 0..n {
-                    self.tick_fm_pm(pre_vib, isr);
+                    let freq = self.tick_pre(isr);
                     let s = self.run_drum(freq, isr);
                     self.scratch[i][0] = s;
                     self.scratch[i][1] = 0.0;
-                    // Drum pitch/click envelopes read `self.time` per sample;
-                    // advance inside the block so each sample sees its own
-                    // elapsed-time value (matches legacy per-sample order).
                     self.time += isr;
+                    self.finish_sample(env[i], isr, i);
                 }
             }
             _ => {
@@ -524,23 +531,26 @@ impl Voice {
                 let spread = self.params.spread;
                 if spread > 0.0 {
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let freq = self.tick_pre(isr);
                         let s_main = self.run_spread(freq, isr);
                         let s = self.run_sub(freq, isr, s_main);
                         self.scratch[i][0] = s;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 } else {
                     for i in 0..n {
-                        self.tick_fm_pm(pre_vib, isr);
+                        let freq = self.tick_pre(isr);
                         let s_main = self.run_single_osc(freq, isr);
                         let s = self.run_sub(freq, isr, s_main);
                         self.scratch[i][0] = s;
                         self.scratch[i][1] = 0.0;
+                        self.finish_sample(env[i], isr, i);
                     }
                 }
             }
         }
+        self.finish_block(env, n, isr);
         n
     }
 

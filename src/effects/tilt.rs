@@ -28,9 +28,13 @@ pub struct Tilt {
 }
 
 impl Tilt {
-    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
-    /// Tilt → dB conversion hoists to block entry; biquad coefficient compute
-    /// hoists inside `Biquad::process_block_with_gain`.
+    #[inline]
+    pub fn process(&mut self, input: f32, tilt: f32, sr: f32) -> f32 {
+        let db = tilt.clamp(-1.0, 1.0) * MAX_DB;
+        self.shelf
+            .process_with_gain(input, FilterType::Highshelf, TILT_FREQ, TILT_Q, db, sr)
+    }
+
     #[inline]
     pub fn process_block(
         &mut self,

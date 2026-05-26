@@ -71,9 +71,38 @@ pub struct Eq {
 }
 
 impl Eq {
-    /// Process a block of stereo frames in place on channel `ch`. Gains are in
-    /// dB (0.0 = bypass). Each band's bypass branch and biquad coefficient
-    /// recompute hoist to block entry.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process(
+        &mut self,
+        input: f32,
+        lo_db: f32,
+        mid_db: f32,
+        hi_db: f32,
+        lo_freq: f32,
+        mid_freq: f32,
+        hi_freq: f32,
+        sr: f32,
+    ) -> f32 {
+        let mut x = input;
+        if lo_db != 0.0 {
+            x = self
+                .lo
+                .process_with_gain(x, FilterType::Lowshelf, lo_freq, SHELF_Q, lo_db, sr);
+        }
+        if mid_db != 0.0 {
+            x = self
+                .mid
+                .process_with_gain(x, FilterType::Peaking, mid_freq, MID_Q, mid_db, sr);
+        }
+        if hi_db != 0.0 {
+            x = self
+                .hi
+                .process_with_gain(x, FilterType::Highshelf, hi_freq, SHELF_Q, hi_db, sr);
+        }
+        x
+    }
+
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(

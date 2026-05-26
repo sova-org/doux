@@ -64,6 +64,16 @@ pub const INFO: ModuleInfo = ModuleInfo {
 /// Guard threshold for the ADAA 0/0 case. Below this, fall back to midpoint.
 const ADAA_EPS: f32 = 1.0e-5;
 
+/// Soft-knee saturation with adjustable drive.
+///
+/// `(1+k)·x / (1 + k·|x|)` with `k = amount` (linear drive). Bounded and
+/// smooth — no anti-aliasing needed.
+#[inline]
+pub fn distort(input: f32, amount: f32, postgain: f32) -> f32 {
+    let k = amount.max(0.0);
+    ((1.0 + k) * input / (1.0 + k * input.abs())) * postgain
+}
+
 /// First-order ADAA state. Caller supplies the nonlinearity's antiderivative
 /// `F` and a midpoint evaluator `f((x + x₋₁)/2)` used when `|Δx|` is too small
 /// for the difference quotient. Param-change detection re-evaluates `F(x₋₁)`
@@ -110,8 +120,13 @@ pub struct Fold {
 }
 
 impl Fold {
-    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
-    /// `k = exp2f(amount * 4) * PI/2` hoists to block entry.
+    #[inline]
+    pub fn process(&mut self, x: f32, amount: f32) -> f32 {
+        let k = exp2f(amount * 4.0) * std::f32::consts::FRAC_PI_2;
+        self.state
+            .step(x, k, |x, k| -cosf(x * k) / k, |x, k| sinf(x * k))
+    }
+
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, amount: f32) {
         let k = exp2f(amount * 4.0) * std::f32::consts::FRAC_PI_2;
@@ -135,8 +150,14 @@ pub struct Wrap {
 }
 
 impl Wrap {
-    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
-    /// `k = 1 + wraps` hoists to block entry.
+    #[inline]
+    pub fn process(&mut self, x: f32, wraps: f32) -> f32 {
+        let k = 1.0 + wraps;
+        self.state.step(x, k, antideriv_wrap, |x, k| {
+            (k * x + 1.0).rem_euclid(2.0) - 1.0
+        })
+    }
+
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, wraps: f32) {
         let k = 1.0 + wraps;
@@ -165,7 +186,15 @@ pub struct DcBlocker {
 }
 
 impl DcBlocker {
-    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
+    #[inline]
+    pub fn process(&mut self, x: f32) -> f32 {
+        const R: f32 = 0.9995;
+        let y = x - self.x_prev + R * self.y_prev;
+        self.x_prev = x;
+        self.y_prev = y;
+        y
+    }
+
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize) {
         const R: f32 = 0.9995;

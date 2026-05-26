@@ -180,11 +180,16 @@ pub struct SvfCascade {
 }
 
 impl SvfCascade {
-    /// Processes `n` samples of stereo-frame buffer in place on channel `ch`.
-    ///
-    /// Composes two `SvfState::process_block` calls; each inner stage hoists its
-    /// own coefficient compute. Stage A uses caller-supplied `q`; stage B fixed
-    /// at `q = 0.13` (near-Butterworth) for clean 24 dB/oct rolloff.
+    /// Per-sample. Stage A uses caller `q`; stage B fixed at near-Butterworth
+    /// `q = 0.13` for a clean 24 dB/oct rolloff.
+    #[inline]
+    pub fn process(&mut self, input: f32, mode: SvfMode, q: f32, sr: f32) -> f32 {
+        self.a.cutoff = self.cutoff;
+        self.b.cutoff = self.cutoff;
+        let y = self.a.process(input, mode, q, sr);
+        self.b.process(y, mode, 0.13, sr)
+    }
+
     #[inline]
     pub fn process_block(
         &mut self,
