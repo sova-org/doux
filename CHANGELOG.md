@@ -7,36 +7,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `EngineConfig` with `EngineConfig::native(sr, channels)` / `EngineConfig::wasm(sr, channels)` builders; `Engine::new(EngineConfig)` is the single constructor
-- Engine accessors: `sample_rate`, `output_channels`, `host_buffer_size`, `inner_block_size`, `max_voices`, `active_voices`, `metrics`, `sample_registry`, `sample_index_handle`, `set_sample_index`, `extend_sample_index`, `set_input_channels`
-- Soundfont API: `install_soundfont`, `gm_bank`, `take_gm_bank`, `set_gm_bank`
-- `dsp::enable_flush_to_zero()` + `ftz()` — FTZ/DAZ on the audio thread to avoid denormal CPU spikes (x86_64 SSE sets MXCSR FZ+DAZ; aarch64 sets FPCR FZ; no-op elsewhere)
-- `pub use arc_swap` re-export
-- `types`: `MAX_BLOCK`, `DEFAULT_DSP_BLOCK_SIZE`, `MAX_SAMPLE_RATE`, `AUDIO_CMD_QUEUE_DEPTH`, `DspBlockSize`
-- Recording-state fields on `EngineMetrics` for host UIs: `rec_active`, `rec_overdub`, `rec_orbit`, `rec_elapsed_frames`, `rec_name` (atomics + `ArcSwap<String>`; written on the RT thread, read anywhere). Native only
+- `EngineConfig` + `native`/`wasm` builders; `Engine::new(EngineConfig)` the single constructor
+- Engine accessors for config, voice counts, metrics, sample registry
+- Soundfont API: `install_soundfont`, `gm_bank`, `set_gm_bank`, `take_gm_bank`
+- `dsp::ftz()` / `enable_flush_to_zero()` — FTZ/DAZ on the audio thread, avoids denormal CPU spikes
+- Recording-state fields on `EngineMetrics` for host UIs (`rec_active`, `rec_orbit`, `rec_elapsed_frames`, `rec_name`, …). Native only
 - `Event::rec_stop` + `endrec` parse key — explicit recording stop
+- `types` block-size/queue constants; `pub use arc_swap`
 
 ### Changed
 
-- **[BREAKING]** `Engine::new(EngineConfig)` replaces `new_with_channels` / `new_with_metrics`
+- **[BREAKING]** `Engine::new(EngineConfig)` replaces `new_with_channels`/`new_with_metrics`
 - **[BREAKING]** `load_soundfont_from_dir` → `install_soundfont`
-- **[BREAKING]** `types` constants renamed: `WASM_BLOCK_SIZE` → `WASM_BUFFER_SIZE`, `DEFAULT_NATIVE_BLOCK_SIZE` → `DEFAULT_BUFFER_SIZE`
-- **[BREAKING]** Recording stop is now an explicit command (`/doux/rec/endrec/1`), not a re-trigger of the start path. `/doux/rec/{name}` always starts; nameless `/doux/rec` is now a no-op (RT-side auto-naming removed)
-- Block-rate voice kernel: voices process in inner DSP blocks (`DEFAULT_DSP_BLOCK_SIZE`) decoupled from the host buffer size; the voice signal chain is rebuilt as a block-built Stage program; effects adapted to block-rate
-- Engine periphery tightened: block-invariant asserts, dead cache dropped, FX buffers scaled to block size
-- Recorder rewritten around a lock-free SPSC ring + dedicated writer thread. The audio thread only pushes captured samples into a pre-faulted ring; the writer drains it off-RT, builds the sample, mixes overdubs, and finalizes into the registry
-- `Recorder` toggle (`toggle_rt`) replaced by explicit `start()` / `stop()` (command-query separation)
-- Overdub mixing moved off the audio thread to the writer
-- 60 s hard recording cap → ~10 min soft safety cap (writer-side)
+- **[BREAKING]** `types` consts renamed (`WASM_BLOCK_SIZE`→`WASM_BUFFER_SIZE`, `DEFAULT_NATIVE_BLOCK_SIZE`→`DEFAULT_BUFFER_SIZE`)
+- **[BREAKING]** Recording stop is explicit (`/doux/rec/endrec/1`); `/doux/rec/{name}` starts, nameless `/doux/rec` is a no-op
+- Block-rate voice kernel: voices run in inner DSP blocks decoupled from host buffer; voice chain rebuilt as a Stage program
+- Engine periphery tightened: block-invariant asserts, dead cache dropped, FX buffers scaled to block
+- Recorder rewritten around a lock-free SPSC ring + writer thread; overdub mix + finalize off the audio thread
+- `Recorder` `toggle_rt` → explicit `start()`/`stop()`
+- Recording cap 60 s → ~10 min (writer-side)
 
 ### Fixed
 
-- Recording is now real-time-safe: the audio thread no longer allocates. Previously every stop did a ~23 MB `Vec::with_capacity`, plus `format!` name allocations and an up-to-23 MB overdub `extend_from_slice`, all inside the audio callback — the source of xruns and JACK/PipeWire watchdog kills (crashes) on Linux
+- Recording is now real-time-safe: the audio thread no longer allocates. Previously every stop allocated ~23 MB in the callback, causing xruns and JACK/PipeWire crashes on Linux
 
 ### Removed
 
-- `Engine::gen_sample`
-- `Recorder::toggle_rt`, `RecorderWorker`, `RecorderJob`, `RecorderRtResult`
+- `Engine::gen_sample`, `Recorder::toggle_rt`, `RecorderWorker`, `RecorderJob`, `RecorderRtResult`
 - RT-side recording auto-naming (`recN`)
 
 ## [0.0.36] - 2026-05-15
