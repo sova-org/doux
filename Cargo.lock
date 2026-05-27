@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "doux"
-version = "0.0.37"
+version = "0.0.38"
 dependencies = [
  "arc-swap",
  "clap",
