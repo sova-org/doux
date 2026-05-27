@@ -10,25 +10,23 @@ order: 115
   import CommandEntry from '$lib/components/CommandEntry.svelte';
 </script>
 
-The recorder captures the master output into a buffer. Send <code>/doux/rec</code> to start, send it again to stop. The buffer is registered as a sample and can be played back with all standard parameters. Maximum 60 seconds. Native only.
+The recorder captures the master output into a buffer. <code>/doux/rec/myloop</code> starts a recording under that name (any name works); a nameless <code>/doux/rec</code> is a no-op. Stop explicitly with <code>/doux/rec/endrec/1</code>. The buffer is registered as a sample under the chosen name and can be played back with all standard parameters. Maximum ~10 minutes. Native only.
 
 <CommandEntry name="rec" type="source">
 
-Toggle recording. Auto-named <code>rec0</code>, <code>rec1</code>, etc. First send starts, second send stops and registers the sample.
-
-<CodeEditor code={`/doux/rec`} rows={2} />
-
-<CodeEditor code={`/s/rec0`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="rec + name" type="source">
-
-Set an explicit name as a positional argument. The recording is registered under that name for playback.
+Start recording under an explicit name, passed as a positional argument. A nameless <code>/doux/rec</code> does nothing. Recording continues until you send <code>endrec</code>.
 
 <CodeEditor code={`/doux/rec/myloop`} rows={2} />
 
 <CodeEditor code={`/s/myloop`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="endrec" type="source">
+
+Stop the active recording and register the captured buffer as a sample. This is the only way to stop — recording no longer toggles.
+
+<CodeEditor code={`/doux/rec/endrec/1`} rows={2} />
 
 </CommandEntry>
 
@@ -44,4 +42,4 @@ Recorded samples work like any other sample: <code>begin</code>, <code>end</code
 
 <CodeEditor code={`/s/myloop/begin/0.25/end/0.75`} rows={2} />
 
-<CodeEditor code={`/s/rec0/speed/0.5/lpf/800/verb/0.3`} rows={2} />
+<CodeEditor code={`/s/myloop/speed/0.5/lpf/800/verb/0.3`} rows={2} />

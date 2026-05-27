@@ -3,6 +3,16 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.38] - 2026-05-27
+
+### Added
+
+- `superpan`/`span` — equal-power azimuth panning (SuperCollider `PanAz`-style) over a ring of output pairs, for multi-speaker setups
+- `superwidth`/`swidth` — number of adjacent output pairs lit (~2 = localised, larger spreads the source wider)
+- `speakers`/`spk` — ordered, 1-based output-pair selection (e.g. `1,3,5,7`); empty = all pairs in order
+- `superpan` and `superwidth` are modulation targets
+- Orbit room-routing: a `superpan` voice's dry stays off the orbit's stereo pair; the wet-only FX return is routed to the room and latched so tails keep flowing after the source stops
+
 ## [0.0.37] - 2026-05-26
 
 ### Added
