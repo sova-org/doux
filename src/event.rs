@@ -1,3 +1,4 @@
+use crate::superpan::SpeakerSet;
 use crate::types::{midi2freq, DelayType, LfoShape, ReverbType, SubWave, SyncMode};
 use crate::voice::{ModChain, ParamId};
 
@@ -176,6 +177,11 @@ pub struct Event {
     // Stereo
     pub width: Option<f32>,
     pub haas: Option<f32>,
+
+    // Multichannel (superpan)
+    pub superpan: Option<f32>,
+    pub superwidth: Option<f32>,
+    pub speakers: Option<SpeakerSet>,
 
     // EQ
     pub eqlo: Option<f32>,
@@ -412,6 +418,9 @@ impl Event {
                 "distortvol" => event.distortvol = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),
                 "haas" => parse_param!(val, haas, ParamId::Haas),
+                "superpan" | "span" => parse_param!(val, superpan, ParamId::Superpan),
+                "superwidth" | "swidth" => parse_param!(val, superwidth, ParamId::Superwidth),
+                "speakers" | "spk" => event.speakers = SpeakerSet::parse(val),
                 "eqlo" => parse_param!(val, eqlo, ParamId::Eqlo),
                 "eqmid" => parse_param!(val, eqmid, ParamId::Eqmid),
                 "eqhi" => parse_param!(val, eqhi, ParamId::Eqhi),

@@ -13,6 +13,7 @@
 //! - **Routing** - orbit assignment, effect sends
 
 use crate::dsp::PhaseShape;
+use crate::superpan::SpeakerSet;
 use crate::types::{LfoShape, Source, SubWave, SyncMode};
 
 /// All parameters that control a voice's sound generation.
@@ -266,6 +267,17 @@ pub struct VoiceParams {
     pub haas: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Multichannel (superpan)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Azimuth pan position around the ring of output pairs (wraps 0..1).
+    /// `None` = disabled; the voice uses stereo `pan` + orbit routing (unchanged).
+    pub superpan: Option<f32>,
+    /// `superpan` width: number of adjacent output pairs lit (~2 = localised).
+    pub superwidth: f32,
+    /// Ordered output-pair set the `superpan` spans. Empty = all pairs.
+    pub speakers: SpeakerSet,
+
+    // ─────────────────────────────────────────────────────────────────────
     // EQ
     // ─────────────────────────────────────────────────────────────────────
     /// 3-band EQ low shelf gain in dB. 0.0 = flat.
@@ -386,6 +398,9 @@ impl Default for VoiceParams {
             distortvol: 1.0,
             width: 1.0,
             haas: 0.0,
+            superpan: None,
+            superwidth: 2.0,
+            speakers: SpeakerSet::empty(),
             eqlo: 0.0,
             eqmid: 0.0,
             eqhi: 0.0,

@@ -496,6 +496,8 @@ impl Voice {
             ParamId::EqLoFreq => self.params.eqlofreq,
             ParamId::EqMidFreq => self.params.eqmidfreq,
             ParamId::EqHiFreq => self.params.eqhifreq,
+            ParamId::Superpan => self.params.superpan.unwrap_or(0.0),
+            ParamId::Superwidth => self.params.superwidth,
         }
     }
 
@@ -1482,6 +1484,8 @@ impl Voice {
             ParamId::EqLoFreq => self.params.eqlofreq = val,
             ParamId::EqMidFreq => self.params.eqmidfreq = val,
             ParamId::EqHiFreq => self.params.eqhifreq = val,
+            ParamId::Superpan => self.params.superpan = Some(val),
+            ParamId::Superwidth => self.params.superwidth = val,
         }
     }
 

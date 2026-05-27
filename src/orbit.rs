@@ -20,6 +20,20 @@ const SILENCE_HOLDOFF_SECS: f32 = 1.0;
 // input) can return wet to be summed onto the bus.
 pub struct Orbit {
     pub bus: Box<[StereoFrame; MAX_BLOCK]>,
+    /// FX input from `superpan` voices, kept OUT of `bus` so their dry never maps
+    /// to the orbit's stereo pair. Merged into `bus` in `process_block` only when
+    /// this orbit is room-routed.
+    pub fx_send: Box<[StereoFrame; MAX_BLOCK]>,
+    /// Wet-only FX result for the room, recovered by snapshot-difference.
+    pub fx_wet: Box<[StereoFrame; MAX_BLOCK]>,
+    /// A `superpan` voice fed `fx_send` this chunk (per-chunk, reset in `clear_bus`).
+    pub has_fx_send: bool,
+    /// A pan voice accumulated dry into `bus` this chunk (per-chunk).
+    pub has_pan_dry: bool,
+    /// Latched room-routing: set when a superpan voice sends with no pan dry, held
+    /// across chunks so the FX tail keeps flowing to the room after the source
+    /// stops, released once the orbit goes silent.
+    pub room_active: bool,
     pub delay: Delay,
     pub delay_level: f32,
     pub dattorro: [DattorroVerb; CHANNELS],
@@ -43,6 +57,11 @@ impl Orbit {
         let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
             bus: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
+            fx_send: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
+            fx_wet: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
+            has_fx_send: false,
+            has_pan_dry: false,
+            room_active: false,
             delay: Delay::new(sr),
             delay_level: 0.0,
             dattorro: std::array::from_fn(|_| DattorroVerb::new(sr)),
@@ -71,6 +90,26 @@ impl Orbit {
         for slot in self.bus.iter_mut().take(n) {
             *slot = [0.0; CHANNELS];
         }
+        for slot in self.fx_send.iter_mut().take(n) {
+            *slot = [0.0; CHANNELS];
+        }
+        for slot in self.fx_wet.iter_mut().take(n) {
+            *slot = [0.0; CHANNELS];
+        }
+        // Per-chunk routing flags. `room_active` latches across chunks and is
+        // released in `process_block` on silence, so it is NOT reset here.
+        self.has_fx_send = false;
+        self.has_pan_dry = false;
+    }
+
+    /// True when any orbit FX has a non-zero send level — gate for routing
+    /// `superpan` voices into the FX path.
+    #[inline]
+    pub fn has_any_fx(&self) -> bool {
+        self.comb_level > 0.0
+            || self.fb_level > 0.0
+            || self.delay_level > 0.0
+            || self.verb_level > 0.0
     }
 
     #[inline]
@@ -92,12 +131,27 @@ impl Orbit {
             n <= MAX_BLOCK,
             "Orbit::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
+        // Room routing: latch on when a superpan voice sends with no pan dry; the
+        // FX run on `bus + fx_send` and only the wet (recovered below) reaches the
+        // room. The latch holds the tail to the room after the source stops.
+        if self.has_fx_send && !self.has_pan_dry {
+            self.room_active = true;
+        }
+        let dedicated = self.room_active;
+        if dedicated {
+            for f in 0..n {
+                self.bus[f][0] += self.fx_send[f][0];
+                self.bus[f][1] += self.fx_send[f][1];
+            }
+        }
+
         let any_input = self.bus.iter().take(n).any(|s| s[0] != 0.0 || s[1] != 0.0);
 
         if any_input {
             self.silent_samples = 0;
         } else if self.silent_samples > self.silence_holdoff {
             self.silent_samples = self.silent_samples.saturating_add(n as u32);
+            self.room_active = false; // tail decayed; release room routing
             return;
         }
 
@@ -182,6 +236,16 @@ impl Orbit {
                         frame[1] += wet[1];
                     }
                 }
+            }
+        }
+
+        // Recover wet-only for the room: bus now holds dry+wet, fx_send holds the
+        // dry that was merged in, so the difference is the FX return. (When pan
+        // dry shares a room-active orbit — misuse — it leaks here; documented.)
+        if dedicated {
+            for f in 0..n {
+                self.fx_wet[f][0] = self.bus[f][0] - self.fx_send[f][0];
+                self.fx_wet[f][1] = self.bus[f][1] - self.fx_send[f][1];
             }
         }
 

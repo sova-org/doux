@@ -20,6 +20,7 @@ pub mod sampling;
 pub mod schedule;
 #[cfg(feature = "soundfont")]
 pub mod soundfont;
+pub mod superpan;
 #[cfg(feature = "native")]
 pub mod telemetry;
 #[cfg(feature = "native")]
@@ -188,6 +189,9 @@ pub struct Engine {
     /// Inner DSP block size; sized scratch buffers guarantee `.get() ≤ MAX_BLOCK`.
     pub(crate) inner_block_size: DspBlockSize,
     pub(crate) output: Vec<f32>,
+    /// Per-chunk, N-wide interleaved dry accumulator for `superpan` voices.
+    /// Sized `MAX_BLOCK * output_channels`; summed into `output` at final mix.
+    pub(crate) superpan_acc: Vec<f32>,
     #[cfg(not(feature = "native"))]
     pub(crate) sample_pool: SamplePool,
     #[cfg(not(feature = "native"))]
@@ -271,6 +275,7 @@ impl Engine {
             host_buffer_size: config.host_buffer_size,
             inner_block_size: DspBlockSize::new(config.inner_block_size),
             output: vec![0.0; config.host_buffer_size * config.output_channels],
+            superpan_acc: vec![0.0; MAX_BLOCK * config.output_channels],
             #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
@@ -1150,6 +1155,11 @@ impl Engine {
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol);
         copy_opt!(event, v.params, width, haas);
+        copy_opt_some!(event, v.params, superpan);
+        copy_opt!(event, v.params, superwidth);
+        if let Some(set) = event.speakers {
+            v.params.speakers = set;
+        }
         copy_opt!(event, v.params, eqlo, eqmid, eqhi, eqlofreq, eqmidfreq, eqhifreq, tilt);
 
         // --- Routing (orbit FX state lives on the orbit, not the voice) ---
@@ -1253,9 +1263,13 @@ impl Engine {
         #[cfg(feature = "native")]
         let recorder_active = self.recorder.target_orbit().is_some();
 
-        // Step 1: clear orbit buses for this chunk.
+        // Step 1: clear orbit buses and the superpan accumulator for this chunk.
         for orbit in &mut self.orbits {
             orbit.clear_bus(n);
+        }
+        let superpan_acc = &mut self.superpan_acc;
+        for slot in superpan_acc.iter_mut().take(n * output_channels) {
+            *slot = 0.0;
         }
 
         // Step 2: voice loop. One pass per chunk.
@@ -1296,13 +1310,53 @@ impl Engine {
                 input_channels,
             );
 
-            // Accumulate this voice's output into its orbit bus.
-            let orbit_idx = voice.params.orbit % MAX_ORBITS;
-            let orbit = &mut orbits[orbit_idx];
-            for f in 0..written {
-                for c in 0..CHANNELS {
-                    orbit.bus[f][c] += voice.scratch[f][c];
+            // Route this voice: `superpan` rings its (stereo) dry around the
+            // chosen output PAIRS into the N-wide accumulator (bypassing orbit
+            // FX); otherwise it feeds its orbit bus (unchanged stereo path).
+            //
+            // Ring nodes are stereo pairs: node p -> channels (2p, 2p+1). The
+            // voice's L/R is preserved into each pair, scaled by the PanAz gain.
+            // `speakers` holds 1-based pair indices (empty = all pairs).
+            if let Some(pos) = voice.params.superpan {
+                let set = &voice.params.speakers;
+                let num_pairs = output_channels / 2;
+                let num = if set.is_empty() { num_pairs } else { set.len() }
+                    .min(superpan::MAX_SUPERPAN_NODES);
+                let mut gains = [0.0f32; superpan::MAX_SUPERPAN_NODES];
+                superpan::panaz_gains(num, pos, voice.params.superwidth, &mut gains);
+                for f in 0..written {
+                    let l = voice.scratch[f][0];
+                    let r = voice.scratch[f][1];
+                    let base = f * output_channels;
+                    for (k, &gain) in gains.iter().enumerate().take(num) {
+                        let pair = if set.is_empty() { k } else { set.get(k) };
+                        let c0 = pair * 2;
+                        if c0 + 1 < output_channels {
+                            superpan_acc[base + c0] += l * gain;
+                            superpan_acc[base + c0 + 1] += r * gain;
+                        }
+                    }
                 }
+                // Also feed the voice's stereo dry into its orbit's FX send so the
+                // wet returns to the room — only when that orbit has FX enabled.
+                let orbit = &mut orbits[voice.params.orbit % MAX_ORBITS];
+                if orbit.has_any_fx() {
+                    orbit.has_fx_send = true;
+                    for f in 0..written {
+                        orbit.fx_send[f][0] += voice.scratch[f][0];
+                        orbit.fx_send[f][1] += voice.scratch[f][1];
+                    }
+                }
+            } else {
+                // Accumulate this voice's output into its orbit bus.
+                let orbit_idx = voice.params.orbit % MAX_ORBITS;
+                let orbit = &mut orbits[orbit_idx];
+                for f in 0..written {
+                    for c in 0..CHANNELS {
+                        orbit.bus[f][c] += voice.scratch[f][c];
+                    }
+                }
+                orbit.has_pan_dry = true;
             }
 
             if written < n {
@@ -1332,6 +1386,8 @@ impl Engine {
         let final_mix_start = std::time::Instant::now();
 
         let num_pairs = output_channels / 2;
+        // Equal-power normalization for diffuse room-wet spread across N channels.
+        let room_gain = 1.0 / (output_channels as f32).sqrt();
 
         // Clear all destination slots for this chunk first.
         for f in 0..n {
@@ -1358,6 +1414,11 @@ impl Engine {
             }
 
             for (oi, orbit) in orbits.iter_mut().enumerate() {
+                // Room-routed orbits contribute only their wet, spread below — skip
+                // the stereo-pair mapping, compressor, and recorder for them.
+                if orbit.room_active {
+                    continue;
+                }
                 let out_pair = oi % num_pairs;
                 let pair_offset = out_pair * 2;
                 let cp = orbit.comp.params;
@@ -1391,6 +1452,25 @@ impl Engine {
                         orbit_rec_bus[bus_idx] = orbit_frame[0];
                         orbit_rec_bus[bus_idx + 1] = orbit_frame[1];
                     }
+                }
+            }
+
+            // Add this frame's superpan dry (already N-wide & panned) into output.
+            let acc_base = f * output_channels;
+            for c in 0..output_channels {
+                output[base_idx + c] += superpan_acc[acc_base + c];
+            }
+
+            // Spread each room-routed orbit's FX wet diffusely across the room.
+            for orbit in orbits.iter() {
+                if !orbit.room_active {
+                    continue;
+                }
+                let w0 = orbit.fx_wet[f][0];
+                let w1 = orbit.fx_wet[f][1];
+                for c in 0..output_channels {
+                    let s = if c % 2 == 0 { w0 } else { w1 };
+                    output[base_idx + c] += s * room_gain;
                 }
             }
 

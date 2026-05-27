@@ -374,6 +374,8 @@ pub enum ParamId {
     Mirror,
     SyncRatio,
     SyncPhase,
+    Superpan,
+    Superwidth,
 }
 
 #[derive(Clone, Copy)]
