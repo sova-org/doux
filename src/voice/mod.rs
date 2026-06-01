@@ -213,6 +213,7 @@ pub struct Voice {
     pub stretch: StretchState,
     pub web_sample: Option<WebSampleSource>,
     pub(super) drum_svf: SvfState,
+    pub(super) drum_svf2: SvfState,
 
     // === Param modulation (read once per block in `apply_mods`) ===
     pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
@@ -281,6 +282,7 @@ impl Default for Voice {
             stretch: StretchState::default(),
             web_sample: None,
             drum_svf: SvfState::default(),
+            drum_svf2: SvfState::default(),
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
             fx: Box::new(VoiceFxState::default()),
@@ -346,6 +348,7 @@ impl Voice {
         self.sr = 44100.0;
         self.seed = 123456789;
         self.drum_svf = SvfState::default();
+        self.drum_svf2 = SvfState::default();
         self.stage_count = 0;
     }
 

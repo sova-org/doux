@@ -38,7 +38,7 @@ pub enum SvfMode {
 /// preserved at small signals (tanh slope is 1 at 0); at high resonance, self-
 /// oscillation is bounded by the saturator instead of blowing up.
 ///
-/// Resonance maps `q ∈ [0, 1]` to damping `k = 2·(1-q)^2.5`. `q = 1` reaches
+/// Resonance maps `q ∈ [0, 1]` to damping `k = 2·(1-q)^3.5`. `q = 1` reaches
 /// `k = 0` (pure self-oscillation), stabilized by tanh.
 ///
 /// Input is pre-scaled by `1 - 0.5·q` so the resonant peak does not run away in
@@ -166,7 +166,7 @@ impl SvfState {
 /// Two `SvfState` stages cascaded in series for a 24 dB/oct response.
 ///
 /// Stage 1 carries the user's resonance; stage 2 runs at a fixed near-Butterworth
-/// `q = 0.13` (in the curve `k = 2·(1-q)^2.5` this maps to Q ≈ 0.707), giving a
+/// `q = 0.13` (in the curve `k = 2·(1-q)^3.5` this maps to Q ≈ 0.81), giving a
 /// clean single-peak 24 dB/oct rolloff. Distinct in character from the Moog
 /// ladder: no global feedback loop, no "throat" — closer to Curtis/Roland.
 ///
