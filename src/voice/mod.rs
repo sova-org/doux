@@ -836,9 +836,7 @@ impl Voice {
                     let inv_x = 1.0 / x;
                     for i in 0..n {
                         for c in 0..nch {
-                            let d = self.rand() - self.rand();
-                            self.scratch[i][c] =
-                                (self.scratch[i][c] * x + d).round_ties_even() * inv_x;
+                            self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
                         }
                     }
                 }
@@ -1189,8 +1187,7 @@ impl Voice {
                     let x = exp2f(bits - 1.0);
                     let inv_x = 1.0 / x;
                     for c in 0..nch {
-                        let d = self.rand() - self.rand();
-                        self.scratch[i][c] = (self.scratch[i][c] * x + d).round_ties_even() * inv_x;
+                        self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
                     }
                 }
             }
