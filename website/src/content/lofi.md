@@ -34,7 +34,7 @@ Bit depth reduction. Quantizes amplitude to <code>2^(bits-1)</code> levels, crea
 
 <CommandEntry name="fold" type="number" min={0} max={1} default={0} mod>
 
-Sine-based wavefold (Serge-style). At 0, near-passthrough. At 0.25, subtle harmonics. At 0.5, rich harmonics. At 1, extreme density.
+Reflective triangle wavefold (Buchla/Serge-style). At 0, near-passthrough. At 0.25, subtle harmonics. At 0.5, rich harmonics. At 1, extreme density.
 
 <CodeEditor code={`/sound/sine/fold/.8`} rows={2} />
 

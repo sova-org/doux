@@ -14,7 +14,7 @@ use crate::dsp::{
     cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfCascade, SvfMode, SvfState,
 };
 use crate::effects::{
-    distort, Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode, Phaser,
+    Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode, Phaser, Saturate,
     Smear, Tilt, Wrap,
 };
 #[cfg(feature = "native")]
@@ -121,6 +121,7 @@ pub struct VoiceFxState {
     pub coarse: [Coarse; CHANNELS],
     pub fold_state: [Fold; CHANNELS],
     pub wrap_state: [Wrap; CHANNELS],
+    pub distort_state: [Saturate; CHANNELS],
     pub dc_block: [DcBlocker; CHANNELS],
     pub eq: [Eq; CHANNELS],
     pub tilt: [Tilt; CHANNELS],
@@ -143,10 +144,11 @@ impl Default for VoiceFxState {
             coarse: [Coarse::default(); CHANNELS],
             fold_state: [Fold::default(); CHANNELS],
             wrap_state: [Wrap::default(); CHANNELS],
+            distort_state: [Saturate::default(); CHANNELS],
             dc_block: [DcBlocker::default(); CHANNELS],
             eq: [Eq::default(); CHANNELS],
             tilt: [Tilt::default(); CHANNELS],
-            phaser: [Phaser::default(); CHANNELS],
+            phaser: std::array::from_fn(Phaser::new),
             flanger: [Flanger::default(); CHANNELS],
             smear: [Smear::default(); CHANNELS],
             chorus: Chorus::default(),
@@ -834,7 +836,9 @@ impl Voice {
                     let inv_x = 1.0 / x;
                     for i in 0..n {
                         for c in 0..nch {
-                            self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
+                            let d = self.rand() - self.rand();
+                            self.scratch[i][c] =
+                                (self.scratch[i][c] * x + d).round_ties_even() * inv_x;
                         }
                     }
                 }
@@ -856,10 +860,9 @@ impl Voice {
             Stage::Distort => {
                 if let Some(amount) = self.params.distort {
                     let postgain = self.params.distortvol;
-                    for i in 0..n {
-                        for c in 0..nch {
-                            self.scratch[i][c] = distort(self.scratch[i][c], amount, postgain);
-                        }
+                    for c in 0..nch {
+                        self.fx.distort_state[c]
+                            .process_block(&mut self.scratch[..n], n, c, amount, postgain);
                     }
                 }
             }
@@ -1186,7 +1189,8 @@ impl Voice {
                     let x = exp2f(bits - 1.0);
                     let inv_x = 1.0 / x;
                     for c in 0..nch {
-                        self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
+                        let d = self.rand() - self.rand();
+                        self.scratch[i][c] = (self.scratch[i][c] * x + d).round_ties_even() * inv_x;
                     }
                 }
             }
@@ -1210,7 +1214,9 @@ impl Voice {
                 if let Some(dist_amount) = self.params.distort {
                     let postgain = self.params.distortvol;
                     for c in 0..nch {
-                        self.scratch[i][c] = distort(self.scratch[i][c], dist_amount, postgain);
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.distort_state[c].process(x, dist_amount, postgain);
                     }
                 }
             }

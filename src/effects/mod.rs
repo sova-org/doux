@@ -22,7 +22,7 @@ pub use coarse::Coarse;
 pub use comb::{Comb, CombParams};
 pub use compressor::{Compressor, CompressorParams};
 pub use delay::Delay;
-pub use distort::{distort, DcBlocker, Fold, Wrap};
+pub use distort::{DcBlocker, Fold, Saturate, Wrap};
 pub use eq::Eq;
 pub use feedback::{Feedback, FeedbackParams};
 pub use flanger::Flanger;

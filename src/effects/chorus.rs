@@ -17,6 +17,7 @@
 //! Left and right taps use opposite modulation polarity for stereo width.
 
 use crate::dsp::{ms_to_samples, DelayLine, Phasor};
+use crate::effects::Lag;
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -68,6 +69,7 @@ const VOICES: usize = 3;
 pub struct Chorus {
     delay: DelayLine<BUFFER_SIZE>,
     lfo: [Phasor; VOICES],
+    delay_lag: Lag,
 }
 
 impl Default for Chorus {
@@ -79,9 +81,14 @@ impl Default for Chorus {
         Self {
             delay: DelayLine::default(),
             lfo,
+            delay_lag: Lag::default(),
         }
     }
 }
+
+/// One-pole smoothing time for the base delay (seconds): fast enough to feel
+/// instant, slow enough to suppress clicks when `chorusdelay` jumps.
+const DELAY_SMOOTH_SECS: f32 = 0.02;
 
 impl Chorus {
     /// Processes one stereo sample through the chorus.
@@ -111,7 +118,8 @@ impl Chorus {
         isr: f32,
     ) -> [f32; 2] {
         let depth = depth.clamp(0.0, 1.0);
-        let mod_range = delay_ms * 0.8;
+        let smoothed_delay = self.delay_lag.update(delay_ms, 1.0, sr * DELAY_SMOOTH_SECS);
+        let mod_range = smoothed_delay * 0.8;
 
         let mono = (left + right) * 0.5;
         self.delay.write(mono);
@@ -126,26 +134,28 @@ impl Chorus {
             let lfo = self.lfo[v].sine(rate, isr);
 
             let modulation = depth * mod_range * lfo;
-            let dly_l = (delay_ms + modulation).clamp(min_delay, max_delay);
-            let dly_r = (delay_ms - modulation).clamp(min_delay, max_delay);
+            let dly_l = (smoothed_delay + modulation).clamp(min_delay, max_delay);
+            let dly_r = (smoothed_delay - modulation).clamp(min_delay, max_delay);
 
-            let samp_l = ms_to_samples(dly_l, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
-            let samp_r = ms_to_samples(dly_r, sr).clamp(1.0, BUFFER_SIZE as f32 - 2.0);
+            let samp_l = ms_to_samples(dly_l, sr).clamp(2.0, BUFFER_SIZE as f32 - 3.0);
+            let samp_r = ms_to_samples(dly_r, sr).clamp(2.0, BUFFER_SIZE as f32 - 3.0);
 
-            out_l += self.delay.read(samp_l);
-            out_r += self.delay.read(samp_r);
+            out_l += self.delay.read_cubic(samp_l);
+            out_r += self.delay.read_cubic(samp_r);
         }
 
         out_l /= VOICES as f32;
         out_r /= VOICES as f32;
 
         const MIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
-        [mono * MIX + out_l * MIX, mono * MIX + out_r * MIX]
+        [left * MIX + out_l * MIX, right * MIX + out_r * MIX]
     }
 
     /// Block-rate stereo processing. Mirrors [`Self::process`] across `n` frames,
-    /// hoisting per-block constants (delay bounds, mod range, mix) out of the loop.
-    /// Body is inlined rather than calling [`Self::process`] to keep those hoists.
+    /// hoisting invariant constants (delay bounds, buffer cap, mix) out of the
+    /// loop. The smoothed base delay and per-voice LFO stay per-sample for
+    /// modulation fidelity. Body is inlined rather than calling [`Self::process`]
+    /// to keep those hoists.
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn process_block(
@@ -159,30 +169,34 @@ impl Chorus {
         isr: f32,
     ) {
         let depth = depth.clamp(0.0, 1.0);
-        let mod_range = delay_ms * 0.8;
         let min_delay = 1.5_f32;
         let max_delay = 50.0_f32.min((BUFFER_SIZE as f32 - 2.0) * 1000.0 / sr);
-        let buf_cap = BUFFER_SIZE as f32 - 2.0;
+        let buf_cap = BUFFER_SIZE as f32 - 3.0;
+        let lag_unit = sr * DELAY_SMOOTH_SECS;
         const MIX: f32 = std::f32::consts::FRAC_1_SQRT_2;
         for slot in buf.iter_mut().take(n) {
-            let mono = (slot[0] + slot[1]) * 0.5;
+            let in_l = slot[0];
+            let in_r = slot[1];
+            let mono = (in_l + in_r) * 0.5;
             self.delay.write(mono);
+            let smoothed_delay = self.delay_lag.update(delay_ms, 1.0, lag_unit);
+            let mod_range = smoothed_delay * 0.8;
             let mut out_l = 0.0_f32;
             let mut out_r = 0.0_f32;
             for v in 0..VOICES {
                 let lfo = self.lfo[v].sine(rate, isr);
                 let modulation = depth * mod_range * lfo;
-                let dly_l = (delay_ms + modulation).clamp(min_delay, max_delay);
-                let dly_r = (delay_ms - modulation).clamp(min_delay, max_delay);
-                let samp_l = ms_to_samples(dly_l, sr).clamp(1.0, buf_cap);
-                let samp_r = ms_to_samples(dly_r, sr).clamp(1.0, buf_cap);
-                out_l += self.delay.read(samp_l);
-                out_r += self.delay.read(samp_r);
+                let dly_l = (smoothed_delay + modulation).clamp(min_delay, max_delay);
+                let dly_r = (smoothed_delay - modulation).clamp(min_delay, max_delay);
+                let samp_l = ms_to_samples(dly_l, sr).clamp(2.0, buf_cap);
+                let samp_r = ms_to_samples(dly_r, sr).clamp(2.0, buf_cap);
+                out_l += self.delay.read_cubic(samp_l);
+                out_r += self.delay.read_cubic(samp_r);
             }
             out_l /= VOICES as f32;
             out_r /= VOICES as f32;
-            slot[0] = mono * MIX + out_l * MIX;
-            slot[1] = mono * MIX + out_r * MIX;
+            slot[0] = in_l * MIX + out_l * MIX;
+            slot[1] = in_r * MIX + out_r * MIX;
         }
     }
 }
