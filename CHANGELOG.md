@@ -3,6 +3,22 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.39] - 2026-06-06
+
+### Changed
+
+- Drums reworked for more punch
+- `distort` is now a stateful soft-knee saturator
+- `fold` — sine wavefolder → reflective triangle wavefolder;
+- `phaser` two-stage notch filter → 6-stage allpass cascade with feedback resonance; `phaserdepth` now sets feedback resonance.
+- `chorus` — base delay one-pole smoothed (no clicks when `chorusdelay` jumps)
+- `wrap` — baked pre-wrap DC bias for even-harmonic thickness
+- SVF resonance curve steepened
+
+### Removed
+
+- **[BREAKING]** `distort` free function — replaced by the `Saturate` effect
+
 ## [0.0.38] - 2026-05-27
 
 ### Added
