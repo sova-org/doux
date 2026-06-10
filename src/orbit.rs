@@ -13,19 +13,28 @@ const SILENCE_HOLDOFF_SECS: f32 = 1.0;
 // Chain order: comb → fb → delay → verb. Tonal/short → spatial/long.
 // Reverb last so it captures delay echoes (the load-bearing reason for chaining).
 //
-// Phase E: `bus` is block-rate. `clear_bus(n)` zeroes frames 0..n;
+// Phase E: `bus` is block-rate. `clear_bus()` zeroes dirty buffers (flag-gated);
 // `add_dry(frame, ch, v)` accumulates dry voice output per frame; `process_block(n)`
 // runs the FX chain across `bus[..n]` via each FX's Phase-C block API. Sends are
 // staged through small stack scratches so the block APIs (which overwrite their
 // input) can return wet to be summed onto the bus.
 pub struct Orbit {
     pub bus: Box<[StereoFrame; MAX_BLOCK]>,
+    /// `bus` may hold nonzero data (written since the last clear). A cleared
+    /// flag guarantees the FULL array is zero, so idle orbits skip the clear,
+    /// the silence scans, and the final-mix pass entirely.
+    pub bus_used: bool,
     /// FX input from `superpan` voices, kept OUT of `bus` so their dry never maps
     /// to the orbit's stereo pair. Merged into `bus` in `process_block` only when
     /// this orbit is room-routed.
     pub fx_send: Box<[StereoFrame; MAX_BLOCK]>,
     /// Wet-only FX result for the room, recovered by snapshot-difference.
+    /// Never cleared: the final mix reads it only when `room_active`, and a
+    /// room-active block always rewrites `fx_wet[..n]` before returning (the
+    /// lone skipping path — the silence bypass — also drops `room_active`).
     pub fx_wet: Box<[StereoFrame; MAX_BLOCK]>,
+    /// `fx_send` may hold nonzero data (same lazy-clear contract as `bus_used`).
+    pub fx_send_used: bool,
     /// A `superpan` voice fed `fx_send` this chunk (per-chunk, reset in `clear_bus`).
     pub has_fx_send: bool,
     /// A pan voice accumulated dry into `bus` this chunk (per-chunk).
@@ -57,8 +66,10 @@ impl Orbit {
         let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
             bus: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
+            bus_used: false,
             fx_send: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
             fx_wet: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
+            fx_send_used: false,
             has_fx_send: false,
             has_pan_dry: false,
             room_active: false,
@@ -82,19 +93,18 @@ impl Orbit {
     }
 
     #[inline]
-    pub fn clear_bus(&mut self, n: usize) {
-        debug_assert!(
-            n <= MAX_BLOCK,
-            "Orbit::clear_bus: n={n} > MAX_BLOCK={MAX_BLOCK}"
-        );
-        for slot in self.bus.iter_mut().take(n) {
-            *slot = [0.0; CHANNELS];
+    pub fn clear_bus(&mut self) {
+        // Full-array clears (not `..n`): a clean flag must mean "all zero"
+        // even when a later chunk is larger than this one. Only dirty orbits
+        // pay them, and they are straight memsets. `fx_wet` is never cleared —
+        // see the field invariant.
+        if self.bus_used {
+            *self.bus = [[0.0; CHANNELS]; MAX_BLOCK];
+            self.bus_used = false;
         }
-        for slot in self.fx_send.iter_mut().take(n) {
-            *slot = [0.0; CHANNELS];
-        }
-        for slot in self.fx_wet.iter_mut().take(n) {
-            *slot = [0.0; CHANNELS];
+        if self.fx_send_used {
+            *self.fx_send = [[0.0; CHANNELS]; MAX_BLOCK];
+            self.fx_send_used = false;
         }
         // Per-chunk routing flags. `room_active` latches across chunks and is
         // released in `process_block` on silence, so it is NOT reset here.
@@ -115,6 +125,7 @@ impl Orbit {
     #[inline]
     pub fn add_dry(&mut self, frame: usize, ch: usize, value: f32) {
         self.bus[frame][ch] += value;
+        self.bus_used = true;
     }
 
     /// Block-rate driver for the orbit FX chain. Each enabled FX runs its
@@ -137,15 +148,50 @@ impl Orbit {
         if self.has_fx_send && !self.has_pan_dry {
             self.room_active = true;
         }
+
+        // FX-less, non-room orbit: the bus is untouched by this function, so
+        // the pre-FX input scan and the post-FX energy scan would walk the
+        // same data — do the silence accounting with a single pass. Decision-
+        // equivalent to the general path below: sum-of-abs over the bus is
+        // nonzero iff any sample is nonzero (nonnegative addition; subnormals
+        // still sum positive without FTZ, NaN propagates into both compares).
+        if !self.has_any_fx() && !self.room_active {
+            let mut energy = 0.0_f32;
+            if self.bus_used {
+                for frame in self.bus.iter().take(n) {
+                    energy += frame[0].abs() + frame[1].abs();
+                }
+            }
+            if energy != 0.0 {
+                self.silent_samples = 0;
+            } else if self.silent_samples > self.silence_holdoff {
+                self.silent_samples = self.silent_samples.saturating_add(n as u32);
+                return;
+            }
+            if energy < SILENCE_THRESHOLD * n as f32 {
+                self.silent_samples = self.silent_samples.saturating_add(n as u32);
+            } else {
+                self.silent_samples = 0;
+            }
+            return;
+        }
+
         let dedicated = self.room_active;
         if dedicated {
             for f in 0..n {
                 self.bus[f][0] += self.fx_send[f][0];
                 self.bus[f][1] += self.fx_send[f][1];
             }
+            // `has_fx_send` ⟺ a superpan voice wrote `fx_send` this chunk, so
+            // the merge may have made the bus nonzero without any pan dry.
+            if self.has_fx_send {
+                self.bus_used = true;
+            }
         }
 
-        let any_input = self.bus.iter().take(n).any(|s| s[0] != 0.0 || s[1] != 0.0);
+        // Clean flag guarantees an all-zero bus: skip the scan, its result is known.
+        let any_input =
+            self.bus_used && self.bus.iter().take(n).any(|s| s[0] != 0.0 || s[1] != 0.0);
 
         if any_input {
             self.silent_samples = 0;
@@ -154,6 +200,10 @@ impl Orbit {
             self.room_active = false; // tail decayed; release room routing
             return;
         }
+
+        // Past the bypass: the FX chain (or the dedicated merge) writes the bus
+        // below, so it must be cleared and mixed from here on.
+        self.bus_used = true;
 
         // Comb (per-channel mono resonator, shared params).
         if self.comb_level > 0.0 {

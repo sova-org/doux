@@ -192,6 +192,9 @@ pub struct Engine {
     /// Per-chunk, N-wide interleaved dry accumulator for `superpan` voices.
     /// Sized `MAX_BLOCK * output_channels`; summed into `output` at final mix.
     pub(crate) superpan_acc: Vec<f32>,
+    /// True when `superpan_acc` may hold nonzero data. Cleared flag guarantees
+    /// the whole buffer is zero, so idle chunks skip both clear and mix-in.
+    pub(crate) superpan_acc_used: bool,
     #[cfg(not(feature = "native"))]
     pub(crate) sample_pool: SamplePool,
     #[cfg(not(feature = "native"))]
@@ -276,6 +279,7 @@ impl Engine {
             inner_block_size: DspBlockSize::new(config.inner_block_size),
             output: vec![0.0; config.host_buffer_size * config.output_channels],
             superpan_acc: vec![0.0; MAX_BLOCK * config.output_channels],
+            superpan_acc_used: false,
             #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
@@ -1261,15 +1265,20 @@ impl Engine {
         let input_channels = self.input_channels;
         let output_channels = self.output_channels;
         #[cfg(feature = "native")]
-        let recorder_active = self.recorder.target_orbit().is_some();
+        let rec_orbit = self.recorder.target_orbit();
 
         // Step 1: clear orbit buses and the superpan accumulator for this chunk.
         for orbit in &mut self.orbits {
-            orbit.clear_bus(n);
+            orbit.clear_bus();
         }
+        // Lazy: only a chunk that actually routed a superpan voice dirties the
+        // accumulator. Clear the FULL buffer so the clean flag keeps meaning
+        // "all zero" even when a later chunk is larger than this one.
         let superpan_acc = &mut self.superpan_acc;
-        for slot in superpan_acc.iter_mut().take(n * output_channels) {
-            *slot = 0.0;
+        let superpan_used = &mut self.superpan_acc_used;
+        if *superpan_used {
+            superpan_acc.fill(0.0);
+            *superpan_used = false;
         }
 
         // Step 2: voice loop. One pass per chunk.
@@ -1324,6 +1333,7 @@ impl Engine {
                     .min(superpan::MAX_SUPERPAN_NODES);
                 let mut gains = [0.0f32; superpan::MAX_SUPERPAN_NODES];
                 superpan::panaz_gains(num, pos, voice.params.superwidth, &mut gains);
+                *superpan_used = true;
                 for f in 0..written {
                     let l = voice.scratch[f][0];
                     let r = voice.scratch[f][1];
@@ -1342,6 +1352,7 @@ impl Engine {
                 let orbit = &mut orbits[voice.params.orbit % MAX_ORBITS];
                 if orbit.has_any_fx() {
                     orbit.has_fx_send = true;
+                    orbit.fx_send_used = true;
                     for f in 0..written {
                         orbit.fx_send[f][0] += voice.scratch[f][0];
                         orbit.fx_send[f][1] += voice.scratch[f][1];
@@ -1357,6 +1368,7 @@ impl Engine {
                     }
                 }
                 orbit.has_pan_dry = true;
+                orbit.bus_used = true;
             }
 
             if written < n {
@@ -1389,91 +1401,119 @@ impl Engine {
         // Equal-power normalization for diffuse room-wet spread across N channels.
         let room_gain = 1.0 / (output_channels as f32).sqrt();
 
-        // Clear all destination slots for this chunk first.
-        for f in 0..n {
-            let base_idx = (start + f) * output_channels;
-            for c in 0..output_channels {
-                output[base_idx + c] = 0.0;
-            }
-        }
+        // Orbit-major passes. Each output slot still receives its contributions
+        // in the same order as the old frame-major loop — orbits ascending, then
+        // superpan, then room wet, then soft-clip — so the f32 sums are
+        // bit-identical while everything block-constant (compressor coeffs,
+        // routing flags) is hoisted out of the per-frame work.
+
+        // Pass 0: clear this chunk's destination slots (contiguous region).
+        output[start * output_channels..(start + n) * output_channels].fill(0.0);
 
         #[cfg(feature = "native")]
         let orbit_rec_bus = &mut self.orbit_rec_bus;
 
-        // Snapshot per-orbit bus values for the current frame so the sidechain
-        // read sees the post-FX state without re-borrowing. Hoisted out of the
-        // per-sample loop: every slot is overwritten each iteration.
-        let mut frame_bus = [[0.0f32; CHANNELS]; MAX_ORBITS];
+        // Pass 1: non-room orbits onto their stereo pair. Sidechain levels are
+        // staged through a stack scratch so reading another orbit's post-FX bus
+        // doesn't alias the mutable compressor borrow.
+        let mut sc_lv = [0.0f32; MAX_BLOCK];
+        for oi in 0..MAX_ORBITS {
+            // Room-routed orbits contribute only their wet, spread below — skip
+            // the stereo-pair mapping, compressor, and recorder for them.
+            if orbits[oi].room_active {
+                continue;
+            }
+            let pair_offset = (oi % num_pairs) * 2;
+            let cp = orbits[oi].comp.params;
 
-        for f in 0..n {
-            let base_idx = (start + f) * output_channels;
-            let sample_idx = start + f;
-
-            for (oi, orbit) in orbits.iter().enumerate() {
-                frame_bus[oi] = orbit.bus[f];
+            // Idle orbit: provably all-zero bus contributes nothing. Cannot
+            // skip when the compressor is engaged (its envelope must keep
+            // following the sidechain through silence) or when the recorder
+            // captures this orbit (its rows must be written every frame).
+            #[cfg(feature = "native")]
+            let rec_this = rec_orbit == Some(oi);
+            #[cfg(not(feature = "native"))]
+            let rec_this = false;
+            if !orbits[oi].bus_used && cp.amount == 0.0 && !rec_this {
+                continue;
             }
 
-            for (oi, orbit) in orbits.iter_mut().enumerate() {
-                // Room-routed orbits contribute only their wet, spread below — skip
-                // the stereo-pair mapping, compressor, and recorder for them.
-                if orbit.room_active {
-                    continue;
+            if cp.amount > 0.0 {
+                let sc = orbits[oi].comp_orbit % MAX_ORBITS;
+                let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
+                let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
+                let expo = 1.0 + cp.amount * 4.0;
+                for (slot, frame) in sc_lv.iter_mut().zip(orbits[sc].bus.iter()).take(n) {
+                    *slot = frame[0].abs().max(frame[1].abs());
                 }
-                let out_pair = oi % num_pairs;
-                let pair_offset = out_pair * 2;
-                let cp = orbit.comp.params;
-
-                let orbit_frame = frame_bus[oi];
-
-                if cp.amount > 0.0 {
-                    let sc = orbit.comp_orbit % MAX_ORBITS;
-                    let sc_total = frame_bus[sc];
-                    let sc_level = sc_total[0].abs().max(sc_total[1].abs());
-                    let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
-                    let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
+                let orbit = &mut orbits[oi];
+                for (f, &sc_level) in sc_lv.iter().enumerate().take(n) {
                     let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
-                    let gain = (1.0 - env).powf(1.0 + cp.amount * 4.0);
-                    for c in 0..CHANNELS {
-                        output[base_idx + pair_offset + c] += orbit_frame[c] * gain;
-                    }
+                    let base = 1.0 - env;
+                    // IEEE 754: powf(1.0, y) == 1.0 exactly, so the skip is free.
+                    let gain = if base == 1.0 { 1.0 } else { base.powf(expo) };
+                    let orbit_frame = orbit.bus[f];
+                    let base_idx = (start + f) * output_channels;
+                    output[base_idx + pair_offset] += orbit_frame[0] * gain;
+                    output[base_idx + pair_offset + 1] += orbit_frame[1] * gain;
                     #[cfg(feature = "native")]
-                    if recorder_active {
-                        let bus_idx = (oi * total + sample_idx) * CHANNELS;
+                    if rec_orbit == Some(oi) {
+                        let bus_idx = (oi * total + start + f) * CHANNELS;
                         orbit_rec_bus[bus_idx] = orbit_frame[0] * gain;
                         orbit_rec_bus[bus_idx + 1] = orbit_frame[1] * gain;
                     }
-                } else {
-                    for c in 0..CHANNELS {
-                        output[base_idx + pair_offset + c] += orbit_frame[c];
-                    }
-                    #[cfg(feature = "native")]
-                    if recorder_active {
-                        let bus_idx = (oi * total + sample_idx) * CHANNELS;
+                }
+            } else {
+                let orbit = &orbits[oi];
+                for f in 0..n {
+                    let orbit_frame = orbit.bus[f];
+                    let base_idx = (start + f) * output_channels;
+                    output[base_idx + pair_offset] += orbit_frame[0];
+                    output[base_idx + pair_offset + 1] += orbit_frame[1];
+                }
+                #[cfg(feature = "native")]
+                if rec_orbit == Some(oi) {
+                    for f in 0..n {
+                        let orbit_frame = orbit.bus[f];
+                        let bus_idx = (oi * total + start + f) * CHANNELS;
                         orbit_rec_bus[bus_idx] = orbit_frame[0];
                         orbit_rec_bus[bus_idx + 1] = orbit_frame[1];
                     }
                 }
             }
+        }
 
-            // Add this frame's superpan dry (already N-wide & panned) into output.
-            let acc_base = f * output_channels;
-            for c in 0..output_channels {
-                output[base_idx + c] += superpan_acc[acc_base + c];
-            }
-
-            // Spread each room-routed orbit's FX wet diffusely across the room.
-            for orbit in orbits.iter() {
-                if !orbit.room_active {
-                    continue;
+        // Pass 2: superpan dry (already N-wide & panned). Skipped entirely when
+        // no voice routed through the accumulator this chunk (it is all-zero).
+        if *superpan_used {
+            for f in 0..n {
+                let base_idx = (start + f) * output_channels;
+                let acc_base = f * output_channels;
+                for c in 0..output_channels {
+                    output[base_idx + c] += superpan_acc[acc_base + c];
                 }
+            }
+        }
+
+        // Pass 3: spread each room-routed orbit's FX wet diffusely across the room.
+        for orbit in orbits.iter() {
+            if !orbit.room_active {
+                continue;
+            }
+            for f in 0..n {
                 let w0 = orbit.fx_wet[f][0];
                 let w1 = orbit.fx_wet[f][1];
+                let base_idx = (start + f) * output_channels;
                 for c in 0..output_channels {
                     let s = if c % 2 == 0 { w0 } else { w1 };
                     output[base_idx + c] += s * room_gain;
                 }
             }
+        }
 
+        // Pass 4: per-pair soft clip, last.
+        for f in 0..n {
+            let base_idx = (start + f) * output_channels;
             for pair_index in 0..num_pairs {
                 let pair_base = base_idx + pair_index * CHANNELS;
                 output[pair_base] = soft_clip_sample(output[pair_base]);

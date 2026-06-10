@@ -1395,7 +1395,7 @@ impl Voice {
         }
         let pre_vib = self.fm_carrier_freq();
         self.tick_fm_pm(pre_vib, isr);
-        self.compute_freq_one(isr)
+        self.compute_freq_one(pre_vib, isr)
     }
 
     fn write_param(&mut self, id: ParamId, val: f32) {
@@ -1495,20 +1495,17 @@ impl Voice {
         }
     }
 
-    /// Per-sample carrier frequency: applies `detune`, `speed`, then ticks the
-    /// vibrato LFO and applies `vibmod`. Stores the post-vib value in
-    /// `self.current_freq` and returns it.
+    /// Per-sample carrier frequency: takes the pre-vib carrier (detune ×
+    /// speed, from [`Voice::fm_carrier_freq`] — computed once per sample by
+    /// `tick_pre`), then ticks the vibrato LFO and applies `vibmod`. Stores
+    /// the post-vib value in `self.current_freq` and returns it.
     ///
-    /// FM phase modulation runs separately in [`Voice::tick_fm_pm`] and uses the
-    /// pre-vib carrier from [`Voice::fm_carrier_freq`] (detune × speed) to
-    /// preserve the legacy ordering `detune → speed → FM → vib`.
+    /// FM phase modulation runs separately in [`Voice::tick_fm_pm`] and uses
+    /// the same pre-vib carrier to preserve the legacy ordering
+    /// `detune → speed → FM → vib`.
     #[inline]
-    fn compute_freq_one(&mut self, isr: f32) -> f32 {
-        let mut freq = self.params.freq;
-        if self.params.detune != 0.0 {
-            freq *= exp2f(self.params.detune / 1200.0);
-        }
-        freq *= self.params.speed;
+    fn compute_freq_one(&mut self, pre_vib: f32, isr: f32) -> f32 {
+        let mut freq = pre_vib;
         if self.params.vib > 0.0 && self.params.vibmod > 0.0 {
             let mod_val = self.vib_lfo.lfo(self.params.vibshape, self.params.vib, isr);
             freq *= exp2f(mod_val * self.params.vibmod / 12.0);
