@@ -90,6 +90,36 @@ pub(crate) fn blamp_post_kink(wrap_frac: f32) -> f32 {
     d * d * d / 6.0
 }
 
+/// PolyBLAMP residual for the unscaled triangle (slope ±4, corners at
+/// phase 0 and 0.5). Symmetric in `dt` sign: reversing direction swaps
+/// the pre/post sides but the slope change does too, so `|dt|` is exact
+/// for both travel directions.
+#[inline]
+pub(crate) fn tri_blamp(p: f32, dt: f32) -> f32 {
+    let adt = dt.abs();
+    if !(1e-6..0.25).contains(&adt) {
+        return 0.0;
+    }
+    // Per-sample slope change magnitude at each corner: ±4/phase → Δm = 8·adt.
+    let dm = 8.0 * adt;
+    // Trough at 0: slope −4 → +4, rounded upward (+).
+    if p < adt {
+        return dm * blamp_post_kink(p / adt);
+    }
+    if p > 1.0 - adt {
+        return dm * blamp_pre_kink((p - (1.0 - adt)) / adt);
+    }
+    // Peak at 0.5: slope +4 → −4, rounded downward (−).
+    if p >= 0.5 {
+        if p < 0.5 + adt {
+            return -dm * blamp_post_kink((p - 0.5) / adt);
+        }
+    } else if p > 0.5 - adt {
+        return -dm * blamp_pre_kink((p - (0.5 - adt)) / adt);
+    }
+    0.0
+}
+
 /// Band-limited square wave via PolyBLEP.
 ///
 /// Returns `+1` while `phase < 0.5`, `-1` otherwise, with smoothed transitions
@@ -288,13 +318,13 @@ impl Phasor {
         s
     }
 
-    /// Triangle wave (no anti-aliasing needed, naturally band-limited).
+    /// Triangle wave with PolyBLAMP corner anti-aliasing.
     pub fn tri(&mut self, freq: f32, isr: f32) -> f32 {
         let s = if self.phase < 0.5 {
             4.0 * self.phase - 1.0
         } else {
             3.0 - 4.0 * self.phase
-        };
+        } + tri_blamp(self.phase, freq * isr);
         self.update(freq, isr);
         s
     }
@@ -358,6 +388,9 @@ impl Phasor {
     }
 
     /// Triangle wave with phase shaping and optional PM offset (turns).
+    ///
+    /// PolyBLAMP corner anti-aliasing applies only when shaping is inactive:
+    /// warp/mirror/size move the corners away from phase 0/0.5.
     pub fn tri_shaped(
         &mut self,
         freq: f32,
@@ -366,11 +399,20 @@ impl Phasor {
         phase_offset: f32,
     ) -> f32 {
         let read = offset_phase(self.phase, phase_offset);
-        let p = shape.apply_or_pass(read);
-        let s = if p < 0.5 {
-            4.0 * p - 1.0
+        let s = if shape.is_active() {
+            let p = shape.apply(read);
+            if p < 0.5 {
+                4.0 * p - 1.0
+            } else {
+                3.0 - 4.0 * p
+            }
         } else {
-            3.0 - 4.0 * p
+            let naive = if read < 0.5 {
+                4.0 * read - 1.0
+            } else {
+                3.0 - 4.0 * read
+            };
+            naive + tri_blamp(read, freq * isr)
         };
         self.update(freq, isr);
         s
@@ -637,13 +679,25 @@ impl Phasor {
     }
 
     /// Triangle at arbitrary phase (stateless, for unison voices).
+    ///
+    /// PolyBLAMP anti-aliasing applies only when shaping is inactive
+    /// (shaping moves the corners away from phase 0/0.5).
     #[inline]
-    pub fn tri_at(phase: f32, shape: &PhaseShape) -> f32 {
-        let p = shape.apply_or_pass(phase);
-        if p < 0.5 {
-            4.0 * p - 1.0
+    pub fn tri_at(phase: f32, dt: f32, shape: &PhaseShape) -> f32 {
+        if shape.is_active() {
+            let p = shape.apply(phase);
+            if p < 0.5 {
+                4.0 * p - 1.0
+            } else {
+                3.0 - 4.0 * p
+            }
         } else {
-            3.0 - 4.0 * p
+            let naive = if phase < 0.5 {
+                4.0 * phase - 1.0
+            } else {
+                3.0 - 4.0 * phase
+            };
+            naive + tri_blamp(phase, dt)
         }
     }
 

@@ -3,6 +3,7 @@ title: "Amplitude Modulation"
 slug: "am"
 group: "synthesis"
 order: 109
+related: ["rm", "frequency-modulation"]
 ---
 
 <script lang="ts">

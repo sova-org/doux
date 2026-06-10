@@ -3,10 +3,12 @@
 mod drums;
 pub mod modulation;
 mod params;
+mod pluck;
 mod source;
 
 pub use modulation::{ModChain, ParamId, ParamMod};
 pub use params::VoiceParams;
+use pluck::PluckState;
 
 use std::f32::consts::PI;
 
@@ -27,7 +29,6 @@ use crate::sampling::{FileSource, SampleInfo};
 use crate::types::{StereoFrame, CHANNELS, MAX_BLOCK};
 
 pub const MAX_PARAM_MODS: usize = 15;
-pub(crate) const MAX_ADDITIVE_PARTIALS: usize = 32;
 const VOICE_OUTPUT_TRIM: f32 = 0.5;
 /// `1 / (2π)`: converts radians to turns for phase-modulation math.
 const INV_TAU: f32 = 0.159_154_94;
@@ -82,29 +83,6 @@ pub(crate) enum Stage {
 /// Upper bound on stages a voice can emit per block. Sized to the count of
 /// `Stage` variants with room to spare; allocated inline on `Voice`.
 pub(crate) const MAX_STAGES: usize = 32;
-
-#[derive(Clone, Copy)]
-pub(crate) struct AdditiveCache {
-    pub ratios: [f32; MAX_ADDITIVE_PARTIALS],
-    pub amps: [f32; MAX_ADDITIVE_PARTIALS],
-    pub norm_prefix: [f32; MAX_ADDITIVE_PARTIALS],
-    pub active_count: u8,
-    pub tail_weight: f32,
-    pub valid: bool,
-}
-
-impl Default for AdditiveCache {
-    fn default() -> Self {
-        Self {
-            ratios: [0.0; MAX_ADDITIVE_PARTIALS],
-            amps: [0.0; MAX_ADDITIVE_PARTIALS],
-            norm_prefix: [0.0; MAX_ADDITIVE_PARTIALS],
-            active_count: 0,
-            tail_weight: 0.0,
-            valid: false,
-        }
-    }
-}
 
 /// Cold FX state — pre-allocated, heap-owned via [`Voice::fx`]. Pulling it
 /// out of [`Voice`] keeps the hot-voice working set inside L1d when scanning
@@ -198,7 +176,9 @@ pub struct Voice {
     pub time: f32,
     pub sr: f32,
     pub seed: u32,
-    pub(crate) additive_cache: AdditiveCache,
+    /// Stable identity for event addressing (`voice/N`). Survives the
+    /// swap-remove in voice freeing because the whole `Voice` moves.
+    pub tag: Option<usize>,
     pub(crate) shape_active: bool,
 
     // === Source-specific state (one variant active per voice) ===
@@ -216,6 +196,9 @@ pub struct Voice {
     pub web_sample: Option<WebSampleSource>,
     pub(super) drum_svf: SvfState,
     pub(super) drum_svf2: SvfState,
+    /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
+    /// and allocated once at construction — never on the audio thread.
+    pub(super) pluck: Box<PluckState>,
 
     // === Param modulation (read once per block in `apply_mods`) ===
     pub param_mods: [(ParamId, ParamMod); MAX_PARAM_MODS],
@@ -269,7 +252,7 @@ impl Default for Voice {
             time: 0.0,
             sr,
             seed: 123456789,
-            additive_cache: AdditiveCache::default(),
+            tag: None,
             shape_active: false,
             pink_noise: PinkNoise::default(),
             brown_noise: BrownNoise::default(),
@@ -285,6 +268,7 @@ impl Default for Voice {
             web_sample: None,
             drum_svf: SvfState::default(),
             drum_svf2: SvfState::default(),
+            pluck: Box::new(PluckState::default()),
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
             fx: Box::new(VoiceFxState::default()),
@@ -340,17 +324,20 @@ impl Voice {
         self.param_mod_count = 0;
         self.triggered = false;
         self.time = 0.0;
+        self.tag = None;
         *self.scratch = [[0.0; CHANNELS]; MAX_BLOCK];
         self.nch = 1;
         self.spread_side = 0.0;
         self.spread_cache_value = f32::NAN;
         self.spread_detune_ratios = [1.0; 3];
-        self.additive_cache = AdditiveCache::default();
         self.shape_active = false;
         self.sr = 44100.0;
         self.seed = 123456789;
         self.drum_svf = SvfState::default();
         self.drum_svf2 = SvfState::default();
+        // O(1): the 32 KB delay line is re-zeroed lazily by `run_pluck` on the
+        // first sample of a pluck note, never here on every note-on.
+        self.pluck.primed = false;
         self.stage_count = 0;
     }
 
@@ -383,12 +370,6 @@ impl Voice {
     #[inline]
     pub(crate) fn sync_source_state(&mut self) {
         self.shape_active = self.params.shape.is_active();
-        self.invalidate_additive_cache();
-    }
-
-    #[inline]
-    fn invalidate_additive_cache(&mut self) {
-        self.additive_cache.valid = false;
     }
 
     pub fn set_mod(&mut self, id: ParamId, chain: ModChain) {
@@ -424,6 +405,27 @@ impl Voice {
         }
     }
 
+    /// Remove any active ModChain targeting `id` (swap-remove, no alloc).
+    /// The param keeps its last written value.
+    pub fn clear_mod(&mut self, id: ParamId) {
+        let mut i = 0;
+        while i < self.param_mod_count as usize {
+            if self.param_mods[i].0 == id {
+                self.param_mod_count -= 1;
+                self.param_mods.swap(i, self.param_mod_count as usize);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// Re-fire the envelopes at the next `prepare_block` without resetting
+    /// phase or params. `Dahdsr::trigger` ramps from `current_val`, so a
+    /// retrigger on a sounding voice is click-free.
+    pub fn retrigger(&mut self) {
+        self.triggered = false;
+    }
+
     fn read_param(&self, id: ParamId) -> f32 {
         match id {
             ParamId::Freq => self.params.freq,
@@ -443,7 +445,6 @@ impl Voice {
             ParamId::Morph => self.params.morph,
             ParamId::Scan => self.params.scan,
             ParamId::Mirror => self.params.shape.mirror,
-            ParamId::Partials => self.params.partials,
             ParamId::Lpf => self.params.lpf.unwrap_or(20000.0),
             ParamId::Lpq => self.params.lpq,
             ParamId::Hpf => self.params.hpf.unwrap_or(0.0),
@@ -1412,26 +1413,13 @@ impl Voice {
             ParamId::Sub => self.params.sub = val,
             ParamId::SyncRatio => self.params.sync_ratio = val,
             ParamId::SyncPhase => self.params.sync_phase = val,
-            ParamId::Harmonics => {
-                self.params.harmonics = val;
-                self.invalidate_additive_cache();
-            }
-            ParamId::Timbre => {
-                self.params.timbre = val;
-                self.invalidate_additive_cache();
-            }
-            ParamId::Morph => {
-                self.params.morph = val;
-                self.invalidate_additive_cache();
-            }
+            ParamId::Harmonics => self.params.harmonics = val,
+            ParamId::Timbre => self.params.timbre = val,
+            ParamId::Morph => self.params.morph = val,
             ParamId::Scan => self.params.scan = val,
             ParamId::Mirror => {
                 self.params.shape.mirror = val;
                 self.shape_active = self.params.shape.is_active();
-            }
-            ParamId::Partials => {
-                self.params.partials = val;
-                self.invalidate_additive_cache();
             }
             ParamId::Lpf => self.params.lpf = Some(val),
             ParamId::Lpq => self.params.lpq = val,
@@ -1713,35 +1701,6 @@ impl Voice {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn additive_cache_invalidates_on_reset() {
-        let mut voice = Voice::default();
-        voice.params.timbre = 0.7;
-        voice.additive_cache.valid = true;
-        voice.shape_active = true;
-
-        voice.reset();
-
-        assert!(!voice.additive_cache.valid);
-        assert!(!voice.shape_active);
-    }
-
-    #[test]
-    fn additive_cache_invalidates_for_additive_params_only() {
-        let mut voice = Voice::default();
-        voice.additive_cache.valid = true;
-
-        voice.write_param(ParamId::Gain, 0.8);
-        assert!(voice.additive_cache.valid);
-
-        voice.write_param(ParamId::Timbre, 0.7);
-        assert!(!voice.additive_cache.valid);
-
-        voice.additive_cache.valid = true;
-        voice.write_param(ParamId::Partials, 12.0);
-        assert!(!voice.additive_cache.valid);
-    }
 
     #[test]
     fn sync_source_state_refreshes_shape_activity() {

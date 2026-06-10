@@ -213,13 +213,13 @@
         font-size: 1.4em;
         margin-top: 0;
         margin-bottom: 1.5em;
-        color: #000;
+        color: var(--ink);
     }
 
     main h2 {
         margin-top: 2em;
         margin-bottom: 0.5em;
-        color: #000;
+        color: var(--ink);
     }
 
     main section:first-of-type h2 {
@@ -236,15 +236,15 @@
     td {
         text-align: left;
         padding: 8px 12px;
-        border: 1px solid #ccc;
+        border: 1px solid var(--hairline-strong);
     }
 
     th {
-        background: #f5f5f5;
+        background: var(--code-bg);
     }
 
     code {
-        background: #f5f5f5;
+        background: var(--code-bg);
         padding: 2px 4px;
     }
 
@@ -256,7 +256,7 @@
         font-size: 1.17em;
         font-weight: bold;
         cursor: pointer;
-        color: #000;
+        color: var(--ink);
         user-select: none;
     }
 

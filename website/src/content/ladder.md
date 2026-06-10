@@ -3,6 +3,7 @@ title: "Ladder Filter"
 slug: "ladder"
 group: "effects"
 order: 113
+related: ["lowpass"]
 ---
 
 <script lang="ts">

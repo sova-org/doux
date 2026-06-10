@@ -3,6 +3,7 @@ title: "Delay"
 slug: "delay"
 group: "effects"
 order: 203
+related: ["reverb", "feedback", "comb"]
 ---
 
 <script lang="ts">

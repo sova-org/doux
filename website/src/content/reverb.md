@@ -3,6 +3,7 @@ title: "Reverb"
 slug: "reverb"
 group: "effects"
 order: 204
+related: ["delay", "smear"]
 ---
 
 <script lang="ts">

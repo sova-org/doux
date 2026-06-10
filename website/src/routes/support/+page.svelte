@@ -46,13 +46,13 @@
         font-size: 1.4em;
         margin-top: 0;
         margin-bottom: 1.5em;
-        color: #000;
+        color: var(--ink);
     }
 
     main h2 {
         margin-top: 2em;
         margin-bottom: 0.5em;
-        color: #000;
+        color: var(--ink);
     }
 
     main section:first-of-type h2 {
@@ -63,13 +63,13 @@
         display: inline-block;
         margin-top: 1em;
         padding: 12px 24px;
-        background: #f5f5f5;
-        border: 1px solid #ccc;
-        color: #000;
+        background: var(--code-bg);
+        border: 1px solid var(--hairline-strong);
+        color: var(--ink);
         text-decoration: none;
     }
 
     .donate-link:hover {
-        background: #eee;
+        background: var(--ui-hover);
     }
 </style>

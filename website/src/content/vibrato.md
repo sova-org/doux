@@ -3,6 +3,7 @@ title: "Vibrato"
 slug: "vibrato"
 group: "synthesis"
 order: 107
+related: ["pitch"]
 ---
 
 <script lang="ts">

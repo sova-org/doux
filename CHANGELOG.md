@@ -3,6 +3,42 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Per-source semantic names for the three generic tone params (`timbre`/`harmonics`/`morph`), resolved through the source's ParamInfo table at parse time; the generic names keep working on every source as universal aliases. Semantic names need the event's `s`/`sound` to resolve — when retargeting a sounding voice without `s`, use the generics. New names:
+  - `pluck`: `bright` (damping), `ring` (sustain), `excite` (excitation color)
+  - `kick`: `drive`, `punch` (sweep speed), `sweep` (sweep depth)
+  - `snare`: `snappy` (body/noise mix), `bright`
+  - `hat`: `reso`, `bright`, `metal` (ratio spread)
+  - `tom`: `noise` (stick noise), `punch`, `sweep`
+  - `rim`: `ring` (ring length), `bright`, `shift` (upper partial shift)
+  - `cowbell`: `drive`, `bright`, `clang` (detune)
+  - `cymbal`: `sizzle` (noise tail), `bright`, `metal`
+- `pluck` (aliases `ks`, `string`) — Karplus-Strong plucked string. `bright` = brightness/damping, `ring` = sustain, `excite` = excitation color. Delay retuned per sample, so vibrato and freq modulation bend the string continuously
+- Live-voice param addressing: a voice-addressed event without `s`/`sound` retargets params on the sounding voice — no envelope/gate/phase/sample-position touch (drone sculpting: `voice/0/lpf/800`)
+- `glide` — portamento time in seconds, sticky on the voice. A static `freq`/`note` retarget on a sounding voice slews from the current pitch; update + glide = legato, retrigger + glide = portamento
+- Static values displace modulation: a bare `lpf/800` clears an active ModChain on that param (previously inaudible — the chain kept rewriting the param)
+
+### Changed
+
+- `tri` now has polyBLAMP corner anti-aliasing (less sheen at high notes); skipped when `warp`/`mirror`/`size` shaping is active, since shaping moves the corners
+- Wavetable `scan` blends cycles with a smoothstep crossfade instead of linear — no zipper when scan modulation crosses cycle boundaries
+- **[BREAKING]** `voice/N` is now a stable identity tag, not a slot index (slot indices silently changed when other voices were freed)
+- **[BREAKING]** `s` + `voice/N` on a sounding voice retriggers: envelopes re-fire click-free from their current value, gate restarts; params stay sticky (event fields overwrite, no reset-to-defaults). `reset/1` keeps full-reset semantics
+- **[BREAKING]** a voice-addressed event for a non-sounding tag without `s` is dropped (previously spawned a default triangle voice)
+- `release` command releases the voice by tag
+- Live updates no longer stomp unrelated envelope stages with defaults, and no longer clear `inchan` when absent from the event
+
+### Removed
+
+- **[BREAKING]** `add` additive oscillator and its `partials` param — not interesting enough to keep
+
+### Fixed
+
+- WASM: `doux_init` overflowed the default 1MB shadow stack (engine construction temporaries grew with the comb rework) and trapped with "index out of bounds". Orbit array is now heap-built; wasm builds get a 4MB stack
+
 ## [0.0.39] - 2026-06-06
 
 ### Changed

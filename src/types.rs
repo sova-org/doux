@@ -69,6 +69,18 @@ pub struct ParamInfo {
     pub max: f32,
 }
 
+/// The three generic per-source parameter slots (Mutable-style macro lineage).
+/// Each source gives them semantic names in its `ParamInfo` table; a param
+/// resolves to a slot iff the slot's generic name (`timbre`, `harmonics`/
+/// `harm`, `morph`) appears in its `aliases`. The alias doubles as the
+/// documented universal fallback name, so it is load-bearing, not legacy.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GenericSlot {
+    Timbre,
+    Harmonics,
+    Morph,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ModuleGroup {
     Source,
@@ -81,6 +93,31 @@ pub struct ModuleInfo {
     pub description: &'static str,
     pub group: ModuleGroup,
     pub params: &'static [ParamInfo],
+}
+
+impl ModuleInfo {
+    /// Resolve a per-source semantic key ("bright" on pluck, "drive" on kick)
+    /// to its generic slot. Linear scan over the const param table; runs at
+    /// event-parse time only, never in the audio hot path. Returns None for
+    /// non-slot params (wave, scan, ...) and unknown keys.
+    ///
+    /// The flat match in `Event::parse` wins over this lookup, so a semantic
+    /// name must never reuse a global key (`tilt`, `fold`, `sustain`, ...).
+    pub fn semantic_slot(&self, key: &str) -> Option<GenericSlot> {
+        let param = self
+            .params
+            .iter()
+            .find(|p| p.name == key || p.aliases.contains(&key))?;
+        for &alias in param.aliases {
+            match alias {
+                "timbre" => return Some(GenericSlot::Timbre),
+                "harmonics" | "harm" => return Some(GenericSlot::Harmonics),
+                "morph" => return Some(GenericSlot::Morph),
+                _ => {}
+            }
+        }
+        None
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -118,8 +155,8 @@ pub enum Source {
     Zaw,
     Pulse,
     Pulze,
-    Add,
     Osc,
+    Pluck,
     White,
     Pink,
     Brown,
@@ -144,8 +181,8 @@ const ALL_SOURCES: [Source; 23] = [
     Source::Zaw,
     Source::Pulse,
     Source::Pulze,
-    Source::Add,
     Source::Osc,
+    Source::Pluck,
     Source::White,
     Source::Pink,
     Source::Brown,
@@ -253,49 +290,6 @@ const INFO_PULZE: SourceInfo = source_info!(
     5
 );
 
-const INFO_ADD: SourceInfo = source_info!(
-    "add",
-    &[],
-    SourceCategory::Oscillator,
-    "Additive oscillator building timbres by stacking sine partials",
-    None,
-    &[
-        ParamInfo {
-            name: "timbre",
-            aliases: &[],
-            description: "spectral tilt",
-            default: "0.5",
-            min: 0.0,
-            max: 1.0
-        },
-        ParamInfo {
-            name: "morph",
-            aliases: &[],
-            description: "even/odd partial balance",
-            default: "0.5",
-            min: 0.0,
-            max: 1.0
-        },
-        ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
-            description: "inharmonic stretch",
-            default: "0.5",
-            min: 0.0,
-            max: 1.0
-        },
-        ParamInfo {
-            name: "partials",
-            aliases: &[],
-            description: "number of partials (1-32)",
-            default: "32.0",
-            min: 1.0,
-            max: 32.0
-        },
-    ],
-    6
-);
-
 const INFO_OSC: SourceInfo = source_info!(
     "osc",
     &["oscillator"],
@@ -311,6 +305,41 @@ const INFO_OSC: SourceInfo = source_info!(
         max: 1.0
     },],
     14
+);
+
+const INFO_PLUCK: SourceInfo = source_info!(
+    "pluck",
+    &["ks", "string"],
+    SourceCategory::Oscillator,
+    "Karplus-Strong plucked string",
+    None,
+    &[
+        ParamInfo {
+            name: "bright",
+            aliases: &["timbre"],
+            description: "brightness (loop damping)",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+        ParamInfo {
+            name: "ring",
+            aliases: &["harmonics", "harm"],
+            description: "sustain (loop feedback)",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+        ParamInfo {
+            name: "excite",
+            aliases: &["morph"],
+            description: "excitation color (dark to snappy)",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+    ],
+    34
 );
 
 const INFO_WHITE: SourceInfo = source_info!(
@@ -355,24 +384,24 @@ const INFO_KICK: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
+            name: "sweep",
+            aliases: &["morph"],
             description: "sweep depth",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
+            name: "punch",
+            aliases: &["harmonics", "harm"],
             description: "sweep speed",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
+            name: "drive",
+            aliases: &["timbre"],
             description: "saturation",
             default: "0.5",
             min: 0.0,
@@ -404,16 +433,16 @@ const INFO_SNARE: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
+            name: "snappy",
+            aliases: &["timbre"],
             description: "body/noise mix",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
+            name: "bright",
+            aliases: &["harmonics", "harm"],
             description: "noise brightness",
             default: "0.5",
             min: 0.0,
@@ -445,24 +474,24 @@ const INFO_HAT: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
-            description: "clean to metallic",
+            name: "metal",
+            aliases: &["morph"],
+            description: "clean to metallic (ratio spread)",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
-            description: "dark to bright",
+            name: "bright",
+            aliases: &["harmonics", "harm"],
+            description: "dark to bright (filter cutoff)",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
+            name: "reso",
+            aliases: &["timbre"],
             description: "filter resonance",
             default: "0.5",
             min: 0.0,
@@ -486,25 +515,25 @@ const INFO_TOM: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
+            name: "sweep",
+            aliases: &["morph"],
             description: "sweep depth",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
+            name: "punch",
+            aliases: &["harmonics", "harm"],
             description: "sweep speed",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
-            description: "noise amount",
+            name: "noise",
+            aliases: &["timbre"],
+            description: "stick-noise amount",
             default: "0.5",
             min: 0.0,
             max: 1.0
@@ -535,25 +564,25 @@ const INFO_RIM: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
-            description: "pitch sweep",
+            name: "shift",
+            aliases: &["morph"],
+            description: "upper partial shift",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
-            description: "noise brightness",
+            name: "bright",
+            aliases: &["harmonics", "harm"],
+            description: "click brightness",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
-            description: "body/noise mix",
+            name: "ring",
+            aliases: &["timbre"],
+            description: "ring length",
             default: "0.5",
             min: 0.0,
             max: 1.0
@@ -584,25 +613,25 @@ const INFO_COWBELL: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
+            name: "clang",
+            aliases: &["morph"],
             description: "detune amount",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
-            description: "brightness",
+            name: "bright",
+            aliases: &["harmonics", "harm"],
+            description: "brightness (bandpass center)",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
-            description: "metallic bite",
+            name: "drive",
+            aliases: &["timbre"],
+            description: "metallic bite (saturation)",
             default: "0.5",
             min: 0.0,
             max: 1.0
@@ -625,25 +654,25 @@ const INFO_CYMBAL: SourceInfo = source_info!(
     }),
     &[
         ParamInfo {
-            name: "morph",
-            aliases: &[],
+            name: "metal",
+            aliases: &["morph"],
             description: "ratio spread (bell-like to crash)",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "harmonics",
-            aliases: &["harm"],
+            name: "bright",
+            aliases: &["harmonics", "harm"],
             description: "brightness (dark to sizzly)",
             default: "0.5",
             min: 0.0,
             max: 1.0
         },
         ParamInfo {
-            name: "timbre",
-            aliases: &[],
-            description: "noise amount",
+            name: "sizzle",
+            aliases: &["timbre"],
+            description: "noise tail amount",
             default: "0.5",
             min: 0.0,
             max: 1.0
@@ -806,8 +835,8 @@ impl Source {
             Self::Zaw => &INFO_ZAW,
             Self::Pulse => &INFO_PULSE,
             Self::Pulze => &INFO_PULZE,
-            Self::Add => &INFO_ADD,
             Self::Osc => &INFO_OSC,
+            Self::Pluck => &INFO_PLUCK,
             Self::White => &INFO_WHITE,
             Self::Pink => &INFO_PINK,
             Self::Brown => &INFO_BROWN,

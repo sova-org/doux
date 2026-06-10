@@ -237,7 +237,7 @@
     main h2 {
         margin-top: 2.5em;
         margin-bottom: 0.5em;
-        color: #000;
+        color: var(--ink);
     }
 
     .intro {
@@ -248,15 +248,15 @@
         display: block;
         margin: 1.5em 0;
         padding: 12px 24px;
-        background: #f5f5f5;
-        border: 1px solid #ccc;
-        color: #000;
+        background: var(--code-bg);
+        border: 1px solid var(--hairline-strong);
+        color: var(--ink);
         text-decoration: none;
         text-align: center;
     }
 
     .support-link:hover {
-        border-color: #999;
-        background: #eee;
+        border-color: var(--faint);
+        background: var(--ui-hover);
     }
 </style>

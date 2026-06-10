@@ -3,11 +3,13 @@ title: "Basic"
 slug: "basic"
 group: "sources"
 order: 0
+related: ["oscillator", "wavetable"]
 ---
 
 <script lang="ts">
   import CodeEditor from '$lib/components/CodeEditor.svelte';
   import CommandEntry from '$lib/components/CommandEntry.svelte';
+  import ParamTable from '$lib/components/ParamTable.svelte';
 </script>
 
 These sources provide fundamental waveforms that can be combined and manipulated to create complex sounds. They are inspired by classic substractive synthesizers.
@@ -112,20 +114,22 @@ Morphing oscillator. Sweeps through sine, triangle, saw, and square as `wave` go
 
 </CommandEntry>
 
-<CommandEntry name="add" type="source">
+<CommandEntry name="pluck" type="source">
 
-Additive oscillator. Builds timbres by stacking sine partials. Shape the spectrum with `timbre`, `morph`, `harmonics`, and `partials`.
+Karplus-Strong plucked string. A noise burst rings through a tuned, damped feedback loop. The string is retuned every sample, so vibrato and pitch modulation bend it continuously. Aliases: `ks`, `string`.
 
-<CodeEditor code={`/sound/add/note/48`} rows={2} />
+Every source names its three tone-shaping parameters this way: semantic names per source, while the generic `timbre`, `harmonics`, and `morph` work on all of them — useful when retargeting a sounding voice without restating `sound`.
 
-<CodeEditor code={`/sound/add/note/36/timbre/0.8/morph/0.2`} rows={2} />
+<ParamTable params={[
+  { name: "bright", alias: "timbre", range: "0–1", default: "0.5", mod: true, description: "brightness (loop damping: 0 = dark thud, 1 = bright ring)" },
+  { name: "ring", alias: "harmonics, harm", range: "0–1", default: "0.5", mod: true, description: "sustain (0 = dead, 0.5 ≈ half-second tail, 1 = drone)" },
+  { name: "excite", alias: "morph", range: "0–1", default: "0.5", mod: true, description: "excitation color (0 = soft dark pluck, 1 = snappy attack)" },
+]} />
 
-<CodeEditor code={`/sound/add/note/48/timbre/0~1:2/decay/4/gate/5`} rows={2} />
+<CodeEditor code={`/sound/pluck/note/60`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/36/morph/0~1:1/gate/3`} rows={2} />
+<CodeEditor code={`/sound/pluck/note/48/bright/0.8/ring/0.9/gate/3`} rows={2} />
 
-<CodeEditor code={`/sound/add/note/60/harmonics/0.7/timbre/0.8/partials/12`} rows={2} />
-
-<CodeEditor code={`/sound/add/note/48/partials/1~32:3/gate/4`} rows={2} />
+<CodeEditor code={`/sound/pluck/note/52/ring/1/vib/5/vibmod/0.3/gate/4`} rows={2} />
 
 </CommandEntry>

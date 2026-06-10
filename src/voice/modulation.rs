@@ -313,7 +313,6 @@ pub enum ParamId {
     Timbre,
     Morph,
     Scan,
-    Partials,
     Lpf,
     Lpq,
     Hpf,

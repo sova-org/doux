@@ -2,6 +2,7 @@ import { doux } from './doux';
 
 let ctx: CanvasRenderingContext2D | null = null;
 let raf: number | null = null;
+let strokeColor = 'black';
 
 const lerp = (v: number, min: number, max: number) => v * (max - min) + min;
 const invLerp = (v: number, min: number, max: number) => (v - min) / (max - min);
@@ -18,7 +19,7 @@ function drawBuffer(
 ) {
 	const lineWidth = 2;
 	ctx.lineWidth = lineWidth;
-	ctx.strokeStyle = 'black';
+	ctx.strokeStyle = strokeColor;
 	const perChannel = samples.length / channels / 2;
 	const pingbuffer = doux.frame[0] > samples.length / 2;
 	const s0 = pingbuffer ? 0 : perChannel;
@@ -53,11 +54,23 @@ export function initScope(canvas: HTMLCanvasElement) {
 		canvas.width = canvas.clientWidth * devicePixelRatio;
 		canvas.height = canvas.clientHeight * devicePixelRatio;
 	}
+	function updateColor() {
+		// styles may not be recalculated yet when the media query fires
+		requestAnimationFrame(() => {
+			strokeColor = getComputedStyle(canvas).color || 'black';
+		});
+	}
 	resize();
 	ctx = canvas.getContext('2d');
 	const observer = new ResizeObserver(resize);
 	observer.observe(canvas);
-	return () => observer.disconnect();
+	const scheme = matchMedia('(prefers-color-scheme: dark)');
+	scheme.addEventListener('change', updateColor);
+	updateColor();
+	return () => {
+		observer.disconnect();
+		scheme.removeEventListener('change', updateColor);
+	};
 }
 
 export function startScope() {

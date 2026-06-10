@@ -33,6 +33,9 @@ pub struct VoiceParams {
     pub speed: f32,
     /// Time stretch factor (duration multiplier). 1.0 = normal, 2.0 = twice as long, 0 = freeze.
     pub stretch: f32,
+    /// Portamento time in seconds. When > 0, a static `freq`/`note` retarget
+    /// on a sounding voice slews from the current pitch instead of snapping.
+    pub glide: f32,
     /// Pre-filter gain (0.0 to 1.0+).
     pub gain: f32,
     /// MIDI velocity (0.0 to 1.0), applied at the output VCA alongside env and postgain.
@@ -55,14 +58,15 @@ pub struct VoiceParams {
     pub spread: f32,
     /// Phase shaping parameters for waveform modification.
     pub shape: PhaseShape,
-    /// Harmonics control for additive oscillator (0.0 to 1.0).
+    /// Generic slot, meaning defined per source in its ParamInfo table
+    /// (pluck: sustain, kick: sweep speed, ...).
     pub harmonics: f32,
-    /// Timbre control for additive oscillator (0.0 to 1.0).
+    /// Generic slot, meaning defined per source in its ParamInfo table
+    /// (pluck: brightness, kick: drive, ...).
     pub timbre: f32,
-    /// Morph control for additive oscillator (0.0 to 1.0).
+    /// Generic slot, meaning defined per source in its ParamInfo table
+    /// (pluck: excitation, kick: sweep depth, ...).
     pub morph: f32,
-    /// Number of active harmonics for additive oscillator (1-32).
-    pub partials: f32,
     /// Sample slice/cut index for sample playback.
     pub cut: Option<usize>,
     /// Wavetable scan position (0.0 to 1.0) - morphs between cycles.
@@ -314,6 +318,7 @@ impl Default for VoiceParams {
             detune: 0.0,
             speed: 1.0,
             stretch: 1.0,
+            glide: 0.0,
             gain: 1.0,
             velocity: 1.0,
             postgain: 1.0,
@@ -326,7 +331,6 @@ impl Default for VoiceParams {
             harmonics: 0.5,
             timbre: 0.5,
             morph: 0.5,
-            partials: 32.0,
             cut: None,
             scan: 0.0,
             wt_cycle_len: 0,

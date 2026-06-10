@@ -3,6 +3,7 @@ title: "Feedback"
 slug: "feedback"
 group: "effects"
 order: 202
+related: ["delay", "comb"]
 ---
 
 <script lang="ts">

@@ -3,7 +3,8 @@
 
     interface Props {
         name: string;
-        type?: "number" | "boolean" | "enum" | "source";
+        aliases?: string;
+        type?: "number" | "boolean" | "enum" | "source" | "string";
         min?: number;
         max?: number;
         default?: number | string | boolean;
@@ -15,6 +16,7 @@
 
     let {
         name,
+        aliases,
         type,
         min,
         max,
@@ -53,6 +55,9 @@
 <details id={name} bind:this={detailsEl} ontoggle={onToggle}>
     <summary>
         <span class="name">{name}{#if modulatable}<span class="mod" title="supports inline modulation">~</span>{/if}</span>
+        {#if aliases}
+            <span class="aliases">{aliases}</span>
+        {/if}
         {#if type && type !== "source"}
             <span class="meta">
                 <span class="type">{type}</span>
@@ -80,11 +85,11 @@
 
 <style>
     details {
-        border-bottom: 1px solid #ddd;
+        border-bottom: 1px solid var(--hairline);
     }
 
     summary {
-        padding: 8px 0;
+        padding: 7px 0;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -98,8 +103,8 @@
 
     summary::before {
         content: "▶";
-        font-size: 0.7em;
-        color: #999;
+        font-size: 0.6em;
+        color: var(--faint);
         transition: transform 0.15s;
     }
 
@@ -108,39 +113,40 @@
     }
 
     .name {
-        font-weight: bold;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 600;
     }
 
     .mod {
         display: inline-block;
         font-size: 0.75em;
         vertical-align: super;
-        color: #999;
+        color: var(--accent);
         margin-left: 1px;
+    }
+
+    .aliases {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--faint);
     }
 
     .meta {
         display: inline-flex;
         gap: 6px;
-        font-size: 0.85em;
+        font-family: var(--font-mono);
+        font-size: 11px;
     }
 
     .meta span {
-        padding: 2px 6px;
-        background: #f5f5f5;
-        color: #666;
-    }
-
-    .type {
-        color: #666 !important;
-    }
-
-    .range {
-        color: #666 !important;
+        padding: 1px 6px;
+        border: 1px solid var(--hairline);
+        color: var(--muted);
     }
 
     .default {
-        color: #999 !important;
+        color: var(--faint) !important;
     }
 
     .entry-content {

@@ -1,16 +1,14 @@
 //! Source generation - oscillators, samples, spread mode.
 
-use std::f32::consts::TAU;
-
 #[cfg(feature = "native")]
 use crate::dsp::log2f;
 use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
-use crate::dsp::{exp2f, sinf, PhaseShape, Phasor};
+use crate::dsp::{exp2f, PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
 use crate::types::{Source, SubWave, SyncMode, CHANNELS};
 
-use super::{Voice, MAX_ADDITIVE_PARTIALS};
+use super::Voice;
 
 const INV_MIDDLE_C: f32 = 1.0 / 261.626;
 const SYNC_RATIO_EPS: f32 = 1e-4;
@@ -33,14 +31,13 @@ fn wrap_phase_any(phase: f32) -> f32 {
     phase - phase.floor()
 }
 
-// log2(i) for i=1..32, precomputed to replace powf with a single exp2f
-#[allow(clippy::approx_constant)]
-const LOG2_TABLE: [f32; 32] = [
-    0.0, 1.0, 1.584_963, 2.0, 2.321_928, 2.584_963, 2.807_355, 3.0, 3.169_925, 3.321_928,
-    3.459_432, 3.584_963, 3.700_44, 3.807_355, 3.906_89, 4.0, 4.087_463, 4.169_925, 4.247_928,
-    4.321_928, 4.392_317, 4.459_432, 4.523_562, 4.584_963, 4.643_856, 4.700_44, 4.754_888,
-    4.807_355, 4.857_981, 4.906_89, 4.954_196, 5.0,
-];
+/// Smoothstep crossfade for wavetable scan blending. Constant-sum for
+/// correlated adjacent cycles, with zero derivative at cycle boundaries so
+/// scan modulation has no corner when crossing frames.
+#[inline]
+fn scan_xfade(blend: f32) -> f32 {
+    blend * blend * (3.0 - 2.0 * blend)
+}
 
 #[inline]
 fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
@@ -50,11 +47,11 @@ fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
     match segment {
         0 => {
             let a = Phasor::sine_at(phase, shape);
-            let b = Phasor::tri_at(phase, shape);
+            let b = Phasor::tri_at(phase, dt, shape);
             a + t * (b - a)
         }
         1 => {
-            let a = Phasor::tri_at(phase, shape);
+            let a = Phasor::tri_at(phase, dt, shape);
             let b = Phasor::saw_at(phase, dt, shape);
             a + t * (b - a)
         }
@@ -76,87 +73,15 @@ impl Voice {
         }
     }
 
-    fn ensure_additive_cache(&mut self) {
-        if self.additive_cache.valid {
-            return;
-        }
-
-        let timbre = self.params.timbre;
-        let morph = self.params.morph;
-        let harmonics = self.params.harmonics;
-        let partials = self.params.partials;
-
-        let tilt_exp = 3.0 * (1.0 - timbre);
-        let stretch = harmonics * harmonics * 0.01;
-        let max_n = partials.clamp(1.0, MAX_ADDITIVE_PARTIALS as f32);
-        let max_n_floor = max_n.floor() as usize;
-        let max_n_ceil = max_n.ceil() as usize;
-        let tail_weight = max_n.fract();
-        let gains = if morph < 0.5 {
-            [morph * 2.0, 1.0]
-        } else {
-            [1.0, (1.0 - morph) * 2.0]
-        };
-
-        let mut norm = 0.0;
-        for i in 1..=max_n_ceil {
-            let fi = i as f32;
-            let ratio = fi * (1.0 + stretch * (fi - 1.0));
-            let mut amp = exp2f(-tilt_exp * LOG2_TABLE[i - 1]);
-            amp *= gains[i & 1];
-            if i > max_n_floor {
-                amp *= tail_weight;
-            }
-
-            let idx = i - 1;
-            self.additive_cache.ratios[idx] = ratio;
-            self.additive_cache.amps[idx] = amp;
-            norm += amp;
-            self.additive_cache.norm_prefix[idx] = norm;
-        }
-
-        self.additive_cache.active_count = max_n_ceil as u8;
-        self.additive_cache.tail_weight = tail_weight;
-        self.additive_cache.valid = true;
-    }
-
-    #[inline]
-    fn additive_at_cached(&self, phase: f32, dt: f32) -> f32 {
-        let phase_tau = phase * TAU;
-        let count = self.additive_cache.active_count as usize;
-        let mut sum = 0.0_f32;
-        let mut used = 0usize;
-
-        for idx in 0..count {
-            let ratio = self.additive_cache.ratios[idx];
-            if dt * ratio >= 0.5 {
-                break;
-            }
-
-            sum += sinf(phase_tau * ratio) * self.additive_cache.amps[idx];
-            used = idx + 1;
-        }
-
-        if used > 0 {
-            sum / self.additive_cache.norm_prefix[used - 1]
-        } else {
-            0.0
-        }
-    }
-
     #[inline]
     pub(super) fn osc_at(&self, phase: f32, dt: f32) -> f32 {
         match self.params.sound {
-            Source::Tri => Phasor::tri_at(phase, &self.params.shape),
+            Source::Tri => Phasor::tri_at(phase, dt, &self.params.shape),
             Source::Sine => Phasor::sine_at(phase, &self.params.shape),
             Source::Saw => Phasor::saw_at(phase, dt, &self.params.shape),
             Source::Zaw => Phasor::zaw_at(phase, &self.params.shape),
             Source::Pulse => Phasor::pulse_at(phase, dt, self.params.pw, &self.params.shape),
             Source::Pulze => Phasor::pulze_at(phase, self.params.pw, &self.params.shape),
-            Source::Add => {
-                let shaped = self.shape_phase(phase);
-                self.additive_at_cached(shaped, dt)
-            }
             Source::Osc => osc_morph_at(phase, dt, self.params.wave, &self.params.shape),
             _ => 0.0,
         }
@@ -379,6 +304,17 @@ impl Voice {
                     self.finish_sample(env[i], isr, i);
                 }
             }
+            Source::Pluck => {
+                self.nch = 1;
+                for i in 0..n {
+                    let freq = self.tick_pre(isr);
+                    let s_main = self.run_pluck(freq, isr);
+                    let s = self.run_sub(freq, isr, s_main);
+                    self.scratch[i][0] = s;
+                    self.scratch[i][1] = 0.0;
+                    self.finish_sample(env[i], isr, i);
+                }
+            }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
@@ -526,6 +462,17 @@ impl Voice {
                     self.finish_sample(env[i], isr, i);
                 }
             }
+            Source::Pluck => {
+                self.nch = 1;
+                for i in 0..n {
+                    let freq = self.tick_pre(isr);
+                    let s_main = self.run_pluck(freq, isr);
+                    let s = self.run_sub(freq, isr, s_main);
+                    self.scratch[i][0] = s;
+                    self.scratch[i][1] = 0.0;
+                    self.finish_sample(env[i], isr, i);
+                }
+            }
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
@@ -555,10 +502,6 @@ impl Voice {
     }
 
     fn run_spread(&mut self, freq: f32, isr: f32) -> f32 {
-        if self.params.sound == Source::Add {
-            self.ensure_additive_cache();
-        }
-
         let mut left = 0.0;
         let mut right = 0.0;
         const PAN: [f32; 3] = [0.3, 0.6, 0.9];
@@ -706,15 +649,6 @@ impl Voice {
                     .pulze_shaped(freq, self.params.pw, isr, &self.params.shape, pm)
                     * 0.5
             }
-            Source::Add => {
-                self.ensure_additive_cache();
-                let dt = freq * isr;
-                let read = wrap_phase_any(self.phasor.phase + pm);
-                let phase = self.shape_phase(read);
-                let s = self.additive_at_cached(phase, dt);
-                self.phasor.update(freq, isr);
-                s * 0.5
-            }
             Source::Osc => {
                 let dt = freq * isr;
                 let read = wrap_phase_any(self.phasor.phase + pm);
@@ -758,7 +692,7 @@ impl Voice {
             let scan_pos = scan * (num_cycles - 1.0);
             let cycle_a = scan_pos.floor() as usize;
             let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-            let blend = scan_pos.fract();
+            let blend = scan_xfade(scan_pos.fract());
 
             let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
             let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
@@ -810,7 +744,7 @@ impl Voice {
                 let scan_pos = scan * (num_cycles - 1.0);
                 let cycle_a = scan_pos.floor() as usize;
                 let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-                let blend = scan_pos.fract();
+                let blend = scan_xfade(scan_pos.fract());
 
                 let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
                 let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
@@ -852,7 +786,7 @@ impl Voice {
             let scan_pos = scan * (num_cycles - 1.0);
             let cycle_a = scan_pos.floor() as usize;
             let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-            let blend = scan_pos.fract();
+            let blend = scan_xfade(scan_pos.fract());
 
             let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
             let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
@@ -904,44 +838,6 @@ fn read_interpolated(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voice::modulation::ParamId;
-
-    #[test]
-    fn additive_cache_builds_expected_partial_table() {
-        let mut voice = Voice::default();
-        voice.params.sound = Source::Add;
-        voice.params.timbre = 0.35;
-        voice.params.morph = 0.2;
-        voice.params.harmonics = 0.7;
-        voice.params.partials = 4.5;
-        voice.sync_source_state();
-
-        voice.ensure_additive_cache();
-
-        assert!(voice.additive_cache.valid);
-        assert_eq!(voice.additive_cache.active_count, 5);
-        assert!((voice.additive_cache.tail_weight - 0.5).abs() < 1e-6);
-        assert!(voice.additive_cache.ratios[0] > 0.0);
-        assert!(voice.additive_cache.norm_prefix[4] > voice.additive_cache.norm_prefix[3]);
-    }
-
-    #[test]
-    fn additive_cache_rebuilds_after_additive_param_change() {
-        let mut voice = Voice::default();
-        voice.params.sound = Source::Add;
-        voice.params.partials = 4.0;
-        voice.sync_source_state();
-        voice.ensure_additive_cache();
-        let old_last_norm = voice.additive_cache.norm_prefix[3];
-
-        voice.write_param(ParamId::Partials, 6.0);
-        assert!(!voice.additive_cache.valid);
-
-        voice.ensure_additive_cache();
-        assert!(voice.additive_cache.valid);
-        assert_eq!(voice.additive_cache.active_count, 6);
-        assert!(voice.additive_cache.norm_prefix[5] > old_last_norm);
-    }
 
     #[test]
     fn hard_sync_resets_main_phase_on_master_wrap() {

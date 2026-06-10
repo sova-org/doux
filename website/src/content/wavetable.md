@@ -3,6 +3,7 @@ title: 'Wavetable'
 slug: 'wavetable'
 group: 'sources'
 order: 2
+related: ["basic"]
 ---
 
 <script lang="ts">

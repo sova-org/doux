@@ -5,4 +5,5 @@ rustflags = ["-C", "target-cpu=native"]
 rustflags = ["-C", "target-cpu=native"]
 
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
+# 4MB shadow stack: the 1MB default cannot hold Engine construction temporaries.
+rustflags = ["-C", "target-feature=+simd128", "-C", "link-arg=-zstack-size=4194304"]

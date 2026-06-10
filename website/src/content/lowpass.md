@@ -3,6 +3,7 @@ title: "Lowpass Filter"
 slug: "lowpass"
 group: "effects"
 order: 110
+related: ["highpass", "bandpass", "ladder", "steep-lowpass"]
 ---
 
 <script lang="ts">

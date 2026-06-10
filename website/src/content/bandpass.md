@@ -3,6 +3,7 @@ title: "Bandpass Filter"
 slug: "bandpass"
 group: "effects"
 order: 112
+related: ["lowpass", "highpass", "steep-bandpass"]
 ---
 
 <script lang="ts">

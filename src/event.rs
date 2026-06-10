@@ -1,5 +1,7 @@
 use crate::superpan::SpeakerSet;
-use crate::types::{midi2freq, DelayType, LfoShape, ReverbType, SubWave, SyncMode};
+use crate::types::{
+    midi2freq, DelayType, GenericSlot, LfoShape, ReverbType, Source, SubWave, SyncMode,
+};
 use crate::voice::{ModChain, ParamId};
 
 #[derive(Clone, Default, Debug)]
@@ -18,11 +20,16 @@ pub struct Event {
 
     // Inline parameter modulation
     pub mods: Vec<(ParamId, ModChain)>,
+    // Params that arrived as static values; statics displace any active
+    // ModChain on the same param when applied to a sounding voice.
+    pub static_ids: Vec<ParamId>,
 
     // Pitch
     pub freq: Option<f32>,
     pub detune: Option<f32>,
     pub speed: Option<f32>,
+    // Portamento time in seconds (sticky on the voice)
+    pub glide: Option<f32>,
     // Time stretch
     pub stretch: Option<f32>,
 
@@ -39,7 +46,6 @@ pub struct Event {
     pub harmonics: Option<f32>,
     pub timbre: Option<f32>,
     pub morph: Option<f32>,
-    pub partials: Option<f32>,
     pub n: Option<String>,
     pub cut: Option<usize>,
     pub begin: Option<f32>,
@@ -263,12 +269,29 @@ impl Event {
         let mut event = Self::default();
         let mut iter = input.trim().split('/').filter(|s| !s.is_empty());
 
+        // Pre-scan for the sound so per-source semantic params resolve
+        // regardless of key order ("bright/0.2/s/pluck" works). Last `s`
+        // wins, mirroring the main loop. Sample names and unknown sounds
+        // yield None: semantic keys are then silently dropped, the generic
+        // timbre/harmonics/morph names still work.
+        let source_info = {
+            let mut scan = iter.clone();
+            let mut found: Option<Source> = None;
+            while let (Some(k), Some(v)) = (scan.next(), scan.next()) {
+                if k == "sound" || k == "s" {
+                    found = v.parse::<Source>().ok();
+                }
+            }
+            found.map(|s| s.info())
+        };
+
         macro_rules! parse_param {
             ($val:expr, $field:ident, $id:expr) => {
                 if let Some(chain) = ModChain::parse($val) {
                     event.mods.push(($id, chain));
-                } else {
-                    event.$field = $val.parse().ok();
+                } else if let Ok(v) = $val.parse() {
+                    event.$field = Some(v);
+                    event.static_ids.push($id);
                 }
             };
         }
@@ -300,12 +323,14 @@ impl Event {
                 "note" => {
                     if let Some(chain) = ModChain::parse(val).map(|c| c.map_values(midi2freq)) {
                         event.mods.push((ParamId::Freq, chain));
-                    } else {
-                        event.freq = val.parse().ok().map(midi2freq);
+                    } else if let Ok(n) = val.parse() {
+                        event.freq = Some(midi2freq(n));
+                        event.static_ids.push(ParamId::Freq);
                     }
                 }
                 "detune" => parse_param!(val, detune, ParamId::Detune),
                 "speed" => parse_param!(val, speed, ParamId::Speed),
+                "glide" => event.glide = val.parse().ok(),
                 "stretch" => parse_param!(val, stretch, ParamId::Stretch),
                 "fit" => event.fit = val.parse().ok(),
                 "sound" | "s" => event.sound = Some(val.to_string()),
@@ -317,7 +342,6 @@ impl Event {
                 "harmonics" | "harm" => parse_param!(val, harmonics, ParamId::Harmonics),
                 "timbre" => parse_param!(val, timbre, ParamId::Timbre),
                 "morph" => parse_param!(val, morph, ParamId::Morph),
-                "partials" => parse_param!(val, partials, ParamId::Partials),
                 "n" => event.n = Some(val.to_string()),
                 "cut" => event.cut = Self::parse_usize(val),
                 "begin" => event.begin = val.parse().ok(),
@@ -449,7 +473,25 @@ impl Event {
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
                 "endrec" => event.rec_stop = Some(val == "1" || val == "true"),
                 "inchan" => event.inchan = Self::parse_usize(val),
-                _ => {}
+                // Per-source semantic names ("bright" on pluck, "drive" on
+                // kick) resolve through the source's ParamInfo table to one
+                // of the three generic slots. The flat arms above always win.
+                _ => {
+                    if let Some(info) = source_info {
+                        match info.module.semantic_slot(key) {
+                            Some(GenericSlot::Timbre) => {
+                                parse_param!(val, timbre, ParamId::Timbre)
+                            }
+                            Some(GenericSlot::Harmonics) => {
+                                parse_param!(val, harmonics, ParamId::Harmonics)
+                            }
+                            Some(GenericSlot::Morph) => {
+                                parse_param!(val, morph, ParamId::Morph)
+                            }
+                            None => {}
+                        }
+                    }
+                }
             }
         }
         event.effective_name = match (&event.sound, &event.bank) {

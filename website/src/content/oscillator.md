@@ -3,6 +3,7 @@ title: "Oscillator"
 slug: "oscillator"
 group: "synthesis"
 order: 104
+related: ["basic"]
 ---
 
 <script lang="ts">
@@ -58,7 +59,7 @@ Reflects the phase at the specified position. At 0.5, creates symmetric waveform
 
 ## Sub Oscillator
 
-A secondary oscillator tuned octaves below the main oscillator. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze) and spread mode.
+A secondary oscillator tuned octaves below the main oscillator. Works with all basic oscillators (sine, tri, saw, zaw, pulse, pulze), pluck, and spread mode.
 
 <CommandEntry name="sub" type="number" min={0} max={1} default={0} mod>
 

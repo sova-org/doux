@@ -3,6 +3,7 @@ title: "Comb Filter"
 slug: "comb"
 group: "effects"
 order: 113
+related: ["feedback", "delay"]
 ---
 
 <script lang="ts">

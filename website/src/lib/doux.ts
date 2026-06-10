@@ -114,26 +114,31 @@ class DouxProcessor extends AudioWorkletProcessor {
     this.port.onmessage = async (e) => {
       const { wasm, evaluate, event_input, panic, writePcm } = e.data;
       if (wasm) {
-        const { instance } = await WebAssembly.instantiate(wasm, {});
-        wasmExports = instance.exports;
-        wasmMemory = wasmExports.memory;
-        wasmExports.doux_init(sampleRate, 32);
-        event_input_ptr = wasmExports.get_event_input_pointer();
-        output = new Float32Array(
-          wasmMemory.buffer,
-          wasmExports.get_output_pointer(),
-          BLOCK_SIZE * CHANNELS,
-        );
-        input_buffer = new Float32Array(
-          wasmMemory.buffer,
-          wasmExports.get_input_buffer_pointer(),
-          BLOCK_SIZE * CHANNELS,
-        );
-        framebuffer_ptr = wasmExports.get_framebuffer_pointer();
-        frame_ptr = wasmExports.get_frame_pointer();
-        const framebufferLen = Math.floor((sampleRate / 60) * CHANNELS) * 4;
-        framebuffer = new Float32Array(framebufferLen);
-        this.port.postMessage({ ready: true, sampleRate });
+        try {
+          const { instance } = await WebAssembly.instantiate(wasm, {});
+          wasmExports = instance.exports;
+          wasmMemory = wasmExports.memory;
+          wasmExports.doux_init(sampleRate, 32);
+          event_input_ptr = wasmExports.get_event_input_pointer();
+          output = new Float32Array(
+            wasmMemory.buffer,
+            wasmExports.get_output_pointer(),
+            BLOCK_SIZE * CHANNELS,
+          );
+          input_buffer = new Float32Array(
+            wasmMemory.buffer,
+            wasmExports.get_input_buffer_pointer(),
+            BLOCK_SIZE * CHANNELS,
+          );
+          framebuffer_ptr = wasmExports.get_framebuffer_pointer();
+          frame_ptr = wasmExports.get_frame_pointer();
+          const framebufferLen = Math.floor((sampleRate / 60) * CHANNELS) * 4;
+          framebuffer = new Float32Array(framebufferLen);
+          this.port.postMessage({ ready: true, sampleRate });
+        } catch (err) {
+          wasmExports = null;
+          this.port.postMessage({ error: String(err) });
+        }
       } else if (writePcm) {
         const { data, offset } = writePcm;
         const pcm_ptr = wasmExports.get_sample_buffer_pointer();
@@ -155,7 +160,7 @@ class DouxProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
-    if (wasmExports && outputs[0][0]) {
+    if (wasmExports && output && outputs[0][0]) {
       if (input_buffer && inputs[0] && inputs[0][0]) {
         for (let i = 0; i < inputs[0][0].length; i++) {
           const offset = i * CHANNELS;
@@ -241,7 +246,7 @@ export class Doux {
 		worklet.connect(ac.destination);
 		const res = await fetch(`${this.base}doux.wasm?t=${Date.now()}`);
 		const wasm = await res.arrayBuffer();
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 			worklet.port.onmessage = async (e) => {
 				if (e.data.ready) {
 					this.sampleRate = e.data.sampleRate;
@@ -251,6 +256,8 @@ export class Doux {
 					this.framebuffer = new Float32Array(framebufferLen);
 					this.samplesReady = douxsamples('https://samples.raphaelforment.fr');
 					resolve(worklet);
+				} else if (e.data.error) {
+					reject(new Error(`doux wasm init failed: ${e.data.error}`));
 				} else if (e.data.clock) {
 					this.onTick?.(e.data);
 				} else if (e.data.framebuffer) {

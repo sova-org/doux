@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { version } from '$app/environment';
 	import { doux } from '$lib/doux';
-	import { Home, FileText, LifeBuoy, Terminal } from 'lucide-svelte';
-	import Scope from './Scope.svelte';
+	import { palette } from '$lib/palette.svelte';
+	import { Home, FileText, LifeBuoy, Terminal, Mic, MicOff, Search } from 'lucide-svelte';
 
 	let micEnabled = $state(false);
 	let micLoading = $state(false);
@@ -28,17 +28,26 @@
 		<a href="/native" class="nav-link"><Terminal size={16} /> Native</a>
 		<a href="/support" class="nav-link"><LifeBuoy size={16} /> Support</a>
 	</div>
-	<div class="nav-scope">
-		<Scope />
+	<div class="nav-actions">
+		<button class="search-btn" onclick={() => (palette.open = true)}>
+			<Search size={14} />
+			<span class="search-hint">search</span>
+			<kbd>⌘K</kbd>
+		</button>
+		<button
+			class="mic-btn"
+			class:mic-enabled={micEnabled}
+			disabled={micLoading}
+			onclick={toggleMic}
+			title={micEnabled ? 'disable microphone' : 'enable microphone'}
+		>
+			{#if micEnabled}
+				<Mic size={14} />
+			{:else}
+				<MicOff size={14} />
+			{/if}
+		</button>
 	</div>
-	<button
-		class="mic-btn"
-		class:mic-enabled={micEnabled}
-		disabled={micLoading}
-		onclick={toggleMic}
-	>
-		{micLoading ? '...' : '🎤 Microphone'}
-	</button>
 </nav>
 
 <div class="nav-tabs">
@@ -53,11 +62,12 @@
 		display: flex;
 		align-items: center;
 		gap: 16px;
+		flex: 1;
+		margin-left: 24px;
 	}
 
 	.nav-title {
 		text-decoration: none;
-		margin-right: 16px;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
@@ -69,8 +79,9 @@
 	}
 
 	.nav-version {
-		font-size: 0.7em;
-		color: #999;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--faint);
 	}
 
 	.nav-link {
@@ -78,11 +89,33 @@
 		align-items: center;
 		gap: 6px;
 		text-decoration: none;
-		color: #666;
+		color: var(--muted);
 	}
 
 	.nav-link:hover {
-		color: #000;
+		color: var(--ink);
+	}
+
+	.nav-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.search-btn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		color: var(--muted);
+	}
+
+	.search-btn kbd {
+		pointer-events: none;
+	}
+
+	.mic-btn {
+		padding: 7px 10px;
 	}
 
 	.nav-tabs {
@@ -95,17 +128,22 @@
 		align-items: center;
 		justify-content: center;
 		padding: 12px;
-		color: #666;
+		color: var(--muted);
 		text-decoration: none;
 	}
 
 	.nav-tab:hover {
-		color: #000;
-		background: #f5f5f5;
+		color: var(--ink);
+		background: var(--code-bg);
 	}
 
 	@media (max-width: 768px) {
 		.nav-links {
+			display: none;
+		}
+
+		.search-hint,
+		.search-btn kbd {
 			display: none;
 		}
 
@@ -115,9 +153,9 @@
 			bottom: 0;
 			left: 0;
 			right: 0;
-			height: 48px;
-			background: #fff;
-			border-top: 1px solid #ccc;
+			height: var(--tabbar-h);
+			background: var(--bg);
+			border-top: 1px solid var(--hairline-strong);
 			z-index: 100;
 		}
 	}

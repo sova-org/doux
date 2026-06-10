@@ -7,6 +7,7 @@ interface ContentMetadata {
   slug: string;
   group: string;
   order: number;
+  related?: string[];
 }
 
 interface ContentModule {

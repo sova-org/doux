@@ -76,8 +76,24 @@ use types::{
     DspBlockSize, ModuleInfo, Source, CHANNELS, DEFAULT_DSP_BLOCK_SIZE, DEFAULT_MAX_VOICES,
     MAX_BLOCK, MAX_ORBITS,
 };
-use voice::modulation::ParamId;
+use voice::modulation::{ModChain, ModCurve, ParamId};
 use voice::{modulation, Voice, VoiceParams};
+
+/// How `process_event` applies an event to its target voice.
+///
+/// `voice/N` is a stable identity tag; the presence of a sound decides
+/// between updating the sounding voice and retriggering it.
+#[derive(Clone, Copy, PartialEq)]
+enum EventMode {
+    /// Fresh or fully reset voice: defaults, then the event snapshot.
+    New,
+    /// Sounding voice, no sound named: retarget params only — envelope,
+    /// gate, phase and sample position are untouched.
+    Update,
+    /// Sounding voice with a sound named: params stay sticky, envelopes
+    /// re-fire from their current value.
+    Retrigger,
+}
 
 /// All modules in the engine: sources, effects, filters, modulation.
 ///
@@ -180,7 +196,9 @@ pub struct Engine {
     pub(crate) max_voices: usize,
     pub(crate) voices: Vec<Voice>,
     pub(crate) active_voices: usize,
-    pub(crate) orbits: [Orbit; MAX_ORBITS],
+    /// Boxed: ~530KB inline would not fit alongside construction temporaries
+    /// in the 1MB wasm32 shadow stack.
+    pub(crate) orbits: Box<[Orbit; MAX_ORBITS]>,
     pub(crate) schedule: Schedule,
     pub(crate) time: f64,
     pub(crate) tick: u64,
@@ -241,7 +259,14 @@ impl Engine {
         #[cfg(feature = "native")]
         sampling::init_stretch_tables();
 
-        let orbits: [Orbit; MAX_ORBITS] = std::array::from_fn(|_| Orbit::new(config.sample_rate));
+        // Built through a Vec so each Orbit (~66KB) is the only stack temporary;
+        // the full array never exists outside the heap.
+        let orbits: Vec<Orbit> = (0..MAX_ORBITS)
+            .map(|_| Orbit::new(config.sample_rate))
+            .collect();
+        let Ok(orbits) = Box::<[Orbit; MAX_ORBITS]>::try_from(orbits.into_boxed_slice()) else {
+            unreachable!("collected exactly MAX_ORBITS orbits");
+        };
 
         #[cfg(feature = "native")]
         let (sample_registry, sample_loader) = {
@@ -586,9 +611,11 @@ impl Engine {
                 None
             }
             "release" => {
-                if let Some(v) = event.voice {
-                    if v < self.active_voices {
-                        self.voices[v].force_release();
+                if let Some(tag) = event.voice {
+                    for i in 0..self.active_voices {
+                        if self.voices[i].tag == Some(tag) {
+                            self.voices[i].force_release();
+                        }
                     }
                 }
                 None
@@ -701,28 +728,28 @@ impl Engine {
             }
         }
 
-        let (voice_idx, is_new_voice) = if let Some(reuse_idx) = cut_reuse {
-            (reuse_idx, true)
-        } else if let Some(v) = event.voice {
-            if v < self.active_voices {
-                // Voice exists - reuse it
-                (v, false)
+        // `voice/N` is an identity tag: scan the sounding voices for it.
+        let tagged = event
+            .voice
+            .and_then(|tag| (0..self.active_voices).find(|&i| self.voices[i].tag == Some(tag)));
+        let has_sound = event.sound.is_some() || has_web_sample;
+
+        let (voice_idx, mode) = if let Some(reuse_idx) = cut_reuse {
+            (reuse_idx, EventMode::New)
+        } else if let Some(idx) = tagged {
+            if event.reset.unwrap_or(false) {
+                (idx, EventMode::New)
+            } else if has_sound {
+                (idx, EventMode::Retrigger)
             } else {
-                // Voice index out of range - allocate new
-                #[cfg(feature = "native")]
-                if self.load_gate || self.active_voices >= self.max_voices {
-                    return None;
-                }
-                #[cfg(not(feature = "native"))]
-                if self.active_voices >= self.max_voices {
-                    return None;
-                }
-                let i = self.active_voices;
-                self.active_voices += 1;
-                (i, true)
+                (idx, EventMode::Update)
             }
+        } else if event.voice.is_some() && !has_sound {
+            // Addressing a voice that isn't sounding without naming a
+            // sound: drop — a tweak must not spawn a default voice.
+            return None;
         } else {
-            // No voice specified - allocate new
+            // Allocate new
             #[cfg(feature = "native")]
             if self.load_gate || self.active_voices >= self.max_voices {
                 return None;
@@ -733,12 +760,10 @@ impl Engine {
             }
             let i = self.active_voices;
             self.active_voices += 1;
-            (i, true)
+            (i, EventMode::New)
         };
 
-        let should_reset = is_new_voice || event.reset.unwrap_or(false);
-
-        if should_reset {
+        if mode == EventMode::New {
             let old_env = if cut_reuse.is_some() {
                 self.voices[voice_idx].dahdsr.current_val
             } else {
@@ -750,16 +775,20 @@ impl Engine {
             self.voice_seed = modulation::lcg(self.voice_seed);
             self.voices[voice_idx].sr = self.sr;
         }
+        self.voices[voice_idx].tag = event.voice;
 
         // Update voice params (only the ones explicitly set in event)
-        self.update_voice_params(voice_idx, event);
+        self.update_voice_params(voice_idx, event, mode);
+        if mode == EventMode::Retrigger {
+            self.voices[voice_idx].retrigger();
+        }
         self.voices[voice_idx].ensure_effects();
 
         Some(voice_idx)
     }
 
     /// Update voice params - only updates fields that are explicitly set in the event
-    fn update_voice_params(&mut self, idx: usize, event: &Event) {
+    fn update_voice_params(&mut self, idx: usize, event: &Event, mode: EventMode) {
         macro_rules! copy_opt {
             ($src:expr, $dst:expr, $($field:ident),+ $(,)?) => {
                 $(if let Some(val) = $src.$field { $dst.$field = val; })+
@@ -882,8 +911,29 @@ impl Engine {
 
         let v = &mut self.voices[idx];
 
+        // Statics displace any active ModChain on the same param; inline
+        // mods below may then install a fresh chain.
+        for &id in &event.static_ids {
+            v.clear_mod(id);
+        }
+
         // --- Pitch ---
-        copy_opt!(event, v.params, freq, detune, speed);
+        copy_opt!(event, v.params, detune, speed, glide);
+        if let Some(freq) = event.freq {
+            if mode != EventMode::New && v.params.glide > 0.0 {
+                // Portamento: slew from the current effective pitch.
+                v.set_mod(
+                    ParamId::Freq,
+                    ModChain::Slew {
+                        target: freq,
+                        freq: 1.0 / v.params.glide,
+                        curve: ModCurve::Exponential,
+                    },
+                );
+            } else {
+                v.params.freq = freq;
+            }
+        }
         if let Some(stretch) = event.stretch {
             v.params.stretch = stretch.max(0.0);
         }
@@ -930,9 +980,6 @@ impl Engine {
         }
         if let Some(morph) = event.morph {
             v.params.morph = morph.clamp(0.01, 0.999);
-        }
-        if let Some(partials) = event.partials {
-            v.params.partials = partials.clamp(1.0, 32.0);
         }
         copy_opt_some!(event, v.params, cut);
 
@@ -1094,28 +1141,34 @@ impl Engine {
         copy_opt!(event, v.params, gain, postgain, velocity, pan, gate);
 
         // --- Gain Envelope ---
-        let (att, dec, sus, rel) =
-            if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) = v.params.sound.drum_defaults() {
-                if event.freq.is_none() {
-                    v.params.freq = d_freq;
-                }
-                (
-                    event.attack.or(Some(d_att)),
-                    event.decay.or(Some(d_dec)),
-                    event.sustain.or(Some(d_sus)),
-                    event.release.or(Some(d_rel)),
-                )
-            } else {
-                (event.attack, event.decay, event.sustain, event.release)
-            };
-        let gain_env = init_envelope(None, event.envdelay, att, event.hold, dec, sus, rel);
-        if gain_env.active {
-            v.params.envdelay = gain_env.dly;
-            v.params.attack = gain_env.att;
-            v.params.hold = gain_env.hld;
-            v.params.decay = gain_env.dec;
-            v.params.sustain = gain_env.sus;
-            v.params.release = gain_env.rel;
+        if mode == EventMode::Update {
+            // Live update: retarget only the stages the event names — no
+            // drum defaults, no `init_envelope` backfill stomping the rest.
+            copy_opt!(event, v.params, envdelay, attack, hold, decay, sustain, release);
+        } else {
+            let (att, dec, sus, rel) =
+                if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) = v.params.sound.drum_defaults() {
+                    if event.freq.is_none() {
+                        v.params.freq = d_freq;
+                    }
+                    (
+                        event.attack.or(Some(d_att)),
+                        event.decay.or(Some(d_dec)),
+                        event.sustain.or(Some(d_sus)),
+                        event.release.or(Some(d_rel)),
+                    )
+                } else {
+                    (event.attack, event.decay, event.sustain, event.release)
+                };
+            let gain_env = init_envelope(None, event.envdelay, att, event.hold, dec, sus, rel);
+            if gain_env.active {
+                v.params.envdelay = gain_env.dly;
+                v.params.attack = gain_env.att;
+                v.params.hold = gain_env.hld;
+                v.params.decay = gain_env.dec;
+                v.params.sustain = gain_env.sus;
+                v.params.release = gain_env.rel;
+            }
         }
 
         // --- Filters ---
@@ -1170,7 +1223,7 @@ impl Engine {
         copy_opt!(event, v.params, orbit);
 
         // Live input channel
-        v.params.inchan = event.inchan;
+        copy_opt_some!(event, v.params, inchan);
 
         // Install inline parameter modulations
         for (id, chain) in &event.mods {
@@ -1268,7 +1321,7 @@ impl Engine {
         let rec_orbit = self.recorder.target_orbit();
 
         // Step 1: clear orbit buses and the superpan accumulator for this chunk.
-        for orbit in &mut self.orbits {
+        for orbit in self.orbits.iter_mut() {
             orbit.clear_bus();
         }
         // Lazy: only a chunk that actually routed a superpan voice dirties the

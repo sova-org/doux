@@ -3,6 +3,7 @@ title: "Ring Modulation"
 slug: "rm"
 group: "synthesis"
 order: 110
+related: ["am", "frequency-modulation"]
 ---
 
 <script lang="ts">
