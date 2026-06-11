@@ -3,11 +3,11 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.40] - 2026-06-11
 
 ### Added
 
-- Per-source semantic names for the three generic tone params (`timbre`/`harmonics`/`morph`), resolved through the source's ParamInfo table at parse time; the generic names keep working on every source as universal aliases. Semantic names need the event's `s`/`sound` to resolve — when retargeting a sounding voice without `s`, use the generics. New names:
+- Per-source semantic names for the three generic tone params (`timbre`/`harmonics`/`morph`). New names:
   - `pluck`: `bright` (damping), `ring` (sustain), `excite` (excitation color)
   - `kick`: `drive`, `punch` (sweep speed), `sweep` (sweep depth)
   - `snare`: `snappy` (body/noise mix), `bright`
