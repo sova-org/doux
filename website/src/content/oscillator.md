@@ -49,7 +49,7 @@ Phase asymmetry using a power curve. Positive values compress the early phase an
 
 </CommandEntry>
 
-<CommandEntry name="mirror" type="number" min={0} max={1} default={0}>
+<CommandEntry name="mirror" type="number" min={0} max={1} default={0} mod>
 
 Reflects the phase at the specified position. At 0.5, creates symmetric waveforms (a saw becomes triangle-like). Values closer to 0 or 1 create increasingly asymmetric reflections.
 

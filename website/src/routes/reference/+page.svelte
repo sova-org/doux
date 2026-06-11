@@ -47,6 +47,12 @@
 <HoverCard />
 
 <main class="content">
+    <p class="mod-legend">
+        <span class="mod-badge">~mod</span> marks parameters that accept
+        <a href="/#modulation">inline modulation</a> — e.g.
+        <code>lpf/200~4000:2</code>, <code>verb/0>0.9:8</code>,
+        <code>combfreq/100?1200:0.5</code>.
+    </p>
     {#each data.categories as category}
         {@const Component = category.component}
         {@const related = relatedOf(category)}
@@ -69,6 +75,21 @@
 </main>
 
 <style>
+    .mod-legend {
+        margin: 1em 0 0;
+        font-size: 13px;
+        color: var(--muted);
+    }
+
+    .mod-badge {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        padding: 0 5px;
+        white-space: nowrap;
+    }
+
     .category-header {
         display: flex;
         align-items: baseline;

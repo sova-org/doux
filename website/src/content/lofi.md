@@ -42,7 +42,7 @@ Reflective triangle wavefold (Buchla/Serge-style). At 0, near-passthrough. At 0.
 
 </CommandEntry>
 
-<CommandEntry name="wrap" type="number" min={1} default={1}>
+<CommandEntry name="wrap" type="number" min={1} default={1} mod>
 
 Wrap distortion. Signal wraps around creating harsh digital artifacts.
 

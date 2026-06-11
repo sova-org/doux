@@ -54,7 +54,14 @@
 
 <details id={name} bind:this={detailsEl} ontoggle={onToggle}>
     <summary>
-        <span class="name">{name}{#if modulatable}<span class="mod" title="supports inline modulation">~</span>{/if}</span>
+        <span class="name">{name}</span>
+        {#if modulatable}
+            <span
+                class="mod"
+                title="accepts inline modulation: 0~1:2 (cycle) · a>b:t (transition) · >b:t (slew) · min^max (envelope) · min?max:t (random)"
+                >~mod</span
+            >
+        {/if}
         {#if aliases}
             <span class="aliases">{aliases}</span>
         {/if}
@@ -119,11 +126,12 @@
     }
 
     .mod {
-        display: inline-block;
-        font-size: 0.75em;
-        vertical-align: super;
+        font-family: var(--font-mono);
+        font-size: 10px;
         color: var(--accent);
-        margin-left: 1px;
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        padding: 0 5px;
+        white-space: nowrap;
     }
 
     .aliases {

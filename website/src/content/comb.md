@@ -39,7 +39,7 @@ Feedback amount. Higher values create longer resonance.
 
 </CommandEntry>
 
-<CommandEntry name="combdamp" type="number" min={0} max={1} default={0.1}>
+<CommandEntry name="combdamp" type="number" min={0} max={1} default={0.1} mod>
 
 High-frequency damping. Higher values darken the sound over time.
 

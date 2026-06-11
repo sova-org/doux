@@ -144,14 +144,14 @@
         </p>
     </section>
 
-    <section>
+    <section id="modulation">
         <h2>Inline Modulation</h2>
         <p>
             Many parameters support <strong>inline modulation</strong>: instead
             of a static value, you write an expression with an operator that
             describes the <em>motion</em> between two values.
-            In the reference, parameters marked with
-            <code>~</code> support this syntax.
+            In the reference, parameters carrying the
+            <span class="mod-badge">~mod</span> badge support this syntax.
         </p>
 
         <h3>Oscillate <code>~</code></h3>
@@ -238,6 +238,15 @@
         margin-top: 2.5em;
         margin-bottom: 0.5em;
         color: var(--ink);
+    }
+
+    .mod-badge {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        padding: 0 5px;
+        white-space: nowrap;
     }
 
     .intro {

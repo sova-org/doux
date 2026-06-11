@@ -29,7 +29,7 @@ The frequency of the sound. Has no effect on noise.
 
 </CommandEntry>
 
-<CommandEntry name="note" type="number" min={0} max={127} unit="midi">
+<CommandEntry name="note" type="number" min={0} max={127} unit="midi" mod>
 
 The note (midi number) that should be played.
 If both note and freq is set, freq wins.

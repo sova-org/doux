@@ -27,7 +27,8 @@
                 <td class="name"
                     >{p.name}{#if p.mod}<span
                             class="mod"
-                            title="supports inline modulation">~</span
+                            title="accepts inline modulation: 0~1:2 (cycle) · a>b:t (transition) · >b:t (slew) · min^max (envelope) · min?max:t (random)"
+                            >~mod</span
                         >{/if}</td
                 >
                 <td class="alias">{p.alias ?? "—"}</td>
@@ -73,11 +74,13 @@
     }
 
     .mod {
-        display: inline-block;
-        font-size: 0.75em;
-        vertical-align: super;
+        font-size: 10px;
+        font-weight: 400;
         color: var(--accent);
-        margin-left: 1px;
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        padding: 0 5px;
+        margin-left: 7px;
+        white-space: nowrap;
     }
 
     .alias {

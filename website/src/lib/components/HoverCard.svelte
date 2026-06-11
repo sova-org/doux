@@ -59,12 +59,10 @@
 		style:transform={card.above ? 'translateY(calc(-100% - 6px))' : 'translateY(6px)'}
 	>
 		<div class="card-head">
-			<span class="card-name"
-				>{card.entry.name}{#if card.entry.mod}<span
-						class="card-mod"
-						title="supports inline modulation">~</span
-					>{/if}</span
-			>
+			<span class="card-name">{card.entry.name}</span>
+			{#if card.entry.mod}
+				<span class="card-mod" title="accepts inline modulation">~mod</span>
+			{/if}
 			{#each card.entry.aliases as alias (alias)}
 				<span class="card-alias">{alias}</span>
 			{/each}
@@ -104,11 +102,12 @@
 	}
 
 	.card-mod {
-		display: inline-block;
-		font-size: 0.75em;
-		vertical-align: super;
+		font-family: var(--font-mono);
+		font-size: 10px;
 		color: var(--accent);
-		margin-left: 1px;
+		border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+		padding: 0 5px;
+		white-space: nowrap;
 	}
 
 	.card-alias {

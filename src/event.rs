@@ -1,3 +1,4 @@
+use crate::orbit::OrbitParamId;
 use crate::superpan::SpeakerSet;
 use crate::types::{
     midi2freq, DelayType, GenericSlot, LfoShape, ReverbType, Source, SubWave, SyncMode,
@@ -23,6 +24,9 @@ pub struct Event {
     // Params that arrived as static values; statics displace any active
     // ModChain on the same param when applied to a sounding voice.
     pub static_ids: Vec<ParamId>,
+    // Same pair for orbit FX params (sticky on the target orbit).
+    pub orbit_mods: Vec<(OrbitParamId, ModChain)>,
+    pub orbit_static_ids: Vec<OrbitParamId>,
 
     // Pitch
     pub freq: Option<f32>,
@@ -296,6 +300,17 @@ impl Event {
             };
         }
 
+        macro_rules! parse_orbit_param {
+            ($val:expr, $field:ident, $id:expr) => {
+                if let Some(chain) = ModChain::parse($val) {
+                    event.orbit_mods.push(($id, chain));
+                } else if let Ok(v) = $val.parse() {
+                    event.$field = Some(v);
+                    event.orbit_static_ids.push($id);
+                }
+            };
+        }
+
         while let (Some(key), Some(val)) = (iter.next(), iter.next()) {
             match key {
                 "doux" | "dirt" => {
@@ -416,23 +431,29 @@ impl Event {
                 "smear" => parse_param!(val, smear, ParamId::Smear),
                 "smearfreq" => parse_param!(val, smearfreq, ParamId::Smearfreq),
                 "smearfb" => parse_param!(val, smearfb, ParamId::Smearfb),
-                "feedback" | "fb" => event.feedback = val.parse().ok(),
-                "fbtime" | "fbt" => event.fbtime = val.parse().ok(),
-                "fbdamp" | "fbd" => event.fbdamp = val.parse().ok(),
-                "fbcross" | "fbc" => event.fbcross = val.parse().ok(),
-                "fblfo" => event.fblfo = val.parse().ok(),
-                "fblfodepth" => event.fblfodepth = val.parse().ok(),
+                "feedback" | "fb" => parse_orbit_param!(val, feedback, OrbitParamId::Feedback),
+                "fbtime" | "fbt" => parse_orbit_param!(val, fbtime, OrbitParamId::FbTime),
+                "fbdamp" | "fbd" => parse_orbit_param!(val, fbdamp, OrbitParamId::FbDamp),
+                "fbcross" | "fbc" => parse_orbit_param!(val, fbcross, OrbitParamId::FbCross),
+                "fblfo" => parse_orbit_param!(val, fblfo, OrbitParamId::FbLfo),
+                "fblfodepth" => parse_orbit_param!(val, fblfodepth, OrbitParamId::FbLfoDepth),
                 "fblfoshape" => event.fblfoshape = val.parse().ok(),
                 "chorus" | "chorusrate" => parse_param!(val, chorus, ParamId::Chorus),
                 "chorusdepth" => parse_param!(val, chorusdepth, ParamId::Chorusdepth),
                 "chorusdelay" => parse_param!(val, chorusdelay, ParamId::Chorusdelay),
-                "comb" => event.comb = val.parse().ok(),
-                "combfreq" => event.combfreq = val.parse().ok(),
-                "combfeedback" => event.combfeedback = val.parse().ok(),
-                "combdamp" => event.combdamp = val.parse().ok(),
-                "comp" => event.comp = val.parse().ok(),
-                "compattack" | "cattack" => event.compattack = val.parse().ok(),
-                "comprelease" | "crelease" => event.comprelease = val.parse().ok(),
+                "comb" => parse_orbit_param!(val, comb, OrbitParamId::Comb),
+                "combfreq" => parse_orbit_param!(val, combfreq, OrbitParamId::CombFreq),
+                "combfeedback" => {
+                    parse_orbit_param!(val, combfeedback, OrbitParamId::CombFeedback)
+                }
+                "combdamp" => parse_orbit_param!(val, combdamp, OrbitParamId::CombDamp),
+                "comp" => parse_orbit_param!(val, comp, OrbitParamId::Comp),
+                "compattack" | "cattack" => {
+                    parse_orbit_param!(val, compattack, OrbitParamId::CompAttack)
+                }
+                "comprelease" | "crelease" => {
+                    parse_orbit_param!(val, comprelease, OrbitParamId::CompRelease)
+                }
                 "comporbit" | "corbit" => event.comporbit = Self::parse_usize(val),
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
@@ -452,24 +473,32 @@ impl Event {
                 "eqmidfreq" => parse_param!(val, eqmidfreq, ParamId::EqMidFreq),
                 "eqhifreq" => parse_param!(val, eqhifreq, ParamId::EqHiFreq),
                 "tilt" => parse_param!(val, tilt, ParamId::Tilt),
-                "delay" => event.delay = val.parse().ok(),
-                "delaytime" => event.delaytime = val.parse().ok(),
-                "delayfeedback" => event.delayfeedback = val.parse().ok(),
+                "delay" => parse_orbit_param!(val, delay, OrbitParamId::Delay),
+                "delaytime" => parse_orbit_param!(val, delaytime, OrbitParamId::DelayTime),
+                "delayfeedback" => {
+                    parse_orbit_param!(val, delayfeedback, OrbitParamId::DelayFeedback)
+                }
                 "delaytype" | "dtype" => event.delaytype = val.parse().ok(),
-                "verb" | "reverb" => event.verb = val.parse().ok(),
+                "verb" | "reverb" => parse_orbit_param!(val, verb, OrbitParamId::Verb),
                 "verbtype" | "vtype" => event.verbtype = val.parse().ok(),
-                "verbdecay" => event.verbdecay = val.parse().ok(),
-                "verbdamp" => event.verbdamp = val.parse().ok(),
-                "verbpredelay" => event.verbpredelay = val.parse().ok(),
-                "verbdiff" => event.verbdiff = val.parse().ok(),
-                "verbsize" | "vsize" => event.verbsize = val.parse().ok(),
-                "verbprelow" => event.verbprelow = val.parse().ok(),
-                "verbprehigh" => event.verbprehigh = val.parse().ok(),
-                "verblowcut" => event.verblowcut = val.parse().ok(),
-                "verbhighcut" => event.verbhighcut = val.parse().ok(),
-                "verblowgain" => event.verblowgain = val.parse().ok(),
-                "verbchorus" | "vchorus" => event.verbchorus = val.parse().ok(),
-                "verbchorusfreq" | "vchorusfreq" => event.verbchorusfreq = val.parse().ok(),
+                "verbdecay" => parse_orbit_param!(val, verbdecay, OrbitParamId::VerbDecay),
+                "verbdamp" => parse_orbit_param!(val, verbdamp, OrbitParamId::VerbDamp),
+                "verbpredelay" => {
+                    parse_orbit_param!(val, verbpredelay, OrbitParamId::VerbPredelay)
+                }
+                "verbdiff" => parse_orbit_param!(val, verbdiff, OrbitParamId::VerbDiff),
+                "verbsize" | "vsize" => parse_orbit_param!(val, verbsize, OrbitParamId::VerbSize),
+                "verbprelow" => parse_orbit_param!(val, verbprelow, OrbitParamId::VerbPrelow),
+                "verbprehigh" => parse_orbit_param!(val, verbprehigh, OrbitParamId::VerbPrehigh),
+                "verblowcut" => parse_orbit_param!(val, verblowcut, OrbitParamId::VerbLowcut),
+                "verbhighcut" => parse_orbit_param!(val, verbhighcut, OrbitParamId::VerbHighcut),
+                "verblowgain" => parse_orbit_param!(val, verblowgain, OrbitParamId::VerbLowgain),
+                "verbchorus" | "vchorus" => {
+                    parse_orbit_param!(val, verbchorus, OrbitParamId::VerbChorus)
+                }
+                "verbchorusfreq" | "vchorusfreq" => {
+                    parse_orbit_param!(val, verbchorusfreq, OrbitParamId::VerbChorusFreq)
+                }
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
                 "endrec" => event.rec_stop = Some(val == "1" || val == "true"),
                 "inchan" => event.inchan = Self::parse_usize(val),

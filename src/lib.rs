@@ -40,7 +40,7 @@ pub enum AudioCmd {
     Panic,
 }
 
-use dsp::{fast_tanh_f32, init_envelope};
+use dsp::{fast_tanh_f32, ftz, init_envelope};
 use event::Event;
 
 use orbit::Orbit;
@@ -125,8 +125,17 @@ struct GmResolved {
     release: f32,
 }
 
-// Master soft-clip: plain tanh. Identity slope at origin, monotonic, bounded by ±1.
-// Loses ~2.4 dB at unity input — the musical price of analog-style saturation.
+/// Upper bound on interleaved output channels: superpan addresses at most
+/// `MAX_SUPERPAN_NODES` stereo pairs, so wider devices gain nothing. Lets
+/// per-channel master state live in fixed arrays (no audio-path allocation).
+pub const MAX_OUTPUT_CHANNELS: usize = 2 * superpan::MAX_SUPERPAN_NODES;
+/// Corner of the master DC-blocking one-pole high-pass.
+const MASTER_DC_HZ: f32 = 10.0;
+
+// Master safety clip, after the limiter: plain tanh. Identity slope at origin,
+// monotonic, bounded by ±1. The limiter holds peaks near LIMITER_THRESHOLD,
+// so program material passes this at near-unity slope; only attack edges the
+// limiter's instant-attack envelope hasn't caught yet get rounded.
 #[inline]
 fn soft_clip_sample(input: f32) -> f32 {
     fast_tanh_f32(input)
@@ -213,6 +222,14 @@ pub struct Engine {
     /// True when `superpan_acc` may hold nonzero data. Cleared flag guarantees
     /// the whole buffer is zero, so idle chunks skip both clear and mix-in.
     pub(crate) superpan_acc_used: bool,
+    /// Master DC-blocker one-pole HP state, one slot per output channel.
+    /// Persists across chunks — `gen_block` must never reset it.
+    master_dc: [f32; MAX_OUTPUT_CHANNELS],
+    /// One-pole coeff for the `MASTER_DC_HZ` high-pass (sr is fixed for the
+    /// engine's lifetime, same invariant as `isr`).
+    master_dc_coeff: f32,
+    /// Master linked peak limiter (state persists across chunks).
+    limiter: effects::Limiter,
     #[cfg(not(feature = "native"))]
     pub(crate) sample_pool: SamplePool,
     #[cfg(not(feature = "native"))]
@@ -252,6 +269,10 @@ fn now_unix_micros() -> u64 {
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Self {
+        assert!(
+            config.output_channels <= MAX_OUTPUT_CHANNELS,
+            "output_channels exceeds MAX_OUTPUT_CHANNELS — master per-channel state is fixed-size"
+        );
         dsp::fft::init_twiddles();
         // Eagerly init stretch's LazyLock tables off the audio thread so the
         // first stretched-sample play does not pay the init cost on RT.
@@ -262,7 +283,7 @@ impl Engine {
         // Built through a Vec so each Orbit (~66KB) is the only stack temporary;
         // the full array never exists outside the heap.
         let orbits: Vec<Orbit> = (0..MAX_ORBITS)
-            .map(|_| Orbit::new(config.sample_rate))
+            .map(|i| Orbit::new(config.sample_rate, i))
             .collect();
         let Ok(orbits) = Box::<[Orbit; MAX_ORBITS]>::try_from(orbits.into_boxed_slice()) else {
             unreachable!("collected exactly MAX_ORBITS orbits");
@@ -305,6 +326,14 @@ impl Engine {
             output: vec![0.0; config.host_buffer_size * config.output_channels],
             superpan_acc: vec![0.0; MAX_BLOCK * config.output_channels],
             superpan_acc_used: false,
+            master_dc: [0.0; MAX_OUTPUT_CHANNELS],
+            // Bilinear one-pole coeff (same formula as vital_reverb's
+            // freq_to_coeff): w = PI * f / sr, coeff = 2w / (1 + 2w).
+            master_dc_coeff: {
+                let w = std::f32::consts::PI * MASTER_DC_HZ / config.sample_rate;
+                (2.0 * w) / (1.0 + 2.0 * w)
+            },
+            limiter: effects::Limiter::default(),
             #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
@@ -874,6 +903,11 @@ impl Engine {
                     }
                 };
             }
+            // Statics displace any active ModChain on the same orbit param,
+            // mirroring the voice-param semantics below.
+            for &id in &event.orbit_static_ids {
+                orbit.clear_mod(id);
+            }
             set_pos!(delay, orbit.delay_level);
             set_pos!(verb, orbit.verb_level);
             set_pos!(comb, orbit.comb_level);
@@ -907,6 +941,14 @@ impl Engine {
             set!(compattack, orbit.comp.params.attack);
             set!(comprelease, orbit.comp.params.release);
             set!(comporbit, orbit.comp_orbit);
+            // Inline mods install last (an event carrying both a static and a
+            // chain on the same param keeps the chain). Envelope chains
+            // trigger on install; the event gate sets their release point
+            // (0.0 = hold at sustain).
+            let mod_gate = event.gate.unwrap_or(0.0);
+            for &(id, chain) in &event.orbit_mods {
+                orbit.set_mod(id, chain, mod_gate);
+            }
         }
 
         let v = &mut self.voices[idx];
@@ -1288,7 +1330,8 @@ impl Engine {
     ///    rate across the chunk.
     /// 4. Per-frame final mix: per-orbit compressor sidechain (sample-rate by
     ///    design, see `to_do.md:279`), accumulate into the output buffer at
-    ///    `(start+f)*output_channels`, then per-pair soft-clip.
+    ///    `(start+f)*output_channels`, then the master chain: DC blocker →
+    ///    linked peak limiter → tanh safety clip.
     ///
     /// `#[inline(never)]` — large function; inlining at the (single) call site
     /// in `process_block` would not shrink the call.
@@ -1317,6 +1360,9 @@ impl Engine {
         let isr = self.isr;
         let input_channels = self.input_channels;
         let output_channels = self.output_channels;
+        let master_dc = &mut self.master_dc;
+        let master_dc_coeff = self.master_dc_coeff;
+        let limiter = &mut self.limiter;
         #[cfg(feature = "native")]
         let rec_orbit = self.recorder.target_orbit();
 
@@ -1564,14 +1610,36 @@ impl Engine {
             }
         }
 
-        // Pass 4: per-pair soft clip, last.
+        // Pass 4: master chain — per-channel DC blocker (~10 Hz one-pole HP),
+        // linked peak limiter (instant attack, ~100 ms release), then tanh
+        // safety clip. The limiter computes ONE gain per frame from the peak
+        // across all channels so the multichannel image never shifts. All
+        // state lives on the Engine: gen_block runs once per inner chunk and
+        // must not reset it.
+        let limiter_release = (isr / effects::LIMITER_RELEASE_SECS).min(1.0);
         for f in 0..n {
             let base_idx = (start + f) * output_channels;
-            for pair_index in 0..num_pairs {
-                let pair_base = base_idx + pair_index * CHANNELS;
-                output[pair_base] = soft_clip_sample(output[pair_base]);
-                output[pair_base + 1] = soft_clip_sample(output[pair_base + 1]);
+            let frame = &mut output[base_idx..base_idx + output_channels];
+            let mut peak = 0.0_f32;
+            for (c, s) in frame.iter_mut().enumerate() {
+                // One-pole HP: track the low band in state, subtract. DC is
+                // removed before peak detection so offset doesn't eat limiter
+                // headroom or bias the tanh asymmetrically.
+                let st = &mut master_dc[c];
+                *st += master_dc_coeff * (*s - *st);
+                let y = *s - *st;
+                *s = y;
+                peak = peak.max(y.abs());
             }
+            let gain = limiter.process(peak, limiter_release);
+            for s in frame.iter_mut() {
+                *s = soft_clip_sample(*s * gain);
+            }
+        }
+        // Denormal hygiene for non-FTZ targets (wasm): flush decayed DC state
+        // once per chunk.
+        for st in master_dc.iter_mut().take(output_channels) {
+            *st = ftz(*st, 1.0e-12);
         }
 
         #[cfg(all(feature = "native", feature = "profiling"))]

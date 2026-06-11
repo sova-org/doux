@@ -60,18 +60,24 @@ impl DelayLine {
         }
     }
 
-    fn process(&mut self, input: f32, delay_samples: usize) -> f32 {
-        let delay_samples = delay_samples.min(self.mask);
+    fn process(&mut self, input: f32, delay_samples: f32) -> f32 {
         self.buffer[self.write_pos] = input;
-        let read_pos = self.write_pos.wrapping_sub(delay_samples) & self.mask;
+        let out = self.read_at(delay_samples);
         self.write_pos = (self.write_pos + 1) & self.mask;
-        self.buffer[read_pos]
+        out
     }
 
-    fn read_at(&self, delay_samples: usize) -> f32 {
-        let delay_samples = delay_samples.min(self.mask);
-        let read_pos = self.write_pos.wrapping_sub(delay_samples) & self.mask;
-        self.buffer[read_pos]
+    /// Fractional read with linear interpolation (same scheme as
+    /// `Feedback::read`), so a moving delay time glides instead of stepping.
+    fn read_at(&self, delay_samples: f32) -> f32 {
+        let d = delay_samples.clamp(0.0, (self.mask - 1) as f32);
+        let di = d as usize;
+        let frac = d - di as f32;
+        let i0 = self.write_pos.wrapping_sub(di) & self.mask;
+        let i1 = self.write_pos.wrapping_sub(di + 1) & self.mask;
+        let y0 = self.buffer[i0];
+        let y1 = self.buffer[i1];
+        y0 + frac * (y1 - y0)
     }
 
     fn write(&mut self, input: f32) {
@@ -107,11 +113,20 @@ impl Default for DelayParams {
     }
 }
 
+/// One-pole time constant for delay-time changes. Converges in ~150ms —
+/// well inside the orbit's 1s silence holdoff, so an idle orbit's delay
+/// has settled before its FX are bypassed.
+const TIME_SLEW_SECS: f32 = 0.03;
+
 #[derive(Clone)]
 pub struct Delay {
     lines: [DelayLine; CHANNELS],
     feedback: [f32; CHANNELS],
     lp: [f32; CHANNELS],
+    /// Smoothed delay time in samples; negative = snap to target on next use,
+    /// so the first echo after construction/clear never glides.
+    time_smooth: f32,
+    time_slew: f32,
     pub params: DelayParams,
     sr: f32,
 }
@@ -122,6 +137,8 @@ impl Delay {
             lines: Default::default(),
             feedback: [0.0; CHANNELS],
             lp: [0.0; CHANNELS],
+            time_smooth: -1.0,
+            time_slew: 1.0 - (-1.0 / (TIME_SLEW_SECS * sr)).exp(),
             params: DelayParams::default(),
             sr,
         }
@@ -129,7 +146,13 @@ impl Delay {
 
     pub fn process(&mut self, send: [f32; CHANNELS]) -> [f32; CHANNELS] {
         let p = self.params;
-        let delay_samples = ((p.time * self.sr) as usize).min(MAX_DELAY_SAMPLES - 1);
+        let target = (p.time * self.sr).clamp(0.0, (MAX_DELAY_SAMPLES - 2) as f32);
+        if self.time_smooth < 0.0 {
+            self.time_smooth = target;
+        } else {
+            self.time_smooth += self.time_slew * (target - self.time_smooth);
+        }
+        let delay_samples = self.time_smooth;
         let feedback = p.feedback.clamp(0.0, 0.95);
 
         match p.delay_type {
@@ -173,13 +196,13 @@ impl Delay {
                 out
             }
             DelayType::Multitap => {
-                let t = delay_samples as f32;
+                let t = delay_samples;
                 let swing = feedback;
 
                 let tap1 = delay_samples;
-                let tap2 = (t * (0.5 + swing * 0.167)).max(1.0) as usize;
-                let tap3 = (t * (0.25 + swing * 0.083)).max(1.0) as usize;
-                let tap4 = (t * (0.125 + swing * 0.042)).max(1.0) as usize;
+                let tap2 = (t * (0.5 + swing * 0.167)).max(1.0);
+                let tap3 = (t * (0.25 + swing * 0.083)).max(1.0);
+                let tap4 = (t * (0.125 + swing * 0.042)).max(1.0);
 
                 let mut out = [0.0; CHANNELS];
                 for c in 0..CHANNELS {
@@ -216,5 +239,6 @@ impl Delay {
         }
         self.feedback = [0.0; CHANNELS];
         self.lp = [0.0; CHANNELS];
+        self.time_smooth = -1.0;
     }
 }

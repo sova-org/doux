@@ -33,7 +33,7 @@ Feedback delay time in milliseconds. Short values produce metallic resonances, l
 
 </CommandEntry>
 
-<CommandEntry name="fbdamp" type="number" min={0} max={1} default={0}>
+<CommandEntry name="fbdamp" type="number" min={0} max={1} default={0} mod>
 
 High-frequency damping in the feedback path. Higher values roll off treble on each iteration, producing warmer repeats.
 
@@ -43,7 +43,7 @@ High-frequency damping in the feedback path. Higher values roll off treble on ea
 
 </CommandEntry>
 
-<CommandEntry name="fbcross" type="number" min={0} max={1} default={0}>
+<CommandEntry name="fbcross" type="number" min={0} max={1} default={0} mod>
 
 Cross-channel blend in the feedback loop. 0 = self-feedback (each channel loops into itself), 1 = pure ping-pong (left's loop reads right's tail and vice versa). Intermediate values smear stereo.
 
@@ -53,7 +53,7 @@ Cross-channel blend in the feedback loop. 0 = self-feedback (each channel loops 
 
 </CommandEntry>
 
-<CommandEntry name="fblfo" type="number" min={0} max={100} default={0} unit="Hz">
+<CommandEntry name="fblfo" type="number" min={0} max={100} default={0} unit="Hz" mod>
 
 Feedback delay time LFO rate in Hz. Modulates the delay time to produce wobbling, warping delay tails. 0 = no modulation.
 
@@ -63,7 +63,7 @@ Feedback delay time LFO rate in Hz. Modulates the delay time to produce wobbling
 
 </CommandEntry>
 
-<CommandEntry name="fblfodepth" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="fblfodepth" type="number" min={0} max={1} default={0.5} mod>
 
 Depth of the feedback delay time LFO modulation. Controls how much the delay time varies around its center value.
 

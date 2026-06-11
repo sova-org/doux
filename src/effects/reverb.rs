@@ -225,6 +225,10 @@ pub struct DattorroVerb {
     delay2_r: ReverbBuffer,
     damp_l: f32,
     damp_r: f32,
+    /// ~100 Hz one-pole HP on the plate input (state = tracked low band).
+    /// Keeps sub energy out of the tank so the tail never booms.
+    in_hp_state: f32,
+    in_hp_coeff: f32,
     pre_delay_len: usize,
     in_diff1_len: usize,
     in_diff2_len: usize,
@@ -286,6 +290,13 @@ impl DattorroVerb {
             delay2_r: ReverbBuffer::new(delay2_r_len + 1),
             damp_l: 0.0,
             damp_r: 0.0,
+            in_hp_state: 0.0,
+            // Bilinear one-pole coeff (same formula as vital_reverb's
+            // freq_to_coeff): w = PI * f / sr, coeff = 2w / (1 + 2w).
+            in_hp_coeff: {
+                let w = std::f32::consts::PI * 100.0 / sr;
+                (2.0 * w) / (1.0 + 2.0 * w)
+            },
             pre_delay_len,
             in_diff1_len,
             in_diff2_len,
@@ -328,6 +339,13 @@ impl DattorroVerb {
         let pre_delay_samples =
             ((p.predelay * self.pre_delay_len as f32) as usize).min(self.pre_delay_len);
         let input = ftz(input, 0.0001);
+        // Pre-HP (~100 Hz): the low end stays dry and tight, matching the
+        // pre-filter the Space reverb already has.
+        self.in_hp_state = ftz(
+            self.in_hp_state + self.in_hp_coeff * (input - self.in_hp_state),
+            0.0001,
+        );
+        let input = input - self.in_hp_state;
         let pre = self.pre_delay.read_write(input, pre_delay_samples);
 
         let mut x = pre;
@@ -401,5 +419,6 @@ impl DattorroVerb {
         self.delay2_r.clear();
         self.damp_l = 0.0;
         self.damp_r = 0.0;
+        self.in_hp_state = 0.0;
     }
 }

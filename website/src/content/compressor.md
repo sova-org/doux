@@ -22,7 +22,7 @@ Duck amount. 0 = off, 1 = full duck. Point it at another orbit with comporbit.
 
 </CommandEntry>
 
-<CommandEntry name="compattack" type="number" min={0.001} max={1} default={0.01} unit="s">
+<CommandEntry name="compattack" type="number" min={0.001} max={1} default={0.01} unit="s" mod>
 
 How fast the ducker reacts. Short = tight pumping, long = slow swell. Alias: `cattack`.
 
@@ -30,7 +30,7 @@ How fast the ducker reacts. Short = tight pumping, long = slow swell. Alias: `ca
 
 </CommandEntry>
 
-<CommandEntry name="comprelease" type="number" min={0.001} max={2} default={0.15} unit="s">
+<CommandEntry name="comprelease" type="number" min={0.001} max={2} default={0.15} unit="s" mod>
 
 Recovery time after the sidechain drops. Longer = more pronounced pump. Alias: `crelease`.
 

@@ -34,7 +34,7 @@ Send level to the reverb bus.
 
 </CommandEntry>
 
-<CommandEntry name="verbdecay" type="number" min={0} max={1} default={0.75}>
+<CommandEntry name="verbdecay" type="number" min={0} max={1} default={0.75} mod>
 
 Controls how long the reverb tail rings out.
 
@@ -44,7 +44,7 @@ Controls how long the reverb tail rings out.
 
 </CommandEntry>
 
-<CommandEntry name="verbdamp" type="number" min={0} max={1} default={0.95}>
+<CommandEntry name="verbdamp" type="number" min={0} max={1} default={0.95} mod>
 
 Higher values darken the reverb tail.
 
@@ -54,7 +54,7 @@ Higher values darken the reverb tail.
 
 </CommandEntry>
 
-<CommandEntry name="verbpredelay" type="number" min={0} max={1} default={0}>
+<CommandEntry name="verbpredelay" type="number" min={0} max={1} default={0} mod>
 
 Gap before the reverb starts.
 
@@ -62,7 +62,7 @@ Gap before the reverb starts.
 
 </CommandEntry>
 
-<CommandEntry name="verbdiff" type="number" min={0} max={1} default={0.7}>
+<CommandEntry name="verbdiff" type="number" min={0} max={1} default={0.7} mod>
 
 Room size. Low values give small tight spaces, high values give large halls.
 
@@ -72,7 +72,7 @@ Room size. Low values give small tight spaces, high values give large halls.
 
 </CommandEntry>
 
-<CommandEntry name="verbchorus" type="number" min={0} max={1} default={0.3}>
+<CommandEntry name="verbchorus" type="number" min={0} max={1} default={0.3} mod>
 
 Adds movement to the reverb tail (space only).
 
@@ -82,7 +82,7 @@ Adds movement to the reverb tail (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verbchorusfreq" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="verbchorusfreq" type="number" min={0} max={1} default={0.2} mod>
 
 Speed of the chorus modulation (space only).
 
@@ -90,7 +90,7 @@ Speed of the chorus modulation (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verbprelow" type="number" min={0} max={1} default={0.2}>
+<CommandEntry name="verbprelow" type="number" min={0} max={1} default={0.2} mod>
 
 Cuts low frequencies before they enter the reverb (space only).
 
@@ -98,7 +98,7 @@ Cuts low frequencies before they enter the reverb (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verbprehigh" type="number" min={0} max={1} default={0.8}>
+<CommandEntry name="verbprehigh" type="number" min={0} max={1} default={0.8} mod>
 
 Cuts high frequencies before they enter the reverb (space only).
 
@@ -106,7 +106,7 @@ Cuts high frequencies before they enter the reverb (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verblowcut" type="number" min={0} max={1} default={0.5}>
+<CommandEntry name="verblowcut" type="number" min={0} max={1} default={0.5} mod>
 
 Where the low-frequency shaping kicks in inside the reverb (space only).
 
@@ -114,7 +114,7 @@ Where the low-frequency shaping kicks in inside the reverb (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verbhighcut" type="number" min={0} max={1} default={0.7}>
+<CommandEntry name="verbhighcut" type="number" min={0} max={1} default={0.7} mod>
 
 Where the high-frequency shaping kicks in inside the reverb (space only).
 
@@ -122,7 +122,7 @@ Where the high-frequency shaping kicks in inside the reverb (space only).
 
 </CommandEntry>
 
-<CommandEntry name="verblowgain" type="number" min={0} max={1} default={0.4}>
+<CommandEntry name="verblowgain" type="number" min={0} max={1} default={0.4} mod>
 
 How much bass survives in the reverb tail (space only). Lower values thin it out.
 

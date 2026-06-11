@@ -2,9 +2,48 @@ use crate::effects::{
     Comb, CombParams, Compressor, DattorroVerb, Delay, Feedback, ReverbParams, VitalVerb,
 };
 use crate::types::{ReverbType, StereoFrame, CHANNELS, MAX_BLOCK};
+use crate::voice::modulation::lcg;
+use crate::voice::{ModChain, ParamMod};
 
 const SILENCE_THRESHOLD: f32 = 1e-7;
 const SILENCE_HOLDOFF_SECS: f32 = 1.0;
+pub const MAX_ORBIT_MODS: usize = 16;
+
+/// Continuous orbit FX params addressable by an inline ModChain. Enum/index
+/// params (delaytype, verbtype, fblfoshape, comporbit) stay static-only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum OrbitParamId {
+    Delay,
+    Verb,
+    Comb,
+    Feedback,
+    Comp,
+    DelayTime,
+    DelayFeedback,
+    VerbDecay,
+    VerbDamp,
+    VerbPredelay,
+    VerbDiff,
+    VerbSize,
+    VerbPrelow,
+    VerbPrehigh,
+    VerbLowcut,
+    VerbHighcut,
+    VerbLowgain,
+    VerbChorus,
+    VerbChorusFreq,
+    CombFreq,
+    CombFeedback,
+    CombDamp,
+    FbTime,
+    FbDamp,
+    FbCross,
+    FbLfo,
+    FbLfoDepth,
+    CompAttack,
+    CompRelease,
+}
 
 // SuperDirt-style chain: voices accumulate into `bus`; each FX reads
 // `bus * send_level`, adds its wet back into `bus`, in order. Order matters —
@@ -45,7 +84,7 @@ pub struct Orbit {
     pub room_active: bool,
     pub delay: Delay,
     pub delay_level: f32,
-    pub dattorro: [DattorroVerb; CHANNELS],
+    pub dattorro: DattorroVerb,
     pub vital: VitalVerb,
     pub reverb_params: ReverbParams,
     pub verb_level: f32,
@@ -57,12 +96,17 @@ pub struct Orbit {
     pub comp: Compressor,
     pub comp_orbit: usize,
     pub sr: f32,
+    isr: f32,
+    // === Param modulation (ticked once per block in `apply_mods`) ===
+    param_mods: [(OrbitParamId, ParamMod); MAX_ORBIT_MODS],
+    param_mod_count: u8,
+    seed: u32,
     silent_samples: u32,
     silence_holdoff: u32,
 }
 
 impl Orbit {
-    pub fn new(sr: f32) -> Self {
+    pub fn new(sr: f32, index: usize) -> Self {
         let silence_holdoff = (sr * SILENCE_HOLDOFF_SECS) as u32;
         Self {
             bus: Box::new([[0.0; CHANNELS]; MAX_BLOCK]),
@@ -75,7 +119,7 @@ impl Orbit {
             room_active: false,
             delay: Delay::new(sr),
             delay_level: 0.0,
-            dattorro: std::array::from_fn(|_| DattorroVerb::new(sr)),
+            dattorro: DattorroVerb::new(sr),
             vital: VitalVerb::new(sr),
             reverb_params: ReverbParams::default(),
             verb_level: 0.0,
@@ -87,8 +131,147 @@ impl Orbit {
             comp: Compressor::default(),
             comp_orbit: 0,
             sr,
+            isr: 1.0 / sr,
+            param_mods: [(OrbitParamId::Delay, ParamMod::default()); MAX_ORBIT_MODS],
+            param_mod_count: 0,
+            seed: lcg(index as u32 + 1),
             silent_samples: silence_holdoff + 1,
             silence_holdoff,
+        }
+    }
+
+    /// Install a ModChain on an orbit param, replacing any existing chain on
+    /// the same param. Slew resolves its start from the current value, same
+    /// as the voice path. Envelope chains trigger on install: re-sending the
+    /// param each event retriggers, giving per-event FX envelopes. `gate` is
+    /// the envelope's total time before release in seconds (0.0 = hold).
+    pub fn set_mod(&mut self, id: OrbitParamId, chain: ModChain, gate: f32) {
+        let chain = if let ModChain::Slew {
+            target,
+            freq,
+            curve,
+        } = chain
+        {
+            ModChain::Transition {
+                start: self.read_param(id),
+                target,
+                freq,
+                curve,
+                looping: false,
+            }
+        } else {
+            chain
+        };
+        for i in 0..self.param_mod_count as usize {
+            if self.param_mods[i].0 == id {
+                self.param_mods[i].1 = ParamMod::new(chain, self.seed);
+                self.param_mods[i].1.trigger(gate);
+                self.seed = lcg(self.seed);
+                return;
+            }
+        }
+        if (self.param_mod_count as usize) < MAX_ORBIT_MODS {
+            let i = self.param_mod_count as usize;
+            self.param_mods[i] = (id, ParamMod::new(chain, self.seed));
+            self.param_mods[i].1.trigger(gate);
+            self.seed = lcg(self.seed);
+            self.param_mod_count += 1;
+        }
+    }
+
+    /// Remove any active ModChain targeting `id` (swap-remove, no alloc).
+    /// The param keeps its last written value.
+    pub fn clear_mod(&mut self, id: OrbitParamId) {
+        let mut i = 0;
+        while i < self.param_mod_count as usize {
+            if self.param_mods[i].0 == id {
+                self.param_mod_count -= 1;
+                self.param_mods.swap(i, self.param_mod_count as usize);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn read_param(&self, id: OrbitParamId) -> f32 {
+        match id {
+            OrbitParamId::Delay => self.delay_level,
+            OrbitParamId::Verb => self.verb_level,
+            OrbitParamId::Comb => self.comb_level,
+            OrbitParamId::Feedback => self.fb_level,
+            OrbitParamId::Comp => self.comp.params.amount,
+            OrbitParamId::DelayTime => self.delay.params.time,
+            OrbitParamId::DelayFeedback => self.delay.params.feedback,
+            OrbitParamId::VerbDecay => self.reverb_params.decay,
+            OrbitParamId::VerbDamp => self.reverb_params.damp,
+            OrbitParamId::VerbPredelay => self.reverb_params.predelay,
+            OrbitParamId::VerbDiff => self.reverb_params.diff,
+            OrbitParamId::VerbSize => self.reverb_params.size,
+            OrbitParamId::VerbPrelow => self.reverb_params.prelow,
+            OrbitParamId::VerbPrehigh => self.reverb_params.prehigh,
+            OrbitParamId::VerbLowcut => self.reverb_params.lowcut,
+            OrbitParamId::VerbHighcut => self.reverb_params.highcut,
+            OrbitParamId::VerbLowgain => self.reverb_params.lowgain,
+            OrbitParamId::VerbChorus => self.reverb_params.chorus,
+            OrbitParamId::VerbChorusFreq => self.reverb_params.chorus_freq,
+            OrbitParamId::CombFreq => self.comb_params.freq,
+            OrbitParamId::CombFeedback => self.comb_params.feedback,
+            OrbitParamId::CombDamp => self.comb_params.damp,
+            OrbitParamId::FbTime => self.fb.params.time_ms,
+            OrbitParamId::FbDamp => self.fb.params.damp,
+            OrbitParamId::FbCross => self.fb.params.cross,
+            OrbitParamId::FbLfo => self.fb.params.lfo,
+            OrbitParamId::FbLfoDepth => self.fb.params.lfo_depth,
+            OrbitParamId::CompAttack => self.comp.params.attack,
+            OrbitParamId::CompRelease => self.comp.params.release,
+        }
+    }
+
+    /// Send levels clamp at 0 (the `set_pos!` contract in lib.rs); the rest
+    /// write raw, matching the static `set!` path — each FX clamps at
+    /// consumption (e.g. delay feedback 0..0.95, time to MAX_DELAY_SAMPLES).
+    fn write_param(&mut self, id: OrbitParamId, v: f32) {
+        match id {
+            OrbitParamId::Delay => self.delay_level = v.max(0.0),
+            OrbitParamId::Verb => self.verb_level = v.max(0.0),
+            OrbitParamId::Comb => self.comb_level = v.max(0.0),
+            OrbitParamId::Feedback => self.fb_level = v.max(0.0),
+            OrbitParamId::Comp => self.comp.params.amount = v.max(0.0),
+            OrbitParamId::DelayTime => self.delay.params.time = v,
+            OrbitParamId::DelayFeedback => self.delay.params.feedback = v,
+            OrbitParamId::VerbDecay => self.reverb_params.decay = v,
+            OrbitParamId::VerbDamp => self.reverb_params.damp = v,
+            OrbitParamId::VerbPredelay => self.reverb_params.predelay = v,
+            OrbitParamId::VerbDiff => self.reverb_params.diff = v,
+            OrbitParamId::VerbSize => self.reverb_params.size = v,
+            OrbitParamId::VerbPrelow => self.reverb_params.prelow = v,
+            OrbitParamId::VerbPrehigh => self.reverb_params.prehigh = v,
+            OrbitParamId::VerbLowcut => self.reverb_params.lowcut = v,
+            OrbitParamId::VerbHighcut => self.reverb_params.highcut = v,
+            OrbitParamId::VerbLowgain => self.reverb_params.lowgain = v,
+            OrbitParamId::VerbChorus => self.reverb_params.chorus = v,
+            OrbitParamId::VerbChorusFreq => self.reverb_params.chorus_freq = v,
+            OrbitParamId::CombFreq => self.comb_params.freq = v,
+            OrbitParamId::CombFeedback => self.comb_params.feedback = v,
+            OrbitParamId::CombDamp => self.comb_params.damp = v,
+            OrbitParamId::FbTime => self.fb.params.time_ms = v,
+            OrbitParamId::FbDamp => self.fb.params.damp = v,
+            OrbitParamId::FbCross => self.fb.params.cross = v,
+            OrbitParamId::FbLfo => self.fb.params.lfo = v,
+            OrbitParamId::FbLfoDepth => self.fb.params.lfo_depth = v,
+            OrbitParamId::CompAttack => self.comp.params.attack = v,
+            OrbitParamId::CompRelease => self.comp.params.release = v,
+        }
+    }
+
+    /// Advance all active param mods by `n` samples and write the resulting
+    /// values. Runs before the silence bypass so a modulated send level can
+    /// wake the orbit and chains keep time through silent stretches.
+    fn apply_mods(&mut self, n: usize) {
+        for i in 0..self.param_mod_count as usize {
+            let (id, ref mut m) = self.param_mods[i];
+            let v = m.tick_block(self.isr, n);
+            self.write_param(id, v);
         }
     }
 
@@ -142,6 +325,10 @@ impl Orbit {
             n <= MAX_BLOCK,
             "Orbit::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
+        // Param mods first: the silence bypass below reads send levels, so a
+        // modulated level must be current before `has_any_fx` is consulted.
+        self.apply_mods(n);
+
         // Room routing: latch on when a superpan voice sends with no pan dry; the
         // FX run on `bus + fx_send` and only the wet (recovered below) reaches the
         // room. The latch holds the tail to the room after the source stops.
@@ -259,19 +446,16 @@ impl Orbit {
             let rp = &self.reverb_params;
             match rp.verb_type {
                 ReverbType::Plate => {
-                    // Each channel into its own Dattorro instance (mono in,
-                    // stereo out); the two stereo outputs are summed onto bus.
-                    let mut s_l = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-                    let mut s_r = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-                    for (i, frame) in self.bus.iter().take(n).enumerate() {
-                        s_l[i][0] = frame[0] * level;
-                        s_r[i][0] = frame[1] * level;
+                    // Mono-summed input into one Dattorro (mono in, stereo
+                    // out); its decorrelated L/R tap networks feed bus L/R.
+                    let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
+                    for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
+                        slot[0] = (frame[0] + frame[1]) * 0.5 * level;
                     }
-                    self.dattorro[0].process_block(&mut s_l[..n], n, rp);
-                    self.dattorro[1].process_block(&mut s_r[..n], n, rp);
-                    for (i, frame) in self.bus.iter_mut().take(n).enumerate() {
-                        frame[0] += s_l[i][0] + s_r[i][0];
-                        frame[1] += s_l[i][1] + s_r[i][1];
+                    self.dattorro.process_block(&mut send[..n], n, rp);
+                    for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+                        frame[0] += wet[0];
+                        frame[1] += wet[1];
                     }
                 }
                 ReverbType::Space => {
