@@ -21,7 +21,7 @@ Doux is the engine itself, that you can test as a standalone binary.
 | `--buffer-size` | `-b` | Audio buffer size in samples | system |
 | `--max-voices` | | Maximum polyphony | 32 |
 | `--preload` | | Preload all samples at startup | false |
-| `--host` | | Audio host: jack, alsa, auto | auto |
+| `--host` | | Audio host: pipewire, pulseaudio, jack, alsa, asio, auto | auto |
 | `--diagnose` | | Run audio diagnostics and exit | - |
 
 ### doux-repl (interactive REPL)
@@ -37,7 +37,7 @@ Doux-REPL is a small interpreter mostly used for debugging and testing.
 | `--channels` | | Number of output channels | 2 |
 | `--buffer-size` | `-b` | Audio buffer size in samples | system |
 | `--max-voices` | | Maximum polyphony | 32 |
-| `--host` | | Audio host: jack, alsa, auto | auto |
+| `--host` | | Audio host: pipewire, pulseaudio, jack, alsa, asio, auto | auto |
 | `--diagnose` | | Run audio diagnostics and exit | - |
 
 ### doux-render (offline rendering)
@@ -76,45 +76,52 @@ Supported sampled-profiler workflows:
 
 ## Linux Audio Setup
 
-On Linux, doux supports both JACK and ALSA backends. For systems using PipeWire (default on most modern distributions), the JACK backend via `pipewire-jack` provides the best compatibility.
+On Linux, doux talks to PipeWire natively (default on most modern distributions) — no `pw-jack` wrapper needed. PulseAudio, JACK, and ALSA backends are also compiled in. With `--host auto` (the default), the priority is pipewire > jack > pulseaudio > alsa.
 
 ### Quick Start
 
 ```bash
-# Use JACK backend (recommended for PipeWire systems)
-doux --host jack
+# Just run it — PipeWire is picked up automatically
+doux
 
 # Or run diagnostics to check your audio setup
 doux --diagnose
 ```
 
-### ALSA Fallback
+Force a specific backend with `--host pipewire|pulseaudio|jack|alsa`. The PulseAudio backend is pure Rust and needs no extra packages; it also covers PipeWire systems via pipewire-pulse.
 
-For direct ALSA access without PipeWire:
+### Building from Source
+
+The native PipeWire backend requires PipeWire ≥ 0.3.53 dev headers and libclang at build time:
 
 ```bash
-# Install ALSA dev libraries
-sudo apt install libasound2-dev  # Debian/Ubuntu
-sudo dnf install alsa-lib-devel  # Fedora
+# Debian/Ubuntu
+sudo apt install pkg-config libclang-dev libpipewire-0.3-dev libasound2-dev libjack-jackd2-dev
 
-# Ensure user is in audio group
+# Fedora
+sudo dnf install pkgconf-pkg-config clang pipewire-devel alsa-lib-devel jack-audio-connection-kit-devel
+
+# Arch
+sudo pacman -S pkgconf clang pipewire alsa-lib jack2
+```
+
+For direct ALSA access, ensure your user is in the audio group:
+
+```bash
 sudo usermod -aG audio $USER
 # Log out and back in for group change to take effect
 ```
-
-Then run with `--host alsa`.
 
 ### Troubleshooting
 
 Run `doux --diagnose` to check:
 - Available audio hosts
 - User group membership (audio, pipewire)
-- JACK server status
+- JACK/PipeWire server status
 - Default device accessibility
 
 Common issues:
 - **No devices found**: Check group membership (`id -Gn` should show `audio`)
-- **JACK unavailable**: Start JACK server or install pipewire-jack
 - **Wrong device selected**: Use `--list-devices` and specify with `--output`
 
 ## Contributing

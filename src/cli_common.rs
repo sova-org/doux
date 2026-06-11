@@ -54,7 +54,7 @@ pub struct CommonAudioArgs {
     #[arg(long, default_value = "32")]
     pub dsp_block_size: usize,
 
-    /// Audio host backend: jack, alsa, asio, or auto (default: auto).
+    /// Audio host backend: pipewire, pulseaudio, jack, alsa, asio, or auto (default: auto).
     #[arg(long, default_value = "auto")]
     pub host: String,
 
@@ -321,7 +321,7 @@ pub fn build_audio_streams(
                 // 8192 frames covers all common host buffer sizes.
                 let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                 input_dev.build_input_stream(
-                    &input_config.into(),
+                    input_config.into(),
                     move |data: &[$T], _| {
                         let usable = data.len().min(scratch.len());
                         for (dst, &src) in scratch[..usable].iter_mut().zip(data[..usable].iter()) {
@@ -329,17 +329,20 @@ pub fn build_audio_streams(
                         }
                         input_producer.push_slice(&scratch[..usable]);
                     },
-                    move |err| match err {
-                        cpal::StreamError::DeviceNotAvailable
-                        | cpal::StreamError::StreamInvalidated => {
+                    move |err: cpal::Error| match err.kind() {
+                        cpal::ErrorKind::DeviceNotAvailable
+                        | cpal::ErrorKind::StreamInvalidated => {
                             eprintln!("[doux] input device lost: {err}");
                             flag.store(true, Ordering::Release);
                         }
-                        cpal::StreamError::BufferUnderrun => {
+                        cpal::ErrorKind::Xrun => {
                             eprintln!("[doux] xrun");
                         }
-                        other => {
-                            eprintln!("[doux] input stream: {other}");
+                        cpal::ErrorKind::DeviceChanged => {
+                            eprintln!("[doux] default input device changed; stream rerouted");
+                        }
+                        _ => {
+                            eprintln!("[doux] input stream: {err}");
                         }
                     },
                     None,
@@ -386,7 +389,7 @@ pub fn build_audio_streams(
             let mut conv_buf: Vec<f32> = vec![0.0f32; MAX_BUFFER_FRAMES * ch];
             let mut panicked = false;
             device.build_output_stream(
-                &params.config.stream_config,
+                params.config.stream_config,
                 move |data: &mut [$T], _| {
                     // A panic inside a cpal callback (called from C/ALSA) is UB.
                     // Wrap in catch_unwind; on panic output silence.
@@ -438,17 +441,20 @@ pub fn build_audio_streams(
                         }
                     }
                 },
-                move |err| match err {
-                    cpal::StreamError::DeviceNotAvailable
-                    | cpal::StreamError::StreamInvalidated => {
+                move |err: cpal::Error| match err.kind() {
+                    cpal::ErrorKind::DeviceNotAvailable
+                    | cpal::ErrorKind::StreamInvalidated => {
                         eprintln!("[doux] output device lost: {err}");
                         flag.store(true, Ordering::Release);
                     }
-                    cpal::StreamError::BufferUnderrun => {
+                    cpal::ErrorKind::Xrun => {
                         eprintln!("[doux] xrun");
                     }
-                    other => {
-                        eprintln!("[doux] output stream: {other}");
+                    cpal::ErrorKind::DeviceChanged => {
+                        eprintln!("[doux] default output device changed; stream rerouted");
+                    }
+                    _ => {
+                        eprintln!("[doux] output stream: {err}");
                     }
                 },
                 None,

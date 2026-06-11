@@ -58,7 +58,7 @@ pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
 }
 
 #[cfg(target_os = "linux")]
-const PREFERRED_HOSTS: &[&str] = &["pipewire", "jack"];
+const PREFERRED_HOSTS: &[&str] = &["pipewire", "jack", "pulseaudio"];
 
 #[cfg(all(target_os = "windows", feature = "asio"))]
 const PREFERRED_HOSTS: &[&str] = &["asio", "wasapi"];
@@ -347,6 +347,11 @@ pub fn run_diagnostics() -> Vec<DiagnosticResult> {
             .any(|h| h.name.to_lowercase().contains("jack") && h.available)
         {
             "jack preferred"
+        } else if hosts
+            .iter()
+            .any(|h| h.name.to_lowercase().contains("pulseaudio") && h.available)
+        {
+            "pulseaudio preferred"
         } else {
             "fallback"
         };

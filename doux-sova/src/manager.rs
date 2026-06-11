@@ -419,7 +419,7 @@ impl DouxManager {
                     // instead of triggering a Vec::resize allocation.
                     let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                     input_dev.build_input_stream(
-                        &input_cfg.into(),
+                        input_cfg.into(),
                         move |data: &[$T], _| {
                             let usable = data.len().min(scratch.len());
                             for (dst, &src) in
@@ -429,17 +429,20 @@ impl DouxManager {
                             }
                             input_producer.push_slice(&scratch[..usable]);
                         },
-                        move |err| match err {
-                            cpal::StreamError::DeviceNotAvailable
-                            | cpal::StreamError::StreamInvalidated => {
+                        move |err: cpal::Error| match err.kind() {
+                            cpal::ErrorKind::DeviceNotAvailable
+                            | cpal::ErrorKind::StreamInvalidated => {
                                 eprintln!("[doux] input device lost: {err}");
                                 flag.store(true, Ordering::Release);
                             }
-                            cpal::StreamError::BufferUnderrun => {
+                            cpal::ErrorKind::Xrun => {
                                 eprintln!("[doux] xrun");
                             }
-                            other => {
-                                eprintln!("[doux] input stream: {other}");
+                            cpal::ErrorKind::DeviceChanged => {
+                                eprintln!("[doux] default input device changed; stream rerouted");
+                            }
+                            _ => {
+                                eprintln!("[doux] input stream: {err}");
                             }
                         },
                         None,
@@ -513,7 +516,7 @@ impl DouxManager {
                 let mut conv_buf: Vec<f32> = vec![0.0f32; max_buffer_samples * output_channels];
                 let mut panicked = false;
                 output_device.build_output_stream(
-                    &stream_config,
+                    stream_config,
                     move |data: &mut [$T], _| {
                         // A panic inside a cpal callback (called from C/ALSA) is UB.
                         // Wrap everything in catch_unwind; on panic output silence.
@@ -608,17 +611,20 @@ impl DouxManager {
                             }
                         }
                     },
-                    move |err| match err {
-                        cpal::StreamError::DeviceNotAvailable
-                        | cpal::StreamError::StreamInvalidated => {
+                    move |err: cpal::Error| match err.kind() {
+                        cpal::ErrorKind::DeviceNotAvailable
+                        | cpal::ErrorKind::StreamInvalidated => {
                             eprintln!("[doux] output device lost: {err}");
                             flag.store(true, Ordering::Release);
                         }
-                        cpal::StreamError::BufferUnderrun => {
+                        cpal::ErrorKind::Xrun => {
                             eprintln!("[doux] xrun");
                         }
-                        other => {
-                            eprintln!("[doux] output stream: {other}");
+                        cpal::ErrorKind::DeviceChanged => {
+                            eprintln!("[doux] default output device changed; stream rerouted");
+                        }
+                        _ => {
+                            eprintln!("[doux] output stream: {err}");
                         }
                     },
                     None,
