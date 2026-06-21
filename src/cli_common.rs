@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::audio::{
-    find_device, get_host, host_controls_buffer_size, list_hosts, max_output_channels,
+    find_device, get_host, host_controls_buffer_size, list_hosts, resolve_output_channels,
     print_diagnostics, HostSelection,
 };
 use crate::error::DouxError;
@@ -180,14 +180,7 @@ pub fn resolve_output_config(
             .ok_or(DouxError::NoDefaultDevice)?,
     };
 
-    let max_ch = max_output_channels(&device);
-    let output_channels = (requested_channels as usize).min(max_ch as usize);
-    if requested_channels as usize > output_channels {
-        eprintln!(
-            "Warning: device supports max {} channels, using that instead of {}",
-            max_ch, requested_channels
-        );
-    }
+    let output_channels = resolve_output_channels(&device, requested_channels) as usize;
 
     let default_config = device
         .default_output_config()

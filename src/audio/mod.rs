@@ -305,12 +305,36 @@ pub fn host_controls_buffer_size(host: &Host) -> bool {
     name.contains("jack") || name.contains("asio")
 }
 
-/// Gets the maximum number of output channels supported by a device.
-pub fn max_output_channels(device: &Device) -> u16 {
-    device
-        .supported_output_configs()
-        .map(|configs| configs.map(|c| c.channels()).max().unwrap_or(2))
-        .unwrap_or(2)
+/// Usable output channel count: honor `requested`.
+/// PipeWire/JACK accept counts that `supported_output_configs()` under-reports as
+/// stereo, so probe by actually opening a stream; on real refusal (hardware limit),
+/// warn and fall back to the device default.
+pub fn resolve_output_channels(device: &Device, requested: u16) -> u16 {
+    let requested = requested.max(1); // PipeWire 0.18 rejects channels == 0
+    let Some(default_cfg) = default_output_config(device) else {
+        return requested; // cannot probe; trust the request
+    };
+    let probe = device.build_output_stream(
+        cpal::StreamConfig {
+            channels: requested,
+            sample_rate: default_cfg.sample_rate(),
+            buffer_size: cpal::BufferSize::Default,
+        },
+        |_: &mut [f32], _: &cpal::OutputCallbackInfo| {},
+        |_err: cpal::Error| {},
+        None,
+    );
+    match probe {
+        Ok(stream) => {
+            drop(stream); // accepted at build time; no play() needed
+            requested
+        }
+        Err(e) => {
+            let fallback = default_cfg.channels();
+            eprintln!("[doux] {requested} output channels refused ({e}); using {fallback}");
+            fallback
+        }
+    }
 }
 
 /// Runs audio diagnostics.

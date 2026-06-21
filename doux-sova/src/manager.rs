@@ -11,7 +11,7 @@ use ringbuf::{traits::*, HeapRb};
 use serde::{Deserialize, Serialize};
 
 use doux::audio::{
-    find_device, get_host, host_controls_buffer_size, max_output_channels, HostSelection,
+    find_device, get_host, host_controls_buffer_size, resolve_output_channels, HostSelection,
 };
 use doux::config::DouxConfig;
 use doux::error::DouxError;
@@ -165,55 +165,7 @@ fn get_device_config(device: &Device) -> Result<(SupportedStreamConfig, f32), Do
 }
 
 fn compute_channels(device: &Device, requested: u16) -> usize {
-    let max_ch = max_output_channels(device);
-    (requested as usize).min(max_ch as usize)
-}
-
-/// Negotiate a stream config that the device actually supports.
-///
-/// Tries the requested (channels, sample_rate) first. If no supported config
-/// range covers that combination, falls back to the device's default config.
-fn negotiate_stream_config(
-    device: &Device,
-    requested_channels: u16,
-    preferred_sample_rate: cpal::SampleRate,
-    buf_size: cpal::BufferSize,
-) -> Result<cpal::StreamConfig, DouxError> {
-    // Check if our target is within any supported range
-    let supported = device
-        .supported_output_configs()
-        .ok()
-        .map(|configs| {
-            configs.into_iter().any(|range| {
-                range.channels() >= requested_channels
-                    && range.min_sample_rate() <= preferred_sample_rate
-                    && range.max_sample_rate() >= preferred_sample_rate
-            })
-        })
-        .unwrap_or(false);
-
-    if supported {
-        return Ok(cpal::StreamConfig {
-            channels: requested_channels,
-            sample_rate: preferred_sample_rate,
-            buffer_size: buf_size,
-        });
-    }
-
-    // Fallback: use default config as-is
-    eprintln!(
-        "[doux] requested config ({requested_channels}ch @ {}Hz) not supported, falling back to device default",
-        preferred_sample_rate
-    );
-    let default = device
-        .default_output_config()
-        .map_err(|e| DouxError::DeviceConfigError(e.to_string()))?;
-
-    Ok(cpal::StreamConfig {
-        channels: default.channels(),
-        sample_rate: default.sample_rate(),
-        buffer_size: buf_size,
-    })
+    resolve_output_channels(device, requested) as usize
 }
 
 fn spawn_preload(
@@ -360,15 +312,11 @@ impl DouxManager {
             None => cpal::BufferSize::Default,
         };
 
-        let stream_config = negotiate_stream_config(
-            &output_device,
-            self.actual_channels as u16,
-            device_config.sample_rate(),
-            buf_size,
-        )?;
-
-        // Update actual values in case negotiation changed them
-        self.actual_channels = stream_config.channels as usize;
+        let stream_config = cpal::StreamConfig {
+            channels: self.actual_channels as u16,
+            sample_rate: device_config.sample_rate(),
+            buffer_size: buf_size,
+        };
         self.sample_rate = stream_config.sample_rate as f32;
         eprintln!(
             "[doux] stream config: {}ch @ {}Hz, buffer: {:?}",
