@@ -8,6 +8,7 @@ pub struct DistortDsp {
 	fHslider0: F32,
 	fHslider1: F32,
 	fHslider2: F32,
+	fHslider3: F32,
 	fVec0: [F32;2],
 	fSampleRate: i32,
 }
@@ -25,7 +26,7 @@ fn rint_f32(val: f32) -> f32 {
 
 pub const FAUST_INPUTS: usize = 1;
 pub const FAUST_OUTPUTS: usize = 1;
-pub const FAUST_ACTIVES: usize = 3;
+pub const FAUST_ACTIVES: usize = 4;
 pub const FAUST_PASSIVES: usize = 0;
 
 
@@ -36,6 +37,7 @@ impl DistortDsp {
 			fHslider0: 0.0,
 			fHslider1: 0.0,
 			fHslider2: 0.0,
+			fHslider3: 0.0,
 			fVec0: [0.0;2],
 			fSampleRate: 0,
 		}
@@ -51,6 +53,12 @@ impl DistortDsp {
 		m.declare("aanl.lib/hardclip:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
 		m.declare("aanl.lib/hardclip:license", r"MIT License");
 		m.declare("aanl.lib/name", r"Faust Antialiased Nonlinearities");
+		m.declare("aanl.lib/parabolic:author", r"Dario Sanfilippo");
+		m.declare("aanl.lib/parabolic:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
+		m.declare("aanl.lib/parabolic:license", r"MIT License");
+		m.declare("aanl.lib/sinarctan:author", r"Dario Sanfilippo");
+		m.declare("aanl.lib/sinarctan:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
+		m.declare("aanl.lib/sinarctan:license", r"MIT License");
 		m.declare("aanl.lib/tanh1:author", r"Dario Sanfilippo");
 		m.declare("aanl.lib/tanh1:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
 		m.declare("aanl.lib/tanh1:license", r"MIT License");
@@ -76,6 +84,7 @@ impl DistortDsp {
 		self.fHslider0 = 1.0;
 		self.fHslider1 = 0.0;
 		self.fHslider2 = 0.0;
+		self.fHslider3 = 0.0;
 	}
 	pub fn instance_clear(&mut self) {
 		for l0 in 0..2 {
@@ -104,7 +113,8 @@ impl DistortDsp {
 		ui_interface.open_vertical_box("distort");
 		ui_interface.add_horizontal_slider("a_distort", ParamIndex(0), 0.0, 0.0, 1e+02, 0.001);
 		ui_interface.add_horizontal_slider("b_distortvol", ParamIndex(1), 1.0, 0.0, 2.0, 0.001);
-		ui_interface.add_horizontal_slider("c_distortmode", ParamIndex(2), 0.0, 0.0, 3.0, 1.0);
+		ui_interface.add_horizontal_slider("c_distortmode", ParamIndex(2), 0.0, 0.0, 5.0, 1.0);
+		ui_interface.add_horizontal_slider("d_asym", ParamIndex(3), 0.0, -1.0, 1.0, 0.001);
 		ui_interface.close_box();
 	}
 	
@@ -113,6 +123,7 @@ impl DistortDsp {
 			1 => Some(self.fHslider0),
 			2 => Some(self.fHslider1),
 			0 => Some(self.fHslider2),
+			3 => Some(self.fHslider3),
 			_ => None,
 		}
 	}
@@ -122,6 +133,7 @@ impl DistortDsp {
 			1 => { self.fHslider0 = value }
 			2 => { self.fHslider1 = value }
 			0 => { self.fHslider2 = value }
+			3 => { self.fHslider3 = value }
 			_ => {}
 		}
 	}
@@ -140,27 +152,39 @@ impl DistortDsp {
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let mut fSlow0: F32 = self.fHslider0;
 		let mut iSlow1: i32 = (self.fHslider1) as i32;
-		let mut iSlow2: i32 = (iSlow1 >= 2) as i32;
-		let mut iSlow3: i32 = (iSlow1 >= 1) as i32;
-		let mut fSlow4: F32 = F32::max(self.fHslider2, 0.0);
-		let mut fSlow5: F32 = fSlow4 + 1.0;
-		let mut fSlow6: F32 = F32::powf(fSlow5, -0.12);
-		let mut fSlow7: F32 = fSlow5 * fSlow6;
-		let mut fSlow8: F32 = 0.05 / (0.05 * fSlow4 + 1.0);
-		let mut iSlow9: i32 = (iSlow1 >= 3) as i32;
-		let mut fSlow10: F32 = 0.63661975 * fSlow6;
+		let mut iSlow2: i32 = (iSlow1 >= 3) as i32;
+		let mut iSlow3: i32 = (iSlow1 >= 2) as i32;
+		let mut iSlow4: i32 = (iSlow1 >= 1) as i32;
+		let mut fSlow5: F32 = F32::max(self.fHslider2, 0.0);
+		let mut fSlow6: F32 = fSlow5 + 1.0;
+		let mut fSlow7: F32 = F32::powf(fSlow6, -0.12);
+		let mut fSlow8: F32 = fSlow6 * fSlow7;
+		let mut fSlow9: F32 = self.fHslider3;
+		let mut fSlow10: F32 = 0.05 / (0.05 * fSlow5 + 1.0);
+		let mut fSlow11: F32 = 0.63661975 * fSlow7;
+		let mut iSlow12: i32 = (iSlow1 >= 5) as i32;
+		let mut iSlow13: i32 = (iSlow1 >= 4) as i32;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
-			let mut fTemp1: F32 = fTemp0 + 0.05;
-			let mut fTemp2: F32 = fSlow5 * fTemp0;
-			self.fVec0[0] = fTemp2;
-			let mut fTemp3: F32 = fTemp2 - self.fVec0[1];
-			let mut iTemp4: i32 = (F32::abs(fTemp3) <= 0.001) as i32;
-			let mut fTemp5: F32 = 0.5 * (fTemp2 + self.fVec0[1]);
-			let mut fTemp6: F32 = DistortDsp_faustpower2_f(fTemp2);
-			let mut fTemp7: F32 = DistortDsp_faustpower2_f(self.fVec0[1]);
-			*output0 = fSlow0 * (if iSlow2 != 0 {(if iSlow9 != 0 {fSlow6 * (if iTemp4 != 0 {F32::max(-1.0, F32::min(1.0, fTemp5))} else {((if ((fTemp2 <= 1.0) as i32) & ((fTemp2 >= -1.0) as i32) != 0 {0.5 * fTemp6} else {fSlow5 * fTemp0 * (((fTemp2 > 0.0) as i32) - ((fTemp2 < 0.0) as i32)) as F32 + -0.5}) - (if ((self.fVec0[1] <= 1.0) as i32) & ((self.fVec0[1] >= -1.0) as i32) != 0 {0.5 * fTemp7} else {self.fVec0[1] * (((self.fVec0[1] > 0.0) as i32) - ((self.fVec0[1] < 0.0) as i32)) as F32 + -0.5})) / fTemp3})} else {fSlow10 * (if iTemp4 != 0 {F32::atan(fTemp5)} else {(fSlow5 * fTemp0 * F32::atan(fTemp2) - (self.fVec0[1] * F32::atan(self.fVec0[1]) + 0.5 * (F32::log(fTemp6 + 1.0, std::f32::consts::E) - F32::log(fTemp7 + 1.0, std::f32::consts::E)))) / fTemp3})})} else {(if iSlow3 != 0 {fSlow6 * (if iTemp4 != 0 {F32::tanh(fTemp5)} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp2)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec0[1])), std::f32::consts::E)) / fTemp3})} else {fSlow7 * (fTemp1 / (fSlow4 * F32::abs(fTemp1) + 1.0) - fSlow8)})});
+			let mut fTemp1: F32 = fSlow9 + fTemp0 + 0.05;
+			let mut fTemp2: F32 = fSlow9 + fTemp0;
+			let mut fTemp3: F32 = fSlow6 * fTemp2;
+			self.fVec0[0] = fTemp3;
+			let mut fTemp4: F32 = fTemp3 - self.fVec0[1];
+			let mut iTemp5: i32 = (F32::abs(fTemp4) <= 0.001) as i32;
+			let mut fTemp6: F32 = fTemp3 + self.fVec0[1];
+			let mut fTemp7: F32 = 0.5 * fTemp6;
+			let mut fTemp8: F32 = DistortDsp_faustpower2_f(fTemp3);
+			let mut fTemp9: F32 = fTemp8 + 1.0;
+			let mut fTemp10: F32 = DistortDsp_faustpower2_f(self.fVec0[1]);
+			let mut fTemp11: F32 = fTemp10 + 1.0;
+			let mut fTemp12: F32 = fSlow6 * fTemp2 * (((fTemp3 > 0.0) as i32) - ((fTemp3 < 0.0) as i32)) as F32;
+			let mut fTemp13: F32 = self.fVec0[1] * (((self.fVec0[1] > 0.0) as i32) - ((self.fVec0[1] < 0.0) as i32)) as F32;
+			let mut fTemp14: F32 = F32::abs(fTemp3);
+			let mut fTemp15: F32 = F32::abs(self.fVec0[1]);
+			let mut fTemp16: F32 = F32::abs(fTemp7);
+			*output0 = fSlow0 * (if iSlow2 != 0 {(if iSlow12 != 0 {fSlow7 * (if iTemp5 != 0 {0.5 * (fTemp6 / F32::sqrt(DistortDsp_faustpower2_f(fTemp7) + 1.0))} else {(F32::sqrt(fTemp9) - F32::sqrt(fTemp11)) / fTemp4})} else {(if iSlow13 != 0 {fSlow7 * (if iTemp5 != 0 {(if (fTemp16 <= 2.0) as i32 != 0 {0.5 * fTemp6 * (1.0 - 0.25 * fTemp16)} else {(((fTemp7 > 0.0) as i32) - ((fTemp7 < 0.0) as i32)) as F32})} else {((if (fTemp14 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp8 * (fTemp12 + -6.0))} else {fTemp14}) - (if (fTemp15 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp10 * (fTemp13 + -6.0))} else {fTemp15})) / fTemp4})} else {fSlow7 * (if iTemp5 != 0 {F32::max(-1.0, F32::min(1.0, fTemp7))} else {((if ((fTemp3 <= 1.0) as i32) & ((fTemp3 >= -1.0) as i32) != 0 {0.5 * fTemp8} else {fTemp12 + -0.5}) - (if ((self.fVec0[1] <= 1.0) as i32) & ((self.fVec0[1] >= -1.0) as i32) != 0 {0.5 * fTemp10} else {fTemp13 + -0.5})) / fTemp4})})})} else {(if iSlow3 != 0 {fSlow11 * (if iTemp5 != 0 {F32::atan(fTemp7)} else {(fSlow6 * fTemp2 * F32::atan(fTemp3) - (self.fVec0[1] * F32::atan(self.fVec0[1]) + 0.5 * (F32::log(fTemp9, std::f32::consts::E) - F32::log(fTemp11, std::f32::consts::E)))) / fTemp4})} else {(if iSlow4 != 0 {fSlow7 * (if iTemp5 != 0 {F32::tanh(fTemp7)} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp3)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec0[1])), std::f32::consts::E)) / fTemp4})} else {fSlow8 * (fTemp1 / (fSlow5 * F32::abs(fTemp1) + 1.0) - fSlow10)})})});
 			self.fVec0[1] = self.fVec0[0];
 		}
 		

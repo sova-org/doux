@@ -1,6 +1,7 @@
-//! Delay metadata + params. The DSP now lives in `dsp/delay.dsp`
-//! (`effects::FaustDelay`); this module keeps the registry `INFO` and the
-//! `DelayParams` (incl. `DelayType`) the orbit threads into the Faust wrapper.
+//! Delay metadata + params. The DSP lives in `dsp/delay_{standard,pingpong,tape,
+//! multitap}.dsp` (`effects::FaustDelay` runs only the selected one); this module
+//! keeps the registry `INFO` and the `DelayParams` (incl. `DelayType`) the orbit
+//! threads into the Faust wrapper.
 
 use crate::types::{DelayType, ModuleGroup, ModuleInfo, ParamInfo};
 

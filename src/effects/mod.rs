@@ -15,6 +15,8 @@ mod phaser;
 mod reverb;
 mod smear;
 mod tilt;
+mod vinyl;
+mod wah;
 
 pub use comb::CombParams;
 pub use compressor::{Compressor, CompressorParams};
@@ -23,7 +25,8 @@ pub use distort::DcBlocker;
 pub use faust_dsp::{
     FaustChorus, FaustCoarse, FaustComb, FaustCrush, FaustDelay, FaustDistort, FaustEq,
     FaustFeedback, FaustFlanger, FaustFold, FaustHaas, FaustJpVerb, FaustLadder, FaustPhaser,
-    FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt, FaustVitalRev, FaustWrap,
+    FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt, FaustVinyl, FaustVitalRev, FaustWah,
+    FaustWrap,
 };
 pub use feedback::FeedbackParams;
 pub use ladder::LadderMode;
@@ -665,6 +668,8 @@ pub const ALL_MODULES: &[&ModuleInfo] = &[
     &flanger::INFO,
     &chorus::INFO,
     &smear::INFO,
+    &wah::INFO,
+    &vinyl::INFO,
     // Effects — distortion
     &coarse::INFO,
     &crush::INFO,

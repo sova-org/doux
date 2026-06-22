@@ -32,5 +32,13 @@ pub const INFO: ModuleInfo = ModuleInfo {
             min: 0.0,
             max: 0.95,
         },
+        ParamInfo {
+            name: "flangermode",
+            aliases: &["flmode"],
+            description: "mode (classic, throughzero)",
+            default: "classic",
+            min: 0.0,
+            max: 1.0,
+        },
     ],
 };

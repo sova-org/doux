@@ -14,7 +14,9 @@
 
 use crate::dsp::PhaseShape;
 use crate::superpan::SpeakerSet;
-use crate::types::{ChorusType, DistortMode, FoldMode, LfoShape, Source, SubWave, SyncMode};
+use crate::types::{
+    ChorusType, DistortMode, FlangerMode, FoldMode, LfoShape, Source, SubWave, SyncMode, VinylType,
+};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -225,6 +227,34 @@ pub struct VoiceParams {
     pub flangerdepth: f32,
     /// Flanger feedback amount (0.0 to 1.0).
     pub flangerfeedback: f32,
+    /// Flanger mode (classic / through-zero).
+    pub flangermode: FlangerMode,
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Auto-wah (envelope-follower bandpass)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Auto-wah dry/wet mix (0 = bypass, 1 = full wet).
+    pub wah: f32,
+    /// Auto-wah resonance / peak (0-1).
+    pub wahpeak: f32,
+    /// Auto-wah envelope sensitivity (0-1).
+    pub wahsens: f32,
+    /// Auto-wah base cutoff in Hz (the resting position).
+    pub wahmanual: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
+    // VinylSim / Cassette character
+    // ─────────────────────────────────────────────────────────────────────
+    /// Vinyl/cassette dry/wet mix (0 = bypass, 1 = full wet).
+    pub vinyl: f32,
+    /// Vinyl wow + flutter depth (0-1).
+    pub vinylwow: f32,
+    /// Vinyl/tape hiss level (0-1).
+    pub vinylnoise: f32,
+    /// Vinyl tone tilt (-1 darker .. 1 brighter).
+    pub vinyltone: f32,
+    /// Vinyl voicing (vinyl303 / vinyl404 / cassette).
+    pub vinyltype: VinylType,
 
     // ─────────────────────────────────────────────────────────────────────
     // Smear
@@ -263,8 +293,10 @@ pub struct VoiceParams {
     pub distort: Option<f32>,
     /// Distortion output volume compensation.
     pub distortvol: f32,
-    /// Distortion saturator curve (soft / tanh / arctan / hardclip).
+    /// Distortion saturator curve (soft / tanh / arctan / hardclip / parabolic / sinarctan).
     pub distortmode: DistortMode,
+    /// Distortion pre-shaper bias for asymmetric / even-harmonic drive (DC removed downstream).
+    pub distortasym: f32,
     /// Wavefolder shape (triangle / sine / wrap).
     pub foldmode: FoldMode,
 
@@ -396,6 +428,16 @@ impl Default for VoiceParams {
             flanger: 0.0,
             flangerdepth: 0.7,
             flangerfeedback: 0.35,
+            flangermode: FlangerMode::Classic,
+            wah: 0.0,
+            wahpeak: 0.5,
+            wahsens: 0.5,
+            wahmanual: 400.0,
+            vinyl: 0.0,
+            vinylwow: 0.3,
+            vinylnoise: 0.2,
+            vinyltone: 0.0,
+            vinyltype: VinylType::Vinyl303,
             smear: 0.0,
             smearfreq: 1000.0,
             smearfb: 0.0,
@@ -410,6 +452,7 @@ impl Default for VoiceParams {
             distort: None,
             distortvol: 1.0,
             distortmode: DistortMode::Soft,
+            distortasym: 0.0,
             foldmode: FoldMode::Triangle,
             width: 1.0,
             haas: 0.0,

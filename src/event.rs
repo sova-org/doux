@@ -1,8 +1,8 @@
 use crate::orbit::OrbitParamId;
 use crate::superpan::SpeakerSet;
 use crate::types::{
-    midi2freq, ChorusType, DelayType, DistortMode, FoldMode, GenericSlot, LfoShape, ReverbType,
-    Source, SubWave, SyncMode,
+    midi2freq, ChorusType, DelayType, DistortMode, FlangerMode, FoldMode, GenericSlot, LfoShape,
+    ReverbType, Source, SubWave, SyncMode, VinylType,
 };
 use crate::voice::{ModChain, ParamId};
 
@@ -145,6 +145,16 @@ pub struct Event {
     pub flanger: Option<f32>,
     pub flangerdepth: Option<f32>,
     pub flangerfeedback: Option<f32>,
+    pub flangermode: Option<FlangerMode>,
+    pub wah: Option<f32>,
+    pub wahpeak: Option<f32>,
+    pub wahsens: Option<f32>,
+    pub wahmanual: Option<f32>,
+    pub vinyl: Option<f32>,
+    pub vinylwow: Option<f32>,
+    pub vinylnoise: Option<f32>,
+    pub vinyltone: Option<f32>,
+    pub vinyltype: Option<VinylType>,
 
     // Smear
     pub smear: Option<f32>,
@@ -183,6 +193,7 @@ pub struct Event {
     pub distort: Option<f32>,
     pub distortvol: Option<f32>,
     pub distortmode: Option<DistortMode>,
+    pub distortasym: Option<f32>,
     pub foldmode: Option<FoldMode>,
 
     // Stereo
@@ -431,6 +442,16 @@ impl Event {
                 "flanger" | "flangerrate" => parse_param!(val, flanger, ParamId::Flanger),
                 "flangerdepth" => parse_param!(val, flangerdepth, ParamId::Flangerdepth),
                 "flangerfeedback" => parse_param!(val, flangerfeedback, ParamId::Flangerfeedback),
+                "flangermode" | "flmode" => event.flangermode = val.parse().ok(),
+                "wah" => event.wah = val.parse().ok(),
+                "wahpeak" => event.wahpeak = val.parse().ok(),
+                "wahsens" => event.wahsens = val.parse().ok(),
+                "wahmanual" => event.wahmanual = val.parse().ok(),
+                "vinyl" => event.vinyl = val.parse().ok(),
+                "vinylwow" => event.vinylwow = val.parse().ok(),
+                "vinylnoise" => event.vinylnoise = val.parse().ok(),
+                "vinyltone" => event.vinyltone = val.parse().ok(),
+                "vinyltype" => event.vinyltype = val.parse().ok(),
                 "smear" => parse_param!(val, smear, ParamId::Smear),
                 "smearfreq" => parse_param!(val, smearfreq, ParamId::Smearfreq),
                 "smearfb" => parse_param!(val, smearfb, ParamId::Smearfb),
@@ -463,6 +484,7 @@ impl Event {
                 "distort" => parse_param!(val, distort, ParamId::Distort),
                 "distortvol" => event.distortvol = val.parse().ok(),
                 "distortmode" | "dmode" => event.distortmode = val.parse().ok(),
+                "distortasym" | "dasym" => event.distortasym = val.parse().ok(),
                 "foldmode" | "fmode" => event.foldmode = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),
                 "haas" => parse_param!(val, haas, ParamId::Haas),

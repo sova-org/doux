@@ -20,7 +20,7 @@ use super::feedback::FeedbackParams;
 use super::reverb::ReverbParams;
 use super::LadderMode;
 use crate::dsp::SvfMode;
-use crate::types::{StereoFrame, MAX_BLOCK};
+use crate::types::{DelayType, StereoFrame, MAX_BLOCK};
 use faust_types::{FaustDsp, ParamIndex, UI};
 
 /// Nominal init rate for the sample-rate-independent Faust effects (Hz).
@@ -195,10 +195,38 @@ mod feedback_dsp {
     use faust_types::*;
     include!("feedback_gen.rs");
 }
-mod delay_dsp {
+// Four standalone delay algorithms (split from the old single delay.dsp so the
+// FaustDelay wrapper runs only the selected one — ~4x less CPU). Each is a 2-in/
+// 2-out DSP with the same a_time/b_fb slider order.
+mod delay_standard_dsp {
     #![allow(clippy::all, warnings)]
     use faust_types::*;
-    include!("delay_gen.rs");
+    include!("delay_standard_gen.rs");
+}
+mod delay_pingpong_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("delay_pingpong_gen.rs");
+}
+mod delay_tape_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("delay_tape_gen.rs");
+}
+mod delay_multitap_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("delay_multitap_gen.rs");
+}
+mod wah_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("wah_gen.rs");
+}
+mod vinyl_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("vinyl_gen.rs");
 }
 
 /// Run a mono Faust DSP for one sample. Used by the per-sample dispatch path so
@@ -475,6 +503,164 @@ impl Default for FaustSvf {
     }
 }
 
+/// Envelope-follower auto-wah (resonant bandpass swept by the input envelope),
+/// Faust-generated. One mono instance per channel. Sample-rate dependent (the
+/// follower + SVF), so it lazily (re)inits when the rate arrives or changes.
+pub struct FaustWah {
+    dsp: wah_dsp::WahDsp,
+    sr: f32,
+}
+
+impl FaustWah {
+    const WAH: ParamIndex = ParamIndex(0);
+    const PEAK: ParamIndex = ParamIndex(1);
+    const SENS: ParamIndex = ParamIndex(2);
+    const MANUAL: ParamIndex = ParamIndex(3);
+
+    #[inline]
+    fn ensure_sr(&mut self, sr: f32) {
+        if self.sr != sr {
+            self.dsp.init(sr as i32);
+            self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, amount: f32, peak: f32, sens: f32, manual: f32) {
+        self.dsp.set_param(Self::WAH, amount);
+        self.dsp.set_param(Self::PEAK, peak);
+        self.dsp.set_param(Self::SENS, sens);
+        self.dsp.set_param(Self::MANUAL, manual);
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process(
+        &mut self,
+        x: f32,
+        amount: f32,
+        peak: f32,
+        sens: f32,
+        manual: f32,
+        sr: f32,
+    ) -> f32 {
+        self.ensure_sr(sr);
+        self.write_params(amount, peak, sens, manual);
+        run_one(&mut self.dsp, x)
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        amount: f32,
+        peak: f32,
+        sens: f32,
+        manual: f32,
+        sr: f32,
+    ) {
+        self.ensure_sr(sr);
+        self.write_params(amount, peak, sens, manual);
+        run_block(&mut self.dsp, buf, n, ch);
+    }
+}
+
+impl Default for FaustWah {
+    fn default() -> Self {
+        assert_slider_idx!(wah_dsp::WahDsp,
+            "a_wah" => Self::WAH.0, "b_peak" => Self::PEAK.0,
+            "c_sens" => Self::SENS.0, "d_manual" => Self::MANUAL.0);
+        Self {
+            dsp: wah_dsp::WahDsp::new(),
+            sr: 0.0,
+        }
+    }
+}
+
+/// VinylSim / Cassette "character" insert (wow+flutter, band-limit, hiss, sat),
+/// Faust-generated. One mono instance per channel. Sample-rate dependent (LFOs +
+/// filters), so it lazily (re)inits when the rate arrives or changes.
+pub struct FaustVinyl {
+    dsp: vinyl_dsp::VinylDsp,
+    sr: f32,
+}
+
+impl FaustVinyl {
+    const VINYL: ParamIndex = ParamIndex(0);
+    const WOW: ParamIndex = ParamIndex(1);
+    const NOISE: ParamIndex = ParamIndex(2);
+    const TONE: ParamIndex = ParamIndex(3);
+    const TYPE: ParamIndex = ParamIndex(4);
+
+    #[inline]
+    fn ensure_sr(&mut self, sr: f32) {
+        if self.sr != sr {
+            self.dsp.init(sr as i32);
+            self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, amount: f32, wow: f32, noise: f32, tone: f32, kind: f32) {
+        self.dsp.set_param(Self::VINYL, amount);
+        self.dsp.set_param(Self::WOW, wow);
+        self.dsp.set_param(Self::NOISE, noise);
+        self.dsp.set_param(Self::TONE, tone);
+        self.dsp.set_param(Self::TYPE, kind);
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process(
+        &mut self,
+        x: f32,
+        amount: f32,
+        wow: f32,
+        noise: f32,
+        tone: f32,
+        kind: f32,
+        sr: f32,
+    ) -> f32 {
+        self.ensure_sr(sr);
+        self.write_params(amount, wow, noise, tone, kind);
+        run_one(&mut self.dsp, x)
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        amount: f32,
+        wow: f32,
+        noise: f32,
+        tone: f32,
+        kind: f32,
+        sr: f32,
+    ) {
+        self.ensure_sr(sr);
+        self.write_params(amount, wow, noise, tone, kind);
+        run_block(&mut self.dsp, buf, n, ch);
+    }
+}
+
+impl Default for FaustVinyl {
+    fn default() -> Self {
+        assert_slider_idx!(vinyl_dsp::VinylDsp,
+            "a_vinyl" => Self::VINYL.0, "b_wow" => Self::WOW.0, "c_noise" => Self::NOISE.0,
+            "d_tone" => Self::TONE.0, "e_type" => Self::TYPE.0);
+        Self {
+            dsp: vinyl_dsp::VinylDsp::new(),
+            sr: 0.0,
+        }
+    }
+}
+
 /// Soft-saturation distortion, Faust-generated. Two params — drive (`distort`)
 /// and output gain (`distortvol`) — so it needs its own wrapper rather than the
 /// single-parameter `faust_insert!`. Memoryless and sample-rate independent, so
@@ -487,21 +673,24 @@ impl FaustDistort {
     const DISTORT: ParamIndex = ParamIndex(0);
     const DISTORTVOL: ParamIndex = ParamIndex(1);
     const DISTORTMODE: ParamIndex = ParamIndex(2);
+    const ASYM: ParamIndex = ParamIndex(3);
 
     #[inline]
-    fn write_params(&mut self, amount: f32, postgain: f32, mode: f32) {
+    fn write_params(&mut self, amount: f32, postgain: f32, mode: f32, asym: f32) {
         self.dsp.set_param(Self::DISTORT, amount);
         self.dsp.set_param(Self::DISTORTVOL, postgain);
         self.dsp.set_param(Self::DISTORTMODE, mode);
+        self.dsp.set_param(Self::ASYM, asym);
     }
 
     #[inline]
-    pub fn process(&mut self, x: f32, amount: f32, postgain: f32, mode: f32) -> f32 {
-        self.write_params(amount, postgain, mode);
+    pub fn process(&mut self, x: f32, amount: f32, postgain: f32, mode: f32, asym: f32) -> f32 {
+        self.write_params(amount, postgain, mode, asym);
         run_one(&mut self.dsp, x)
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn process_block(
         &mut self,
         buf: &mut [StereoFrame],
@@ -510,8 +699,9 @@ impl FaustDistort {
         amount: f32,
         postgain: f32,
         mode: f32,
+        asym: f32,
     ) {
-        self.write_params(amount, postgain, mode);
+        self.write_params(amount, postgain, mode, asym);
         run_block(&mut self.dsp, buf, n, ch);
     }
 }
@@ -520,7 +710,7 @@ impl Default for FaustDistort {
     fn default() -> Self {
         assert_slider_idx!(distort_dsp::DistortDsp,
             "a_distort" => Self::DISTORT.0, "b_distortvol" => Self::DISTORTVOL.0,
-            "c_distortmode" => Self::DISTORTMODE.0);
+            "c_distortmode" => Self::DISTORTMODE.0, "d_asym" => Self::ASYM.0);
         let mut dsp = distort_dsp::DistortDsp::new();
         dsp.init(NOMINAL_SR);
         Self { dsp }
@@ -903,13 +1093,14 @@ impl FaustFlanger {
     const DEPTH: ParamIndex = ParamIndex(1);
     const FB: ParamIndex = ParamIndex(2);
     const PHASE: ParamIndex = ParamIndex(3);
+    const THRU: ParamIndex = ParamIndex(4);
 
     /// One flanger for channel `ch`; the right channel's LFO is offset a quarter
     /// cycle so the sweep is out of phase between channels (stereo width).
     pub fn new(ch: usize) -> Self {
         assert_slider_idx!(flanger_dsp::FlangerDsp,
             "a_rate" => Self::RATE.0, "b_depth" => Self::DEPTH.0,
-            "c_fb" => Self::FB.0, "d_phase" => Self::PHASE.0);
+            "c_fb" => Self::FB.0, "d_phase" => Self::PHASE.0, "e_thru" => Self::THRU.0);
         Self {
             dsp: flanger_dsp::FlangerDsp::new(),
             phase01: if ch == 1 { 0.25 } else { 0.0 },
@@ -926,17 +1117,18 @@ impl FaustFlanger {
     }
 
     #[inline]
-    fn write_params(&mut self, rate: f32, depth: f32, fb: f32) {
+    fn write_params(&mut self, rate: f32, depth: f32, fb: f32, mode: f32) {
         self.dsp.set_param(Self::RATE, rate);
         self.dsp.set_param(Self::DEPTH, depth);
         self.dsp.set_param(Self::FB, fb);
         self.dsp.set_param(Self::PHASE, self.phase01);
+        self.dsp.set_param(Self::THRU, mode);
     }
 
     #[inline]
-    pub fn process(&mut self, x: f32, rate: f32, depth: f32, fb: f32, sr: f32) -> f32 {
+    pub fn process(&mut self, x: f32, rate: f32, depth: f32, fb: f32, mode: f32, sr: f32) -> f32 {
         self.ensure_sr(sr);
-        self.write_params(rate, depth, fb);
+        self.write_params(rate, depth, fb, mode);
         run_one(&mut self.dsp, x)
     }
 
@@ -950,10 +1142,11 @@ impl FaustFlanger {
         rate: f32,
         depth: f32,
         fb: f32,
+        mode: f32,
         sr: f32,
     ) {
         self.ensure_sr(sr);
-        self.write_params(rate, depth, fb);
+        self.write_params(rate, depth, fb, mode);
         run_block(&mut self.dsp, buf, n, ch);
     }
 }
@@ -1372,9 +1565,11 @@ impl FaustFeedback {
     }
 
     /// Process `n` stereo frames in place. `time` is the per-sample base delay
-    /// (ms), fed as Faust input 0 so a swept ModChain stays audio-rate.
-    /// `fb_amount` is the orbit send level doubling as the re-injection
-    /// coefficient.
+    /// (ms); it is reciprocated to a delay frequency (1000/ms) and fed as Faust
+    /// input 0, the only form Faust can statically size the delay line from
+    /// (`ds = ma.SR/dfreq`, see feedback.dsp header). A swept ModChain stays
+    /// audio-rate. `fb_amount` is the orbit send level doubling as the
+    /// re-injection coefficient.
     #[inline]
     pub fn process_block(
         &mut self,
@@ -1387,38 +1582,81 @@ impl FaustFeedback {
         self.dsp.set_param(Self::DAMP, p.damp);
         self.dsp.set_param(Self::CROSS, p.cross);
         self.dsp.set_param(Self::FB, fb_amount);
-        run_block_stereo_mod(&mut *self.dsp, buf, n, time);
+        let mut dfreq = [0.0f32; MAX_BLOCK];
+        for (d, &t) in dfreq.iter_mut().zip(time.iter()).take(n) {
+            *d = 1000.0 / t.max(0.01);
+        }
+        run_block_stereo_mod(&mut *self.dsp, buf, n, &dfreq[..n]);
     }
 }
 
 /// Stereo multi-algorithm delay (standard/pingpong/tape/multitap), Faust-
 /// generated — a per-orbit bus send effect. Replaces `effects::delay::Delay`.
-/// Stereo 2-in/2-out, block-rate, initialized in `new(sr)`. All four algorithms
-/// run every block (Faust has no cheap branch over stateful blocks); `delaytype`
-/// selects the output. Boxed: the four 65 k-sample stereo lines are ~2 MB.
+/// Stereo 2-in/2-out, block-rate, initialized in `new(sr)`. Holds one boxed DSP
+/// per algorithm and runs ONLY the one `delaytype` selects (the old single DSP
+/// ran all four every block — ~4x the CPU). All four stay resident, so switching
+/// type never allocates; the inactive instances' tails freeze until reselected.
+/// Boxed: the four 65 k-sample stereo lines are ~2 MB total (same as before).
 pub struct FaustDelay {
-    dsp: Box<delay_dsp::DelayDsp>,
+    standard: Box<delay_standard_dsp::DelayStandardDsp>,
+    pingpong: Box<delay_pingpong_dsp::DelayPingpongDsp>,
+    tape: Box<delay_tape_dsp::DelayTapeDsp>,
+    multitap: Box<delay_multitap_dsp::DelayMultitapDsp>,
 }
 
 impl FaustDelay {
-    // Slider order in delay.dsp (a_/b_/c_ prefixes).
+    // Slider order is identical in all four split DSPs (a_time, b_fb).
     const TIME: ParamIndex = ParamIndex(0);
     const FB: ParamIndex = ParamIndex(1);
-    const TYPE: ParamIndex = ParamIndex(2);
 
     pub fn new(sr: f32) -> Self {
-        assert_slider_idx!(delay_dsp::DelayDsp,
-            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0, "c_type" => Self::TYPE.0);
-        let mut dsp = boxed_zeroed::<delay_dsp::DelayDsp>();
-        dsp.init(sr as i32);
-        Self { dsp }
+        assert_slider_idx!(delay_standard_dsp::DelayStandardDsp,
+            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0);
+        assert_slider_idx!(delay_pingpong_dsp::DelayPingpongDsp,
+            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0);
+        assert_slider_idx!(delay_tape_dsp::DelayTapeDsp,
+            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0);
+        assert_slider_idx!(delay_multitap_dsp::DelayMultitapDsp,
+            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0);
+        let mut standard = boxed_zeroed::<delay_standard_dsp::DelayStandardDsp>();
+        let mut pingpong = boxed_zeroed::<delay_pingpong_dsp::DelayPingpongDsp>();
+        let mut tape = boxed_zeroed::<delay_tape_dsp::DelayTapeDsp>();
+        let mut multitap = boxed_zeroed::<delay_multitap_dsp::DelayMultitapDsp>();
+        standard.init(sr as i32);
+        pingpong.init(sr as i32);
+        tape.init(sr as i32);
+        multitap.init(sr as i32);
+        Self {
+            standard,
+            pingpong,
+            tape,
+            multitap,
+        }
     }
 
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, p: &DelayParams) {
-        self.dsp.set_param(Self::TIME, p.time);
-        self.dsp.set_param(Self::FB, p.feedback);
-        self.dsp.set_param(Self::TYPE, p.delay_type as u32 as f32);
-        run_block_stereo(&mut *self.dsp, buf, n);
+        match p.delay_type {
+            DelayType::Standard => {
+                self.standard.set_param(Self::TIME, p.time);
+                self.standard.set_param(Self::FB, p.feedback);
+                run_block_stereo(&mut *self.standard, buf, n);
+            }
+            DelayType::PingPong => {
+                self.pingpong.set_param(Self::TIME, p.time);
+                self.pingpong.set_param(Self::FB, p.feedback);
+                run_block_stereo(&mut *self.pingpong, buf, n);
+            }
+            DelayType::Tape => {
+                self.tape.set_param(Self::TIME, p.time);
+                self.tape.set_param(Self::FB, p.feedback);
+                run_block_stereo(&mut *self.tape, buf, n);
+            }
+            DelayType::Multitap => {
+                self.multitap.set_param(Self::TIME, p.time);
+                self.multitap.set_param(Self::FB, p.feedback);
+                run_block_stereo(&mut *self.multitap, buf, n);
+            }
+        }
     }
 }

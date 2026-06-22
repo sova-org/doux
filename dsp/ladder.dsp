@@ -2,6 +2,14 @@
 // (cf. Faust `ve.lowpassLadder4`) with all four stage taps exposed, mixed with
 // binomial coefficients for highpass/bandpass outputs.
 //
+// The resonance feedback is saturated (ma.tanh(gS)) for analog ladder character:
+// it bounds self-oscillation into a singing limit cycle instead of blowing up,
+// and adds gentle drive as resonance climbs. This is an APPROXIMATE nonlinear
+// ZDF — the linear closed-form solve below is kept and tanh is applied to the
+// feedback term, not re-derived. Low-q stays near-identical (tanh(gS) ~ gS for
+// small gS); high-q resonance calibration shifts (k = 4 no longer self-oscillates
+// at exactly the same point).
+//
 // doux params: a_cutoff (Hz), b_q in [0,1] -> feedback k in [0,4], c_mode
 // 0=lp 1=hp 2=bp. Slider names prefixed a/b/.. for stable param order.
 import("stdfaust.lib");
@@ -23,7 +31,9 @@ with {
         omg = 1.0 - G;
         gG = G * G * G * G;
         gS = G * (G * (G * (omg * s0) + (omg * s1)) + (omg * s2)) + (omg * s3);
-        u = (x - k * gS) / (1.0 + k * gG);
+        // Saturated resonance feedback (analog character; see header). tanh(gS) ~ gS
+        // for small gS, so the gG denominator (linear-solve term) stays a good match.
+        u = (x - k * ma.tanh(gS)) / (1.0 + k * gG);
         v0 = G * (u - s0);
         LP0 = v0 + s0;
         u0 = v0 + LP0;

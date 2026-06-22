@@ -82,7 +82,7 @@ Output gain applied after distortion to compensate for increased level.
 
 </CommandEntry>
 
-<CommandEntry name="distortmode" type="enum" default="soft" values={["soft", "tanh", "arctan", "hardclip"]}>
+<CommandEntry name="distortmode" type="enum" default="soft" values={["soft", "tanh", "arctan", "hardclip", "parabolic", "sinarctan"]}>
 
 Saturator curve. The default reproduces the original soft clip exactly; the others are antialiased (ADAA) shapers driven by the <code>distort</code> amount.
 
@@ -91,8 +91,18 @@ Saturator curve. The default reproduces the original soft clip exactly; the othe
 <li><strong>tanh</strong> — Smooth hyperbolic-tangent saturation.</li>
 <li><strong>arctan</strong> — Gentler arctangent knee.</li>
 <li><strong>hardclip</strong> — Hard digital clip.</li>
+<li><strong>parabolic</strong> — Rounded parabolic clip, between soft and hard.</li>
+<li><strong>sinarctan</strong> — <code>x / sqrt(1+x&#178;)</code> sigmoid, smooth and symmetric.</li>
 </ul>
 
 <CodeEditor code={`/sound/saw/distort/8/distortmode/tanh`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="distortasym" type="number" min={-1} max={1} default={0}>
+
+Pre-shaper bias. Pushes the signal off-centre into the saturator for asymmetric clipping and even-harmonic colour (tube-ish). The induced DC offset is removed by the downstream DC blocker. At <code>0</code> every curve is unchanged.
+
+<CodeEditor code={`/sound/saw/distort/8/distortasym/.4`} rows={2} />
 
 </CommandEntry>

@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------
 name: "comb"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn CombDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ct 1 -cn CombDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct CombDsp {
@@ -54,7 +54,7 @@ impl CombDsp {
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn CombDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn CombDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("delays.lib/name", r"Faust Delay Library");
 		m.declare("delays.lib/version", r"1.2.0");
 		m.declare("filename", r"comb.dsp");
@@ -164,15 +164,19 @@ impl CombDsp {
 		let mut fSlow1: F32 = self.fConst2 * self.fHslider1;
 		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0);
 		for ((input0, input1), output0) in zipped_iterators {
-			self.fRec2[0] = fSlow0 + self.fConst1 * self.fRec2[1];
-			self.fRec1[0] = self.fRec2[0] * self.fRec1[1] + (1.0 - self.fRec2[0]) * self.fRec0[1];
-			self.fRec3[0] = fSlow1 + self.fConst1 * self.fRec3[1];
-			let mut fTemp0: F32 = *input1 + self.fRec1[0] * F32::max(-0.99, F32::min(0.99, self.fRec3[0]));
-			self.fVec0[(self.IOTA0 & 16383) as usize] = fTemp0;
-			let mut fTemp1: F32 = F32::max(1.0, F32::min(8191.0, self.fConst0 / *input0));
-			let mut iTemp2: i32 = (fTemp1) as i32;
-			let mut fTemp3: F32 = F32::floor(fTemp1);
-			self.fRec0[0] = self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8193, std::cmp::max(0, iTemp2)))) & 16383) as usize] * (fTemp3 + (1.0 - fTemp1)) + (fTemp1 - fTemp3) * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8193, std::cmp::max(0, i32::wrapping_add(iTemp2, 1))))) & 16383) as usize];
+			let mut fTemp0: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
+			self.fRec2[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
+			let mut fTemp1: F32 = self.fRec2[0] * self.fRec1[1] + (1.0 - self.fRec2[0]) * self.fRec0[1];
+			self.fRec1[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
+			let mut fTemp2: F32 = fSlow1 + self.fConst1 * self.fRec3[1];
+			self.fRec3[0] = (if (F32::abs(fTemp2) > 1.1754944e-38) as i32 != 0 {fTemp2} else {0.0});
+			let mut fTemp3: F32 = *input1 + self.fRec1[0] * F32::max(-0.99, F32::min(0.99, self.fRec3[0]));
+			self.fVec0[(self.IOTA0 & 16383) as usize] = fTemp3;
+			let mut fTemp4: F32 = F32::max(1.0, F32::min(8191.0, self.fConst0 / *input0));
+			let mut iTemp5: i32 = (fTemp4) as i32;
+			let mut fTemp6: F32 = F32::floor(fTemp4);
+			let mut fTemp7: F32 = self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8193, std::cmp::max(0, iTemp5)))) & 16383) as usize] * (fTemp6 + (1.0 - fTemp4)) + (fTemp4 - fTemp6) * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8193, std::cmp::max(0, i32::wrapping_add(iTemp5, 1))))) & 16383) as usize];
+			self.fRec0[0] = (if (F32::abs(fTemp7) > 1.1754944e-38) as i32 != 0 {fTemp7} else {0.0});
 			*output0 = self.fRec0[0];
 			self.fRec2[1] = self.fRec2[0];
 			self.fRec1[1] = self.fRec1[0];

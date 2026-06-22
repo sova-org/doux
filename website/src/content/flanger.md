@@ -41,3 +41,11 @@ Flanger feedback amount (0-0.95).
 <CodeEditor code={`/sound/tri/freq/150/flanger/0.3/flangerdepth/0.5/flangerfeedback/0.9`} rows={2} />
 
 </CommandEntry>
+
+<CommandEntry name="flangermode" type="enum" default="classic" values={["classic", "throughzero"]}>
+
+Flanger mode. <strong>classic</strong> leaves the dry signal undelayed (the default). <strong>throughzero</strong> delays the dry path by the sweep centre so the swept comb crosses zero relative delay — the notch passes through DC for a deeper, hollow "jet" flange. Alias <code>flmode</code>.
+
+<CodeEditor code={`/sound/saw/freq/100/flanger/0.3/flangerfeedback/0.7/flangermode/throughzero`} rows={2} />
+
+</CommandEntry>

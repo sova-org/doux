@@ -14,10 +14,12 @@ pub struct FlangerDsp {
 	fConst2: F32,
 	fHslider2: F32,
 	fRec2: [F32;2],
-	fHslider3: F32,
 	IOTA0: i32,
 	fVec3: [F32;1024],
+	fHslider3: F32,
+	fVec4: [F32;1024],
 	fRec0: [F32;2],
+	fHslider4: F32,
 }
 
 pub type FaustFloat = F32;
@@ -121,7 +123,7 @@ fn rint_f32(val: f32) -> f32 {
 
 pub const FAUST_INPUTS: usize = 1;
 pub const FAUST_OUTPUTS: usize = 1;
-pub const FAUST_ACTIVES: usize = 4;
+pub const FAUST_ACTIVES: usize = 5;
 pub const FAUST_PASSIVES: usize = 0;
 
 
@@ -138,10 +140,12 @@ impl FlangerDsp {
 			fConst2: 0.0,
 			fHslider2: 0.0,
 			fRec2: [0.0;2],
-			fHslider3: 0.0,
 			IOTA0: 0,
 			fVec3: [0.0;1024],
+			fHslider3: 0.0,
+			fVec4: [0.0;1024],
 			fRec0: [0.0;2],
+			fHslider4: 0.0,
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
@@ -183,6 +187,7 @@ impl FlangerDsp {
 		self.fHslider1 = 0.0;
 		self.fHslider2 = 0.0;
 		self.fHslider3 = 0.35;
+		self.fHslider4 = 0.0;
 	}
 	pub fn instance_clear(&mut self) {
 		for l2 in 0..2 {
@@ -195,8 +200,11 @@ impl FlangerDsp {
 		for l6 in 0..1024 {
 			self.fVec3[l6 as usize] = 0.0;
 		}
-		for l7 in 0..2 {
-			self.fRec0[l7 as usize] = 0.0;
+		for l7 in 0..1024 {
+			self.fVec4[l7 as usize] = 0.0;
+		}
+		for l8 in 0..2 {
+			self.fRec0[l8 as usize] = 0.0;
 		}
 	}
 	pub fn instance_constants(&mut self, sample_rate: i32) {
@@ -228,6 +236,7 @@ impl FlangerDsp {
 		ui_interface.add_horizontal_slider("b_depth", ParamIndex(1), 0.7, 0.0, 1.0, 0.001);
 		ui_interface.add_horizontal_slider("c_fb", ParamIndex(2), 0.35, 0.0, 0.95, 0.001);
 		ui_interface.add_horizontal_slider("d_phase", ParamIndex(3), 0.0, 0.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("e_thru", ParamIndex(4), 0.0, 0.0, 1.0, 1.0);
 		ui_interface.close_box();
 	}
 	
@@ -237,6 +246,7 @@ impl FlangerDsp {
 			3 => Some(self.fHslider1),
 			0 => Some(self.fHslider2),
 			2 => Some(self.fHslider3),
+			4 => Some(self.fHslider4),
 			_ => None,
 		}
 	}
@@ -247,6 +257,7 @@ impl FlangerDsp {
 			3 => { self.fHslider1 = value }
 			0 => { self.fHslider2 = value }
 			2 => { self.fHslider3 = value }
+			4 => { self.fHslider4 = value }
 			_ => {}
 		}
 	}
@@ -271,27 +282,50 @@ impl FlangerDsp {
 		let mut fSlow3: F32 = self.fConst2 * self.fHslider2;
 		let mut fSlow4: F32 = F32::sin(fSlow1);
 		let mut fSlow5: F32 = F32::min(0.95, self.fHslider3);
+		let mut iSlow6: i32 = (self.fHslider4) as i32;
+		let mut fSlow7: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 + 0.5)));
+		let mut fSlow8: F32 = fSlow7 + -1.499995;
+		let mut fSlow9: F32 = F32::floor(fSlow8);
+		let mut fSlow10: F32 = fSlow7 + (-4.0 - fSlow9);
+		let mut fSlow11: F32 = fSlow7 + (-3.0 - fSlow9);
+		let mut fSlow12: F32 = fSlow7 + (-2.0 - fSlow9);
+		let mut fSlow13: F32 = fSlow7 + (-1.0 - fSlow9);
+		let mut fSlow14: F32 = 0.041666668 * fSlow13;
+		let mut iSlow15: i32 = (fSlow8) as i32;
+		let mut iSlow16: i32 = std::cmp::min(1024, std::cmp::max(0, iSlow15));
+		let mut fSlow17: F32 = fSlow7 - fSlow9;
+		let mut fSlow18: F32 = 0.16666667 * fSlow17;
+		let mut iSlow19: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 1)));
+		let mut fSlow20: F32 = fSlow17 * fSlow13;
+		let mut fSlow21: F32 = 0.25 * fSlow20;
+		let mut iSlow22: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 2)));
+		let mut fSlow23: F32 = fSlow20 * fSlow12;
+		let mut fSlow24: F32 = 0.16666667 * fSlow23;
+		let mut iSlow25: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 3)));
+		let mut fSlow26: F32 = 0.041666668 * fSlow23 * fSlow11;
+		let mut iSlow27: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 4)));
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
-			let mut fTemp0: F32 = *input0;
 			self.iVec1[0] = 1;
-			let mut fTemp1: F32 = (if i32::wrapping_sub(1, self.iVec1[1]) != 0 {0.0} else {fSlow3 + self.fRec2[1]});
-			self.fRec2[0] = fTemp1 - F32::floor(fTemp1);
-			let mut iTemp2: i32 = std::cmp::max(0, std::cmp::min((65536.0 * self.fRec2[0]) as i32, 65535));
-			let mut fTemp3: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 * (fSlow2 * ftbl0FlangerDspSIG0_guard[iTemp2 as usize] + fSlow4 * ftbl1FlangerDspSIG1_guard[iTemp2 as usize] + 1.0) + 0.5)));
-			let mut fTemp4: F32 = fTemp3 + -1.499995;
-			let mut fTemp5: F32 = F32::floor(fTemp4);
-			let mut fTemp6: F32 = fTemp3 + (-3.0 - fTemp5);
-			let mut fTemp7: F32 = fTemp3 + (-2.0 - fTemp5);
-			let mut fTemp8: F32 = fTemp0 + fSlow5 * self.fRec0[1];
-			self.fVec3[(self.IOTA0 & 1023) as usize] = fTemp8;
-			let mut iTemp9: i32 = (fTemp4) as i32;
-			let mut fTemp10: F32 = fTemp3 + (-1.0 - fTemp5);
-			let mut fTemp11: F32 = fTemp3 - fTemp5;
+			let mut fTemp0: F32 = (if i32::wrapping_sub(1, self.iVec1[1]) != 0 {0.0} else {fSlow3 + self.fRec2[1]});
+			self.fRec2[0] = fTemp0 - F32::floor(fTemp0);
+			let mut iTemp1: i32 = std::cmp::max(0, std::cmp::min((65536.0 * self.fRec2[0]) as i32, 65535));
+			let mut fTemp2: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 * (fSlow2 * ftbl0FlangerDspSIG0_guard[iTemp1 as usize] + fSlow4 * ftbl1FlangerDspSIG1_guard[iTemp1 as usize] + 1.0) + 0.5)));
+			let mut fTemp3: F32 = fTemp2 + -1.499995;
+			let mut fTemp4: F32 = F32::floor(fTemp3);
+			let mut fTemp5: F32 = fTemp2 + (-3.0 - fTemp4);
+			let mut fTemp6: F32 = fTemp2 + (-2.0 - fTemp4);
+			let mut fTemp7: F32 = *input0;
+			self.fVec3[(self.IOTA0 & 1023) as usize] = fTemp7;
+			let mut fTemp8: F32 = fTemp7 + fSlow5 * self.fRec0[1];
+			self.fVec4[(self.IOTA0 & 1023) as usize] = fTemp8;
+			let mut iTemp9: i32 = (fTemp3) as i32;
+			let mut fTemp10: F32 = fTemp2 + (-1.0 - fTemp4);
+			let mut fTemp11: F32 = fTemp2 - fTemp4;
 			let mut fTemp12: F32 = fTemp11 * fTemp10;
-			let mut fTemp13: F32 = fTemp12 * fTemp7;
-			self.fRec0[0] = (fTemp3 + (-4.0 - fTemp5)) * (fTemp6 * (fTemp7 * (0.041666668 * self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, iTemp9)))) & 1023) as usize] * fTemp10 - 0.16666667 * fTemp11 * self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 1))))) & 1023) as usize]) + 0.25 * fTemp12 * self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 2))))) & 1023) as usize]) - 0.16666667 * fTemp13 * self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 3))))) & 1023) as usize]) + 0.041666668 * fTemp13 * fTemp6 * self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 4))))) & 1023) as usize];
-			*output0 = 0.5 * (fTemp0 + self.fRec0[0]);
+			let mut fTemp13: F32 = fTemp12 * fTemp6;
+			self.fRec0[0] = (fTemp2 + (-4.0 - fTemp4)) * (fTemp5 * (fTemp6 * (0.041666668 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, iTemp9)))) & 1023) as usize] * fTemp10 - 0.16666667 * fTemp11 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 1))))) & 1023) as usize]) + 0.25 * fTemp12 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 2))))) & 1023) as usize]) - 0.16666667 * fTemp13 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 3))))) & 1023) as usize]) + 0.041666668 * fTemp13 * fTemp5 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 4))))) & 1023) as usize];
+			*output0 = 0.5 * (self.fRec0[0] + (if iSlow6 != 0 {fSlow10 * (fSlow11 * (fSlow12 * (fSlow14 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow16)) & 1023) as usize] - fSlow18 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow19)) & 1023) as usize]) + fSlow21 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow22)) & 1023) as usize]) - fSlow24 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow25)) & 1023) as usize]) + fSlow26 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow27)) & 1023) as usize]} else {fTemp7}));
 			self.iVec1[1] = self.iVec1[0];
 			self.fRec2[1] = self.fRec2[0];
 			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);

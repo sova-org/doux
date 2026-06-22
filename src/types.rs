@@ -1042,6 +1042,8 @@ pub enum DistortMode {
     Tanh,
     Arctan,
     Hardclip,
+    Parabolic,
+    Sinarctan,
 }
 
 impl DistortMode {
@@ -1052,6 +1054,8 @@ impl DistortMode {
             Self::Tanh => 1.0,
             Self::Arctan => 2.0,
             Self::Hardclip => 3.0,
+            Self::Parabolic => 4.0,
+            Self::Sinarctan => 5.0,
         }
     }
 }
@@ -1065,6 +1069,8 @@ impl FromStr for DistortMode {
             "tanh" | "1" => Ok(Self::Tanh),
             "arctan" | "atan" | "2" => Ok(Self::Arctan),
             "hardclip" | "clip" | "3" => Ok(Self::Hardclip),
+            "parabolic" | "para" | "4" => Ok(Self::Parabolic),
+            "sinarctan" | "satan" | "5" => Ok(Self::Sinarctan),
             _ => Err(()),
         }
     }
@@ -1099,6 +1105,71 @@ impl FromStr for FoldMode {
             "triangle" | "tri" | "0" => Ok(Self::Triangle),
             "sine" | "sin" | "1" => Ok(Self::Sine),
             "wrap" | "2" => Ok(Self::Wrap),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Mode for the `flanger` insert. `Classic` is the original undelayed-dry
+/// flanger; `ThroughZero` delays the dry by the sweep centre so the notch passes
+/// through DC. See `dsp/flanger.dsp`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum FlangerMode {
+    #[default]
+    Classic,
+    ThroughZero,
+}
+
+impl FlangerMode {
+    /// The `e_thru` slider value the Faust DSP expects.
+    pub fn to_index(self) -> f32 {
+        match self {
+            Self::Classic => 0.0,
+            Self::ThroughZero => 1.0,
+        }
+    }
+}
+
+impl FromStr for FlangerMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "classic" | "0" => Ok(Self::Classic),
+            "throughzero" | "thru" | "tzf" | "1" => Ok(Self::ThroughZero),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Voicing for the `vinyl` character insert. See `dsp/vinyl.dsp`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum VinylType {
+    #[default]
+    Vinyl303,
+    Vinyl404,
+    Cassette,
+}
+
+impl VinylType {
+    /// The `e_type` slider value the Faust DSP expects.
+    pub fn to_index(self) -> f32 {
+        match self {
+            Self::Vinyl303 => 0.0,
+            Self::Vinyl404 => 1.0,
+            Self::Cassette => 2.0,
+        }
+    }
+}
+
+impl FromStr for VinylType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "vinyl303" | "303" | "0" => Ok(Self::Vinyl303),
+            "vinyl404" | "404" | "1" => Ok(Self::Vinyl404),
+            "cassette" | "tape" | "2" => Ok(Self::Cassette),
             _ => Err(()),
         }
     }

@@ -1246,7 +1246,9 @@ impl Engine {
             phasersweep,
             phasercenter
         );
-        copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
+        copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback, flangermode);
+        copy_opt!(event, v.params, wah, wahpeak, wahsens, wahmanual);
+        copy_opt!(event, v.params, vinyl, vinylwow, vinylnoise, vinyltone, vinyltype);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
         copy_opt!(
             event,
@@ -1257,7 +1259,7 @@ impl Engine {
             chorustype
         );
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
-        copy_opt!(event, v.params, distortvol, distortmode, foldmode);
+        copy_opt!(event, v.params, distortvol, distortmode, distortasym, foldmode);
         copy_opt!(event, v.params, width, haas);
         copy_opt_some!(event, v.params, superpan);
         copy_opt!(event, v.params, superwidth);

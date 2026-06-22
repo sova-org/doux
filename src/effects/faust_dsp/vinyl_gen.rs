@@ -1,0 +1,476 @@
+/* ------------------------------------------------------------
+name: "vinyl"
+Code generated with Faust 2.81.2 (https://faust.grame.fr)
+Compilation options: -lang rust -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+------------------------------------------------------------ */
+#[repr(C)]
+pub struct VinylDsp {
+	fHslider0: F32,
+	IOTA0: i32,
+	fVec0: [F32;128],
+	fSampleRate: i32,
+	fConst0: F32,
+	fConst1: F32,
+	fConst2: F32,
+	fConst3: F32,
+	iVec1: [i32;2],
+	fConst4: F32,
+	fConst5: F32,
+	fConst6: F32,
+	fHslider1: F32,
+	fConst7: F32,
+	fRec4: [F32;2],
+	fConst8: F32,
+	fRec5: [F32;2],
+	fVec3: [F32;2],
+	fRec2: [F32;2],
+	fConst9: F32,
+	fHslider2: F32,
+	fRec1: [F32;3],
+	fVec4: [F32;2],
+	fRec0: [F32;2],
+	fHslider3: F32,
+	fRec6: [F32;2],
+	fVec5: [F32;2],
+	fHslider4: F32,
+	fConst10: F32,
+	fConst11: F32,
+	fConst12: F32,
+	fConst13: F32,
+	iRec8: [i32;2],
+	fVec6: [F32;2],
+	fConst14: F32,
+	fRec7: [F32;2],
+}
+
+pub type FaustFloat = F32;
+
+pub struct VinylDspSIG0 {
+	iVec2: [i32;2],
+	iRec3: [i32;2],
+}
+
+impl VinylDspSIG0 {
+	
+	fn get_num_inputsVinylDspSIG0(&self) -> i32 {
+		return 0;
+	}
+	fn get_num_outputsVinylDspSIG0(&self) -> i32 {
+		return 1;
+	}
+	
+	pub fn instance_initVinylDspSIG0(&mut self, sample_rate: i32) {
+		for l2 in 0..2 {
+			self.iVec2[l2 as usize] = 0;
+		}
+		for l3 in 0..2 {
+			self.iRec3[l3 as usize] = 0;
+		}
+	}
+	
+	pub fn fillVinylDspSIG0(&mut self, count: i32, table: &mut[FaustFloat]) {
+		for i1 in 0..count {
+			self.iVec2[0] = 1;
+			self.iRec3[0] = (i32::wrapping_add(self.iVec2[1], self.iRec3[1])) % 65536;
+			table[i1 as usize] = F32::sin(9.58738e-05 * (self.iRec3[0]) as F32);
+			self.iVec2[1] = self.iVec2[0];
+			self.iRec3[1] = self.iRec3[0];
+		}
+	}
+
+}
+
+
+pub fn newVinylDspSIG0() -> VinylDspSIG0 { 
+	VinylDspSIG0 {
+		iVec2: [0;2],
+		iRec3: [0;2],
+	}
+}
+static ftbl0VinylDspSIG0: std::sync::RwLock<[F32;65536]>  = std::sync::RwLock::new([0.0;65536]);
+fn VinylDsp_faustpower2_f(value: F32) -> F32 {
+	return value * value;
+}
+fn remainder_f32(from: f32, to: f32) -> f32 {
+	from - to * (from / to).round_ties_even()
+}
+fn rint_f32(val: f32) -> f32 {
+	val.round_ties_even()
+}
+
+pub const FAUST_INPUTS: usize = 1;
+pub const FAUST_OUTPUTS: usize = 1;
+pub const FAUST_ACTIVES: usize = 5;
+pub const FAUST_PASSIVES: usize = 0;
+
+
+impl VinylDsp {
+		
+	pub fn new() -> VinylDsp { 
+		VinylDsp {
+			fHslider0: 0.0,
+			IOTA0: 0,
+			fVec0: [0.0;128],
+			fSampleRate: 0,
+			fConst0: 0.0,
+			fConst1: 0.0,
+			fConst2: 0.0,
+			fConst3: 0.0,
+			iVec1: [0;2],
+			fConst4: 0.0,
+			fConst5: 0.0,
+			fConst6: 0.0,
+			fHslider1: 0.0,
+			fConst7: 0.0,
+			fRec4: [0.0;2],
+			fConst8: 0.0,
+			fRec5: [0.0;2],
+			fVec3: [0.0;2],
+			fRec2: [0.0;2],
+			fConst9: 0.0,
+			fHslider2: 0.0,
+			fRec1: [0.0;3],
+			fVec4: [0.0;2],
+			fRec0: [0.0;2],
+			fHslider3: 0.0,
+			fRec6: [0.0;2],
+			fVec5: [0.0;2],
+			fHslider4: 0.0,
+			fConst10: 0.0,
+			fConst11: 0.0,
+			fConst12: 0.0,
+			fConst13: 0.0,
+			iRec8: [0;2],
+			fVec6: [0.0;2],
+			fConst14: 0.0,
+			fRec7: [0.0;2],
+		}
+	}
+	pub fn metadata(&self, m: &mut dyn Meta) { 
+		m.declare("aanl.lib/ADAA1:author", r"Dario Sanfilippo");
+		m.declare("aanl.lib/ADAA1:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
+		m.declare("aanl.lib/ADAA1:license", r"MIT License");
+		m.declare("aanl.lib/name", r"Faust Antialiased Nonlinearities");
+		m.declare("aanl.lib/tanh1:author", r"Dario Sanfilippo");
+		m.declare("aanl.lib/tanh1:copyright", r"Copyright (C) 2021 Dario Sanfilippo     <sanfilippo.dario@gmail.com>");
+		m.declare("aanl.lib/tanh1:license", r"MIT License");
+		m.declare("aanl.lib/version", r"1.4.1");
+		m.declare("analyzers.lib/name", r"Faust Analyzer Library");
+		m.declare("analyzers.lib/version", r"1.2.0");
+		m.declare("basics.lib/name", r"Faust Basic Element Library");
+		m.declare("basics.lib/version", r"1.21.0");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("delays.lib/fdelay4:author", r"Julius O. Smith III");
+		m.declare("delays.lib/fdelayltv:author", r"Julius O. Smith III");
+		m.declare("delays.lib/name", r"Faust Delay Library");
+		m.declare("delays.lib/version", r"1.2.0");
+		m.declare("filename", r"vinyl.dsp");
+		m.declare("filters.lib/filterbank:author", r"Julius O. Smith III");
+		m.declare("filters.lib/filterbank:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/filterbank:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/fir:author", r"Julius O. Smith III");
+		m.declare("filters.lib/fir:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/fir:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/highpass:author", r"Julius O. Smith III");
+		m.declare("filters.lib/highpass:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/highshelf:author", r"Julius O. Smith III");
+		m.declare("filters.lib/highshelf:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/highshelf:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/iir:author", r"Julius O. Smith III");
+		m.declare("filters.lib/iir:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/iir:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/lowpass0_highpass1", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/lowpass0_highpass1:author", r"Julius O. Smith III");
+		m.declare("filters.lib/lowpass:author", r"Julius O. Smith III");
+		m.declare("filters.lib/lowpass:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/lowpass:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/name", r"Faust Filters Library");
+		m.declare("filters.lib/tf1:author", r"Julius O. Smith III");
+		m.declare("filters.lib/tf1:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/tf1:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/tf1s:author", r"Julius O. Smith III");
+		m.declare("filters.lib/tf1s:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/tf1s:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/tf2:author", r"Julius O. Smith III");
+		m.declare("filters.lib/tf2:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/tf2:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/tf2s:author", r"Julius O. Smith III");
+		m.declare("filters.lib/tf2s:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
+		m.declare("filters.lib/tf2s:license", r"MIT-style STK-4.3 license");
+		m.declare("filters.lib/version", r"1.7.1");
+		m.declare("maths.lib/author", r"GRAME");
+		m.declare("maths.lib/copyright", r"GRAME");
+		m.declare("maths.lib/license", r"LGPL with exception");
+		m.declare("maths.lib/name", r"Faust Math Library");
+		m.declare("maths.lib/version", r"2.8.1");
+		m.declare("name", r"vinyl");
+		m.declare("noises.lib/name", r"Faust Noise Generator Library");
+		m.declare("noises.lib/version", r"1.5.0");
+		m.declare("oscillators.lib/name", r"Faust Oscillator Library");
+		m.declare("oscillators.lib/version", r"1.6.0");
+		m.declare("platform.lib/name", r"Generic Platform Library");
+		m.declare("platform.lib/version", r"1.3.0");
+	}
+
+	pub fn get_sample_rate(&self) -> i32 { self.fSampleRate as i32}
+	
+	pub fn class_init(sample_rate: i32) {
+		// Obtaining locks on 1 static var(s)
+		let mut ftbl0VinylDspSIG0_guard = ftbl0VinylDspSIG0.write().unwrap();
+		let mut sig0: VinylDspSIG0 = newVinylDspSIG0();
+		sig0.instance_initVinylDspSIG0(sample_rate);
+		sig0.fillVinylDspSIG0(65536, ftbl0VinylDspSIG0_guard.as_mut());
+	}
+	pub fn instance_reset_params(&mut self) {
+		self.fHslider0 = 0.0;
+		self.fHslider1 = 0.3;
+		self.fHslider2 = 0.0;
+		self.fHslider3 = 0.0;
+		self.fHslider4 = 0.2;
+	}
+	pub fn instance_clear(&mut self) {
+		self.IOTA0 = 0;
+		for l0 in 0..128 {
+			self.fVec0[l0 as usize] = 0.0;
+		}
+		for l1 in 0..2 {
+			self.iVec1[l1 as usize] = 0;
+		}
+		for l4 in 0..2 {
+			self.fRec4[l4 as usize] = 0.0;
+		}
+		for l5 in 0..2 {
+			self.fRec5[l5 as usize] = 0.0;
+		}
+		for l6 in 0..2 {
+			self.fVec3[l6 as usize] = 0.0;
+		}
+		for l7 in 0..2 {
+			self.fRec2[l7 as usize] = 0.0;
+		}
+		for l8 in 0..3 {
+			self.fRec1[l8 as usize] = 0.0;
+		}
+		for l9 in 0..2 {
+			self.fVec4[l9 as usize] = 0.0;
+		}
+		for l10 in 0..2 {
+			self.fRec0[l10 as usize] = 0.0;
+		}
+		for l11 in 0..2 {
+			self.fRec6[l11 as usize] = 0.0;
+		}
+		for l12 in 0..2 {
+			self.fVec5[l12 as usize] = 0.0;
+		}
+		for l13 in 0..2 {
+			self.iRec8[l13 as usize] = 0;
+		}
+		for l14 in 0..2 {
+			self.fVec6[l14 as usize] = 0.0;
+		}
+		for l15 in 0..2 {
+			self.fRec7[l15 as usize] = 0.0;
+		}
+	}
+	pub fn instance_constants(&mut self, sample_rate: i32) {
+		// Obtaining locks on 1 static var(s)
+		let ftbl0VinylDspSIG0_guard = ftbl0VinylDspSIG0.read().unwrap();
+		self.fSampleRate = sample_rate;
+		self.fConst0 = F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
+		self.fConst1 = 1.0 / F32::tan(12566.371 / self.fConst0);
+		self.fConst2 = 1.0 / (self.fConst1 + 1.0);
+		self.fConst3 = 1.0 - self.fConst1;
+		self.fConst4 = 1.0 / F32::tan(94.24778 / self.fConst0);
+		self.fConst5 = 1.0 / (self.fConst4 + 1.0);
+		self.fConst6 = 1.0 - self.fConst4;
+		self.fConst7 = 0.8 / self.fConst0;
+		self.fConst8 = 6.3 / self.fConst0;
+		self.fConst9 = 3.1415927 / self.fConst0;
+		self.fConst10 = F32::tan(4712.389 / self.fConst0);
+		self.fConst11 = 1.0 / self.fConst10;
+		self.fConst12 = 1.0 / (self.fConst11 + 1.0);
+		self.fConst13 = 4.656613e-10 / self.fConst10;
+		self.fConst14 = 1.0 - self.fConst11;
+	}
+	pub fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate);
+		self.instance_reset_params();
+		self.instance_clear();
+	}
+	pub fn init(&mut self, sample_rate: i32) {
+		VinylDsp::class_init(sample_rate);
+		self.instance_init(sample_rate);
+	}
+	
+	pub fn build_user_interface(&self, ui_interface: &mut dyn UI<FaustFloat>) {
+		Self::build_user_interface_static(ui_interface);
+	}
+	
+	pub fn build_user_interface_static(ui_interface: &mut dyn UI<FaustFloat>) {
+		ui_interface.open_vertical_box("vinyl");
+		ui_interface.add_horizontal_slider("a_vinyl", ParamIndex(0), 0.0, 0.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("b_wow", ParamIndex(1), 0.3, 0.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("c_noise", ParamIndex(2), 0.2, 0.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("d_tone", ParamIndex(3), 0.0, -1.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("e_type", ParamIndex(4), 0.0, 0.0, 2.0, 1.0);
+		ui_interface.close_box();
+	}
+	
+	pub fn get_param(&self, param: ParamIndex) -> Option<FaustFloat> {
+		match param.0 {
+			0 => Some(self.fHslider0),
+			1 => Some(self.fHslider1),
+			4 => Some(self.fHslider2),
+			3 => Some(self.fHslider3),
+			2 => Some(self.fHslider4),
+			_ => None,
+		}
+	}
+	
+	pub fn set_param(&mut self, param: ParamIndex, value: FaustFloat) {
+		match param.0 {
+			0 => { self.fHslider0 = value }
+			1 => { self.fHslider1 = value }
+			4 => { self.fHslider2 = value }
+			3 => { self.fHslider3 = value }
+			2 => { self.fHslider4 = value }
+			_ => {}
+		}
+	}
+	
+	pub fn compute(
+		&mut self,
+		count: usize,
+		inputs: &[impl AsRef<[FaustFloat]>],
+		outputs: &mut[impl AsMut<[FaustFloat]>],
+	) {
+		
+		// Obtaining locks on 1 static var(s)
+		let ftbl0VinylDspSIG0_guard = ftbl0VinylDspSIG0.read().unwrap();
+		let [inputs0, .. ] = inputs.as_ref() else { panic!("wrong number of input buffers"); };
+		let inputs0 = inputs0.as_ref()[..count].iter();
+		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
+		let outputs0 = outputs0.as_mut()[..count].iter_mut();
+		let mut fSlow0: F32 = self.fHslider0;
+		let mut fSlow1: F32 = 1.0 - fSlow0;
+		let mut fSlow2: F32 = 4e+01 * self.fHslider1;
+		let mut iSlow3: i32 = (self.fHslider2) as i32;
+		let mut iSlow4: i32 = (iSlow3 >= 2) as i32;
+		let mut iSlow5: i32 = (iSlow3 >= 1) as i32;
+		let mut fSlow6: F32 = F32::tan(self.fConst9 * (if iSlow4 != 0 {6.5e+03} else {(if iSlow5 != 0 {1.1e+04} else {8e+03})}));
+		let mut fSlow7: F32 = 1.0 / fSlow6;
+		let mut fSlow8: F32 = (fSlow7 + -1.4142135) / fSlow6 + 1.0;
+		let mut fSlow9: F32 = 1.0 - 1.0 / VinylDsp_faustpower2_f(fSlow6);
+		let mut fSlow10: F32 = (fSlow7 + 1.4142135) / fSlow6 + 1.0;
+		let mut fSlow11: F32 = F32::powf(1e+01, 0.3 * self.fHslider3);
+		let mut fSlow12: F32 = self.fHslider4;
+		let mut fSlow13: F32 = (if iSlow4 != 0 {0.05} else {(if iSlow5 != 0 {0.025} else {0.03})});
+		let zipped_iterators = inputs0.zip(outputs0);
+		for (input0, output0) in zipped_iterators {
+			let mut fTemp0: F32 = *input0;
+			self.fVec0[(self.IOTA0 & 127) as usize] = fTemp0;
+			self.iVec1[0] = 1;
+			let mut iTemp1: i32 = i32::wrapping_sub(1, self.iVec1[1]);
+			let mut fTemp2: F32 = (if iTemp1 != 0 {0.0} else {self.fConst7 + self.fRec4[1]});
+			self.fRec4[0] = fTemp2 - F32::floor(fTemp2);
+			let mut fTemp3: F32 = (if iTemp1 != 0 {0.0} else {self.fConst8 + self.fRec5[1]});
+			self.fRec5[0] = fTemp3 - F32::floor(fTemp3);
+			let mut fTemp4: F32 = F32::max(2.0, F32::min(4093.0, fSlow2 * (0.7 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec4[0]) as i32, 65535))) as usize] + 0.3 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec5[0]) as i32, 65535))) as usize]) + 64.0));
+			let mut fTemp5: F32 = fTemp4 + -1.499995;
+			let mut fTemp6: F32 = F32::floor(fTemp5);
+			let mut fTemp7: F32 = fTemp4 + (-3.0 - fTemp6);
+			let mut fTemp8: F32 = fTemp4 + (-2.0 - fTemp6);
+			let mut iTemp9: i32 = (fTemp5) as i32;
+			let mut fTemp10: F32 = fTemp4 + (-1.0 - fTemp6);
+			let mut fTemp11: F32 = fTemp4 - fTemp6;
+			let mut fTemp12: F32 = fTemp11 * fTemp10;
+			let mut fTemp13: F32 = fTemp12 * fTemp8;
+			let mut fTemp14: F32 = (fTemp4 + (-4.0 - fTemp6)) * (fTemp7 * (fTemp8 * (0.041666668 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, iTemp9)))) & 127) as usize] * fTemp10 - 0.16666667 * fTemp11 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 1))))) & 127) as usize]) + 0.25 * fTemp12 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 2))))) & 127) as usize]) - 0.16666667 * fTemp13 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 3))))) & 127) as usize]) + 0.041666668 * fTemp13 * fTemp7 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 4))))) & 127) as usize];
+			self.fVec3[0] = fTemp14;
+			self.fRec2[0] = -(self.fConst5 * (self.fConst6 * self.fRec2[1] - self.fConst4 * (fTemp14 - self.fVec3[1])));
+			self.fRec1[0] = self.fRec2[0] - (self.fRec1[2] * fSlow8 + 2.0 * self.fRec1[1] * fSlow9) / fSlow10;
+			let mut fTemp15: F32 = (self.fRec1[2] + self.fRec1[0] + 2.0 * self.fRec1[1]) / fSlow10;
+			self.fVec4[0] = fTemp15;
+			self.fRec0[0] = -(self.fConst2 * (self.fConst3 * self.fRec0[1] - (fTemp15 + self.fVec4[1])));
+			self.fRec6[0] = -(self.fConst2 * (self.fConst3 * self.fRec6[1] - self.fConst1 * (fTemp15 - self.fVec4[1])));
+			let mut fTemp16: F32 = self.fRec0[0] + fSlow11 * self.fRec6[0];
+			self.fVec5[0] = fTemp16;
+			let mut fTemp17: F32 = fTemp16 - self.fVec5[1];
+			self.iRec8[0] = i32::wrapping_add(i32::wrapping_mul(1103515245, self.iRec8[1]), 12345);
+			let mut fTemp18: F32 = (self.iRec8[0]) as F32;
+			self.fVec6[0] = fTemp18;
+			self.fRec7[0] = self.fConst12 * (self.fConst13 * (fTemp18 - self.fVec6[1]) - self.fConst14 * self.fRec7[1]);
+			*output0 = fSlow1 * fTemp0 + fSlow0 * ((if (F32::abs(fTemp17) <= 0.001) as i32 != 0 {F32::tanh(0.5 * (fTemp16 + self.fVec5[1]))} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp16)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec5[1])), std::f32::consts::E)) / fTemp17}) + fSlow12 * fSlow13 * self.fRec7[0]);
+			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);
+			self.iVec1[1] = self.iVec1[0];
+			self.fRec4[1] = self.fRec4[0];
+			self.fRec5[1] = self.fRec5[0];
+			self.fVec3[1] = self.fVec3[0];
+			self.fRec2[1] = self.fRec2[0];
+			self.fRec1[2] = self.fRec1[1];
+			self.fRec1[1] = self.fRec1[0];
+			self.fVec4[1] = self.fVec4[0];
+			self.fRec0[1] = self.fRec0[0];
+			self.fRec6[1] = self.fRec6[0];
+			self.fVec5[1] = self.fVec5[0];
+			self.iRec8[1] = self.iRec8[0];
+			self.fVec6[1] = self.fVec6[0];
+			self.fRec7[1] = self.fRec7[0];
+		}
+		
+	}
+
+}
+
+impl FaustDsp for VinylDsp {
+	type T = FaustFloat;
+	fn new() -> Self where Self: Sized {
+		Self::new()
+	}
+	fn metadata(&self, m: &mut dyn Meta) {
+		self.metadata(m)
+	}
+	fn get_sample_rate(&self) -> i32 {
+		self.get_sample_rate()
+	}
+	fn get_num_inputs(&self) -> i32 {
+		FAUST_INPUTS as i32
+	}
+	fn get_num_outputs(&self) -> i32 {
+		FAUST_OUTPUTS as i32
+	}
+	fn class_init(sample_rate: i32) where Self: Sized {
+		Self::class_init(sample_rate);
+	}
+	fn instance_reset_params(&mut self) {
+		self.instance_reset_params()
+	}
+	fn instance_clear(&mut self) {
+		self.instance_clear()
+	}
+	fn instance_constants(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate)
+	}
+	fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_init(sample_rate)
+	}
+	fn init(&mut self, sample_rate: i32) {
+		self.init(sample_rate)
+	}
+	fn build_user_interface(&self, ui_interface: &mut dyn UI<Self::T>) {
+		self.build_user_interface(ui_interface)
+	}
+	fn build_user_interface_static(ui_interface: &mut dyn UI<Self::T>) where Self: Sized {
+		Self::build_user_interface_static(ui_interface);
+	}
+	fn get_param(&self, param: ParamIndex) -> Option<Self::T> {
+		self.get_param(param)
+	}
+	fn set_param(&mut self, param: ParamIndex, value: Self::T) {
+		self.set_param(param, value)
+	}
+	fn compute(&mut self, count: i32, inputs: &[&[Self::T]], outputs: &mut [&mut [Self::T]]) {
+		self.compute(count as usize, inputs, outputs)
+	}
+}

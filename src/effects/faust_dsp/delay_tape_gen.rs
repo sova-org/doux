@@ -1,27 +1,27 @@
 /* ------------------------------------------------------------
-name: "feedback"
+name: "delay_tape"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn FeedbackDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
-pub struct FeedbackDsp {
+pub struct DelayTapeDsp {
+	fRec1: [F32;2],
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fConst2: F32,
 	fHslider0: F32,
 	fRec2: [F32;2],
-	fHslider1: F32,
-	fRec4: [F32;2],
-	fRec3: [F32;2],
-	fHslider2: F32,
-	fRec5: [F32;2],
-	fRec6: [F32;2],
 	IOTA0: i32,
-	fVec0: [F32;131072],
+	fVec0: [F32;65536],
+	fConst3: F32,
+	fConst4: F32,
+	fHslider1: F32,
+	fRec3: [F32;2],
 	fRec0: [F32;2],
-	fVec1: [F32;131072],
-	fRec1: [F32;2],
+	fRec5: [F32;2],
+	fVec1: [F32;65536],
+	fRec4: [F32;2],
 }
 
 pub type FaustFloat = F32;
@@ -32,42 +32,42 @@ fn rint_f32(val: f32) -> f32 {
 	val.round_ties_even()
 }
 
-pub const FAUST_INPUTS: usize = 3;
+pub const FAUST_INPUTS: usize = 2;
 pub const FAUST_OUTPUTS: usize = 2;
-pub const FAUST_ACTIVES: usize = 3;
+pub const FAUST_ACTIVES: usize = 2;
 pub const FAUST_PASSIVES: usize = 0;
 
 
-impl FeedbackDsp {
+impl DelayTapeDsp {
 		
-	pub fn new() -> FeedbackDsp { 
-		FeedbackDsp {
+	pub fn new() -> DelayTapeDsp { 
+		DelayTapeDsp {
+			fRec1: [0.0;2],
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fConst2: 0.0,
 			fHslider0: 0.0,
 			fRec2: [0.0;2],
-			fHslider1: 0.0,
-			fRec4: [0.0;2],
-			fRec3: [0.0;2],
-			fHslider2: 0.0,
-			fRec5: [0.0;2],
-			fRec6: [0.0;2],
 			IOTA0: 0,
-			fVec0: [0.0;131072],
+			fVec0: [0.0;65536],
+			fConst3: 0.0,
+			fConst4: 0.0,
+			fHslider1: 0.0,
+			fRec3: [0.0;2],
 			fRec0: [0.0;2],
-			fVec1: [0.0;131072],
-			fRec1: [0.0;2],
+			fRec5: [0.0;2],
+			fVec1: [0.0;65536],
+			fRec4: [0.0;2],
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn FeedbackDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("delays.lib/name", r"Faust Delay Library");
 		m.declare("delays.lib/version", r"1.2.0");
-		m.declare("filename", r"feedback.dsp");
+		m.declare("filename", r"delay_tape.dsp");
 		m.declare("filters.lib/lowpass0_highpass1", r"MIT-style STK-4.3 license");
 		m.declare("filters.lib/name", r"Faust Filters Library");
 		m.declare("filters.lib/pole:author", r"Julius O. Smith III");
@@ -79,7 +79,7 @@ impl FeedbackDsp {
 		m.declare("maths.lib/license", r"LGPL with exception");
 		m.declare("maths.lib/name", r"Faust Math Library");
 		m.declare("maths.lib/version", r"2.8.1");
-		m.declare("name", r"feedback");
+		m.declare("name", r"delay_tape");
 		m.declare("platform.lib/name", r"Generic Platform Library");
 		m.declare("platform.lib/version", r"1.3.0");
 		m.declare("signals.lib/name", r"Faust Signal Routing Library");
@@ -92,38 +92,34 @@ impl FeedbackDsp {
 		// Obtaining locks on 0 static var(s)
 	}
 	pub fn instance_reset_params(&mut self) {
-		self.fHslider0 = 0.0;
-		self.fHslider1 = 0.0;
-		self.fHslider2 = 0.0;
+		self.fHslider0 = 0.6;
+		self.fHslider1 = 0.333;
 	}
 	pub fn instance_clear(&mut self) {
 		for l0 in 0..2 {
-			self.fRec2[l0 as usize] = 0.0;
+			self.fRec1[l0 as usize] = 0.0;
 		}
 		for l1 in 0..2 {
-			self.fRec4[l1 as usize] = 0.0;
-		}
-		for l2 in 0..2 {
-			self.fRec3[l2 as usize] = 0.0;
-		}
-		for l3 in 0..2 {
-			self.fRec5[l3 as usize] = 0.0;
-		}
-		for l4 in 0..2 {
-			self.fRec6[l4 as usize] = 0.0;
+			self.fRec2[l1 as usize] = 0.0;
 		}
 		self.IOTA0 = 0;
-		for l5 in 0..131072 {
-			self.fVec0[l5 as usize] = 0.0;
+		for l2 in 0..65536 {
+			self.fVec0[l2 as usize] = 0.0;
 		}
-		for l6 in 0..2 {
-			self.fRec0[l6 as usize] = 0.0;
+		for l3 in 0..2 {
+			self.fRec3[l3 as usize] = 0.0;
 		}
-		for l7 in 0..131072 {
-			self.fVec1[l7 as usize] = 0.0;
+		for l4 in 0..2 {
+			self.fRec0[l4 as usize] = 0.0;
 		}
-		for l8 in 0..2 {
-			self.fRec1[l8 as usize] = 0.0;
+		for l5 in 0..2 {
+			self.fRec5[l5 as usize] = 0.0;
+		}
+		for l6 in 0..65536 {
+			self.fVec1[l6 as usize] = 0.0;
+		}
+		for l7 in 0..2 {
+			self.fRec4[l7 as usize] = 0.0;
 		}
 	}
 	pub fn instance_constants(&mut self, sample_rate: i32) {
@@ -132,6 +128,8 @@ impl FeedbackDsp {
 		self.fConst0 = F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
 		self.fConst1 = F32::exp(-(2e+02 / self.fConst0));
 		self.fConst2 = 1.0 - self.fConst1;
+		self.fConst3 = F32::exp(-(33.333332 / self.fConst0));
+		self.fConst4 = self.fConst0 * (1.0 - self.fConst3);
 	}
 	pub fn instance_init(&mut self, sample_rate: i32) {
 		self.instance_constants(sample_rate);
@@ -139,7 +137,7 @@ impl FeedbackDsp {
 		self.instance_clear();
 	}
 	pub fn init(&mut self, sample_rate: i32) {
-		FeedbackDsp::class_init(sample_rate);
+		DelayTapeDsp::class_init(sample_rate);
 		self.instance_init(sample_rate);
 	}
 	
@@ -148,27 +146,24 @@ impl FeedbackDsp {
 	}
 	
 	pub fn build_user_interface_static(ui_interface: &mut dyn UI<FaustFloat>) {
-		ui_interface.open_vertical_box("feedback");
-		ui_interface.add_horizontal_slider("b_damp", ParamIndex(0), 0.0, 0.0, 1.0, 0.001);
-		ui_interface.add_horizontal_slider("c_cross", ParamIndex(1), 0.0, 0.0, 1.0, 0.001);
-		ui_interface.add_horizontal_slider("g_fb", ParamIndex(2), 0.0, 0.0, 0.99, 0.001);
+		ui_interface.open_vertical_box("delay_tape");
+		ui_interface.add_horizontal_slider("a_time", ParamIndex(0), 0.333, 0.0, 1e+01, 0.0001);
+		ui_interface.add_horizontal_slider("b_fb", ParamIndex(1), 0.6, 0.0, 1.0, 0.0001);
 		ui_interface.close_box();
 	}
 	
 	pub fn get_param(&self, param: ParamIndex) -> Option<FaustFloat> {
 		match param.0 {
-			2 => Some(self.fHslider0),
+			1 => Some(self.fHslider0),
 			0 => Some(self.fHslider1),
-			1 => Some(self.fHslider2),
 			_ => None,
 		}
 	}
 	
 	pub fn set_param(&mut self, param: ParamIndex, value: FaustFloat) {
 		match param.0 {
-			2 => { self.fHslider0 = value }
+			1 => { self.fHslider0 = value }
 			0 => { self.fHslider1 = value }
-			1 => { self.fHslider2 = value }
 			_ => {}
 		}
 	}
@@ -181,64 +176,56 @@ impl FeedbackDsp {
 	) {
 		
 		// Obtaining locks on 0 static var(s)
-		let [inputs0, inputs1, inputs2, .. ] = inputs.as_ref() else { panic!("wrong number of input buffers"); };
+		let [inputs0, inputs1, .. ] = inputs.as_ref() else { panic!("wrong number of input buffers"); };
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let inputs1 = inputs1.as_ref()[..count].iter();
-		let inputs2 = inputs2.as_ref()[..count].iter();
 		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let outputs1 = outputs1.as_mut()[..count].iter_mut();
 		let mut fSlow0: F32 = self.fConst2 * self.fHslider0;
-		let mut fSlow1: F32 = self.fConst2 * self.fHslider1;
-		let mut fSlow2: F32 = self.fConst2 * self.fHslider2;
-		let zipped_iterators = inputs0.zip(inputs1).zip(inputs2).zip(outputs0).zip(outputs1);
-		for ((((input0, input1), input2), output0), output1) in zipped_iterators {
-			let mut fTemp0: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
-			self.fRec2[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
-			let mut fTemp1: F32 = F32::max(0.0, F32::min(0.99, self.fRec2[0]));
-			let mut fTemp2: F32 = fSlow1 + self.fConst1 * self.fRec4[1];
-			self.fRec4[0] = (if (F32::abs(fTemp2) > 1.1754944e-38) as i32 != 0 {fTemp2} else {0.0});
-			let mut fTemp3: F32 = 1.0 - self.fRec4[0];
-			let mut fTemp4: F32 = self.fRec4[0] * self.fRec3[1] + fTemp3 * self.fRec0[1];
+		let mut fSlow1: F32 = self.fConst4 * self.fHslider1;
+		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
+		for (((input0, input1), output0), output1) in zipped_iterators {
+			let mut fTemp0: F32 = 0.65 * self.fRec1[1] + 0.35 * self.fRec0[1];
+			self.fRec1[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
+			let mut fTemp1: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
+			self.fRec2[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
+			let mut fTemp2: F32 = F32::max(0.0, F32::min(0.95, self.fRec2[0]));
+			let mut fTemp3: F32 = *input0 + self.fRec1[0] * fTemp2;
+			self.fVec0[(self.IOTA0 & 65535) as usize] = fTemp3;
+			let mut fTemp4: F32 = fSlow1 + self.fConst3 * self.fRec3[1];
 			self.fRec3[0] = (if (F32::abs(fTemp4) > 1.1754944e-38) as i32 != 0 {fTemp4} else {0.0});
-			let mut fTemp5: F32 = fSlow2 + self.fConst1 * self.fRec5[1];
-			self.fRec5[0] = (if (F32::abs(fTemp5) > 1.1754944e-38) as i32 != 0 {fTemp5} else {0.0});
-			let mut fTemp6: F32 = F32::max(0.0, F32::min(1.0, self.fRec5[0]));
-			let mut fTemp7: F32 = 1.0 - fTemp6;
-			let mut fTemp8: F32 = self.fRec4[0] * self.fRec6[1] + fTemp3 * self.fRec1[1];
-			self.fRec6[0] = (if (F32::abs(fTemp8) > 1.1754944e-38) as i32 != 0 {fTemp8} else {0.0});
-			let mut fTemp9: F32 = *input1 + fTemp1 * (self.fRec3[0] * fTemp7 + fTemp6 * self.fRec6[0]);
-			self.fVec0[(self.IOTA0 & 131071) as usize] = fTemp9;
-			let mut fTemp10: F32 = F32::max(1.0, F32::min(65535.0, self.fConst0 / *input0));
-			let mut iTemp11: i32 = (fTemp10) as i32;
-			let mut iTemp12: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp11));
-			let mut fTemp13: F32 = F32::floor(fTemp10);
-			let mut fTemp14: F32 = fTemp13 + (1.0 - fTemp10);
-			let mut fTemp15: F32 = fTemp10 - fTemp13;
-			let mut iTemp16: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp11, 1)));
-			let mut fTemp17: F32 = self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp12)) & 131071) as usize] * fTemp14 + fTemp15 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp16)) & 131071) as usize];
-			self.fRec0[0] = (if (F32::abs(fTemp17) > 1.1754944e-38) as i32 != 0 {fTemp17} else {0.0});
-			let mut fTemp18: F32 = *input2 + fTemp1 * (self.fRec3[0] * fTemp6 + fTemp7 * self.fRec6[0]);
-			self.fVec1[(self.IOTA0 & 131071) as usize] = fTemp18;
-			let mut fTemp19: F32 = fTemp14 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp12)) & 131071) as usize] + fTemp15 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp16)) & 131071) as usize];
-			self.fRec1[0] = (if (F32::abs(fTemp19) > 1.1754944e-38) as i32 != 0 {fTemp19} else {0.0});
+			let mut fTemp5: F32 = F32::max(1.0, F32::min(65534.0, self.fRec3[0]));
+			let mut iTemp6: i32 = (fTemp5) as i32;
+			let mut iTemp7: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp6));
+			let mut fTemp8: F32 = F32::floor(fTemp5);
+			let mut fTemp9: F32 = fTemp8 + (1.0 - fTemp5);
+			let mut fTemp10: F32 = fTemp5 - fTemp8;
+			let mut iTemp11: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp6, 1)));
+			let mut fTemp12: F32 = self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp7)) & 65535) as usize] * fTemp9 + fTemp10 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp11)) & 65535) as usize];
+			self.fRec0[0] = (if (F32::abs(fTemp12) > 1.1754944e-38) as i32 != 0 {fTemp12} else {0.0});
 			*output0 = self.fRec0[0];
-			*output1 = self.fRec1[0];
-			self.fRec2[1] = self.fRec2[0];
-			self.fRec4[1] = self.fRec4[0];
-			self.fRec3[1] = self.fRec3[0];
-			self.fRec5[1] = self.fRec5[0];
-			self.fRec6[1] = self.fRec6[0];
-			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);
-			self.fRec0[1] = self.fRec0[0];
+			let mut fTemp13: F32 = 0.65 * self.fRec5[1] + 0.35 * self.fRec4[1];
+			self.fRec5[0] = (if (F32::abs(fTemp13) > 1.1754944e-38) as i32 != 0 {fTemp13} else {0.0});
+			let mut fTemp14: F32 = *input1 + fTemp2 * self.fRec5[0];
+			self.fVec1[(self.IOTA0 & 65535) as usize] = fTemp14;
+			let mut fTemp15: F32 = fTemp9 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp7)) & 65535) as usize] + fTemp10 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp11)) & 65535) as usize];
+			self.fRec4[0] = (if (F32::abs(fTemp15) > 1.1754944e-38) as i32 != 0 {fTemp15} else {0.0});
+			*output1 = self.fRec4[0];
 			self.fRec1[1] = self.fRec1[0];
+			self.fRec2[1] = self.fRec2[0];
+			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);
+			self.fRec3[1] = self.fRec3[0];
+			self.fRec0[1] = self.fRec0[0];
+			self.fRec5[1] = self.fRec5[0];
+			self.fRec4[1] = self.fRec4[0];
 		}
 		
 	}
 
 }
 
-impl FaustDsp for FeedbackDsp {
+impl FaustDsp for DelayTapeDsp {
 	type T = FaustFloat;
 	fn new() -> Self where Self: Sized {
 		Self::new()

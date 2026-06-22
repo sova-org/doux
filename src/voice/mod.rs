@@ -16,7 +16,7 @@ use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMo
 use crate::effects::{
     DcBlocker, FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger,
     FaustFold, FaustHaas, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade,
-    FaustTilt, FaustWrap, LadderMode,
+    FaustTilt, FaustVinyl, FaustWah, FaustWrap, LadderMode,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -56,12 +56,14 @@ pub(crate) enum Stage {
     LadderLp,
     LadderHp,
     LadderBp,
+    Wah,
     Coarse,
     Crush,
     Fold,
     Wrap,
     Distort,
     DcBlock,
+    Vinyl,
     Am,
     Rm,
     Phaser,
@@ -94,12 +96,14 @@ pub struct VoiceFxState {
     pub ladder_lp: [FaustLadder; CHANNELS],
     pub ladder_hp: [FaustLadder; CHANNELS],
     pub ladder_bp: [FaustLadder; CHANNELS],
+    pub wah: [FaustWah; CHANNELS],
     pub coarse: [FaustCoarse; CHANNELS],
     pub crush: [FaustCrush; CHANNELS],
     pub fold_state: [FaustFold; CHANNELS],
     pub wrap_state: [FaustWrap; CHANNELS],
     pub distort_state: [FaustDistort; CHANNELS],
     pub dc_block: [DcBlocker; CHANNELS],
+    pub vinyl: [FaustVinyl; CHANNELS],
     pub eq: [FaustEq; CHANNELS],
     pub tilt: [FaustTilt; CHANNELS],
     pub phaser: [FaustPhaser; CHANNELS],
@@ -118,12 +122,14 @@ impl Default for VoiceFxState {
             ladder_lp: std::array::from_fn(|_| FaustLadder::default()),
             ladder_hp: std::array::from_fn(|_| FaustLadder::default()),
             ladder_bp: std::array::from_fn(|_| FaustLadder::default()),
+            wah: std::array::from_fn(|_| FaustWah::default()),
             coarse: std::array::from_fn(|_| FaustCoarse::default()),
             crush: std::array::from_fn(|_| FaustCrush::default()),
             fold_state: std::array::from_fn(|_| FaustFold::default()),
             wrap_state: std::array::from_fn(|_| FaustWrap::default()),
             distort_state: std::array::from_fn(|_| FaustDistort::default()),
             dc_block: [DcBlocker::default(); CHANNELS],
+            vinyl: std::array::from_fn(|_| FaustVinyl::default()),
             eq: std::array::from_fn(|_| FaustEq::default()),
             tilt: std::array::from_fn(|_| FaustTilt::default()),
             phaser: std::array::from_fn(FaustPhaser::new),
@@ -569,6 +575,9 @@ impl Voice {
         if self.params.lbpf.is_some() || self.mod_targets(ParamId::Lbpf) {
             push!(Stage::LadderBp);
         }
+        if self.params.wah > 0.0 {
+            push!(Stage::Wah);
+        }
 
         if coarse {
             push!(Stage::Coarse);
@@ -587,6 +596,9 @@ impl Voice {
         }
         if any_dist {
             push!(Stage::DcBlock);
+        }
+        if self.params.vinyl > 0.0 {
+            push!(Stage::Vinyl);
         }
 
         if self.params.am > 0.0 || self.mod_targets(ParamId::Am) {
@@ -820,6 +832,26 @@ impl Voice {
                     }
                 }
             }
+            Stage::Wah => {
+                if self.params.wah > 0.0 {
+                    let amount = self.params.wah;
+                    let peak = self.params.wahpeak;
+                    let sens = self.params.wahsens;
+                    let manual = self.params.wahmanual;
+                    for c in 0..nch {
+                        self.fx.wah[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            amount,
+                            peak,
+                            sens,
+                            manual,
+                            sr,
+                        );
+                    }
+                }
+            }
             Stage::Coarse => {
                 if let Some(factor) = self.params.coarse {
                     for c in 0..nch {
@@ -859,6 +891,7 @@ impl Voice {
                 if let Some(amount) = self.params.distort {
                     let postgain = self.params.distortvol;
                     let mode = self.params.distortmode.to_index();
+                    let asym = self.params.distortasym;
                     for c in 0..nch {
                         self.fx.distort_state[c].process_block(
                             &mut self.scratch[..n],
@@ -867,6 +900,7 @@ impl Voice {
                             amount,
                             postgain,
                             mode,
+                            asym,
                         );
                     }
                 }
@@ -874,6 +908,28 @@ impl Voice {
             Stage::DcBlock => {
                 for c in 0..nch {
                     self.fx.dc_block[c].process_block(&mut self.scratch[..n], n, c);
+                }
+            }
+            Stage::Vinyl => {
+                if self.params.vinyl > 0.0 {
+                    let amount = self.params.vinyl;
+                    let wow = self.params.vinylwow;
+                    let noise = self.params.vinylnoise;
+                    let tone = self.params.vinyltone;
+                    let kind = self.params.vinyltype.to_index();
+                    for c in 0..nch {
+                        self.fx.vinyl[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            amount,
+                            wow,
+                            noise,
+                            tone,
+                            kind,
+                            sr,
+                        );
+                    }
                 }
             }
             Stage::Am => {
@@ -929,6 +985,7 @@ impl Voice {
                     let rate = self.params.flanger;
                     let depth = self.params.flangerdepth;
                     let fb = self.params.flangerfeedback;
+                    let mode = self.params.flangermode.to_index();
                     for c in 0..nch {
                         self.fx.flanger[c].process_block(
                             &mut self.scratch[..n],
@@ -937,6 +994,7 @@ impl Voice {
                             rate,
                             depth,
                             fb,
+                            mode,
                             sr,
                         );
                     }
@@ -1181,6 +1239,19 @@ impl Voice {
                     }
                 }
             }
+            Stage::Wah => {
+                if self.params.wah > 0.0 {
+                    let amount = self.params.wah;
+                    let peak = self.params.wahpeak;
+                    let sens = self.params.wahsens;
+                    let manual = self.params.wahmanual;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.wah[c].process(x, amount, peak, sens, manual, sr);
+                    }
+                }
+            }
             Stage::Coarse => {
                 if let Some(coarse_factor) = self.params.coarse {
                     for c in 0..nch {
@@ -1218,10 +1289,11 @@ impl Voice {
                 if let Some(dist_amount) = self.params.distort {
                     let postgain = self.params.distortvol;
                     let mode = self.params.distortmode.to_index();
+                    let asym = self.params.distortasym;
                     for c in 0..nch {
                         let x = self.scratch[i][c];
                         self.scratch[i][c] =
-                            self.fx.distort_state[c].process(x, dist_amount, postgain, mode);
+                            self.fx.distort_state[c].process(x, dist_amount, postgain, mode, asym);
                     }
                 }
             }
@@ -1232,6 +1304,20 @@ impl Voice {
                 for c in 0..nch {
                     let x = self.scratch[i][c];
                     self.scratch[i][c] = self.fx.dc_block[c].process(x);
+                }
+            }
+            Stage::Vinyl => {
+                if self.params.vinyl > 0.0 {
+                    let amount = self.params.vinyl;
+                    let wow = self.params.vinylwow;
+                    let noise = self.params.vinylnoise;
+                    let tone = self.params.vinyltone;
+                    let kind = self.params.vinyltype.to_index();
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] =
+                            self.fx.vinyl[c].process(x, amount, wow, noise, tone, kind, sr);
+                    }
                 }
             }
             Stage::Am => {
@@ -1272,9 +1358,11 @@ impl Voice {
                     let rate = self.params.flanger;
                     let depth = self.params.flangerdepth;
                     let fb = self.params.flangerfeedback;
+                    let mode = self.params.flangermode.to_index();
                     for c in 0..nch {
                         let x = self.scratch[i][c];
-                        self.scratch[i][c] = self.fx.flanger[c].process(x, rate, depth, fb, sr);
+                        self.scratch[i][c] =
+                            self.fx.flanger[c].process(x, rate, depth, fb, mode, sr);
                     }
                 }
             }

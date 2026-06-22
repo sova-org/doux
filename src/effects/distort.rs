@@ -57,10 +57,18 @@ pub const INFO: ModuleInfo = ModuleInfo {
         ParamInfo {
             name: "distortmode",
             aliases: &["dmode"],
-            description: "saturator curve (soft, tanh, arctan, hardclip)",
+            description: "saturator curve (soft, tanh, arctan, hardclip, parabolic, sinarctan)",
             default: "soft",
             min: 0.0,
-            max: 3.0,
+            max: 5.0,
+        },
+        ParamInfo {
+            name: "distortasym",
+            aliases: &["dasym"],
+            description: "pre-shaper bias for asymmetric / even-harmonic drive",
+            default: "0.0",
+            min: -1.0,
+            max: 1.0,
         },
     ],
 };

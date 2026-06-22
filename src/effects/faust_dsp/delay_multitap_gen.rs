@@ -1,0 +1,281 @@
+/* ------------------------------------------------------------
+name: "delay_multitap"
+Code generated with Faust 2.81.2 (https://faust.grame.fr)
+Compilation options: -lang rust -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+------------------------------------------------------------ */
+#[repr(C)]
+pub struct DelayMultitapDsp {
+	IOTA0: i32,
+	fVec0: [F32;65536],
+	fSampleRate: i32,
+	fConst0: F32,
+	fConst1: F32,
+	fConst2: F32,
+	fHslider0: F32,
+	fRec2: [F32;2],
+	fRec0: [F32;2],
+	fConst3: F32,
+	fConst4: F32,
+	fHslider1: F32,
+	fRec3: [F32;2],
+	fVec1: [F32;65536],
+	fRec4: [F32;2],
+}
+
+pub type FaustFloat = F32;
+fn remainder_f32(from: f32, to: f32) -> f32 {
+	from - to * (from / to).round_ties_even()
+}
+fn rint_f32(val: f32) -> f32 {
+	val.round_ties_even()
+}
+
+pub const FAUST_INPUTS: usize = 2;
+pub const FAUST_OUTPUTS: usize = 2;
+pub const FAUST_ACTIVES: usize = 2;
+pub const FAUST_PASSIVES: usize = 0;
+
+
+impl DelayMultitapDsp {
+		
+	pub fn new() -> DelayMultitapDsp { 
+		DelayMultitapDsp {
+			IOTA0: 0,
+			fVec0: [0.0;65536],
+			fSampleRate: 0,
+			fConst0: 0.0,
+			fConst1: 0.0,
+			fConst2: 0.0,
+			fHslider0: 0.0,
+			fRec2: [0.0;2],
+			fRec0: [0.0;2],
+			fConst3: 0.0,
+			fConst4: 0.0,
+			fHslider1: 0.0,
+			fRec3: [0.0;2],
+			fVec1: [0.0;65536],
+			fRec4: [0.0;2],
+		}
+	}
+	pub fn metadata(&self, m: &mut dyn Meta) { 
+		m.declare("basics.lib/name", r"Faust Basic Element Library");
+		m.declare("basics.lib/version", r"1.21.0");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("delays.lib/name", r"Faust Delay Library");
+		m.declare("delays.lib/version", r"1.2.0");
+		m.declare("filename", r"delay_multitap.dsp");
+		m.declare("maths.lib/author", r"GRAME");
+		m.declare("maths.lib/copyright", r"GRAME");
+		m.declare("maths.lib/license", r"LGPL with exception");
+		m.declare("maths.lib/name", r"Faust Math Library");
+		m.declare("maths.lib/version", r"2.8.1");
+		m.declare("name", r"delay_multitap");
+		m.declare("platform.lib/name", r"Generic Platform Library");
+		m.declare("platform.lib/version", r"1.3.0");
+		m.declare("signals.lib/name", r"Faust Signal Routing Library");
+		m.declare("signals.lib/version", r"1.6.0");
+	}
+
+	pub fn get_sample_rate(&self) -> i32 { self.fSampleRate as i32}
+	
+	pub fn class_init(sample_rate: i32) {
+		// Obtaining locks on 0 static var(s)
+	}
+	pub fn instance_reset_params(&mut self) {
+		self.fHslider0 = 0.333;
+		self.fHslider1 = 0.6;
+	}
+	pub fn instance_clear(&mut self) {
+		self.IOTA0 = 0;
+		for l0 in 0..65536 {
+			self.fVec0[l0 as usize] = 0.0;
+		}
+		for l1 in 0..2 {
+			self.fRec2[l1 as usize] = 0.0;
+		}
+		for l2 in 0..2 {
+			self.fRec0[l2 as usize] = 0.0;
+		}
+		for l3 in 0..2 {
+			self.fRec3[l3 as usize] = 0.0;
+		}
+		for l4 in 0..65536 {
+			self.fVec1[l4 as usize] = 0.0;
+		}
+		for l5 in 0..2 {
+			self.fRec4[l5 as usize] = 0.0;
+		}
+	}
+	pub fn instance_constants(&mut self, sample_rate: i32) {
+		// Obtaining locks on 0 static var(s)
+		self.fSampleRate = sample_rate;
+		self.fConst0 = F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
+		self.fConst1 = F32::exp(-(33.333332 / self.fConst0));
+		self.fConst2 = self.fConst0 * (1.0 - self.fConst1);
+		self.fConst3 = F32::exp(-(2e+02 / self.fConst0));
+		self.fConst4 = 1.0 - self.fConst3;
+	}
+	pub fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate);
+		self.instance_reset_params();
+		self.instance_clear();
+	}
+	pub fn init(&mut self, sample_rate: i32) {
+		DelayMultitapDsp::class_init(sample_rate);
+		self.instance_init(sample_rate);
+	}
+	
+	pub fn build_user_interface(&self, ui_interface: &mut dyn UI<FaustFloat>) {
+		Self::build_user_interface_static(ui_interface);
+	}
+	
+	pub fn build_user_interface_static(ui_interface: &mut dyn UI<FaustFloat>) {
+		ui_interface.open_vertical_box("delay_multitap");
+		ui_interface.add_horizontal_slider("a_time", ParamIndex(0), 0.333, 0.0, 1e+01, 0.0001);
+		ui_interface.add_horizontal_slider("b_fb", ParamIndex(1), 0.6, 0.0, 1.0, 0.0001);
+		ui_interface.close_box();
+	}
+	
+	pub fn get_param(&self, param: ParamIndex) -> Option<FaustFloat> {
+		match param.0 {
+			0 => Some(self.fHslider0),
+			1 => Some(self.fHslider1),
+			_ => None,
+		}
+	}
+	
+	pub fn set_param(&mut self, param: ParamIndex, value: FaustFloat) {
+		match param.0 {
+			0 => { self.fHslider0 = value }
+			1 => { self.fHslider1 = value }
+			_ => {}
+		}
+	}
+	
+	pub fn compute(
+		&mut self,
+		count: usize,
+		inputs: &[impl AsRef<[FaustFloat]>],
+		outputs: &mut[impl AsMut<[FaustFloat]>],
+	) {
+		
+		// Obtaining locks on 0 static var(s)
+		let [inputs0, inputs1, .. ] = inputs.as_ref() else { panic!("wrong number of input buffers"); };
+		let inputs0 = inputs0.as_ref()[..count].iter();
+		let inputs1 = inputs1.as_ref()[..count].iter();
+		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
+		let outputs0 = outputs0.as_mut()[..count].iter_mut();
+		let outputs1 = outputs1.as_mut()[..count].iter_mut();
+		let mut fSlow0: F32 = self.fConst2 * self.fHslider0;
+		let mut fSlow1: F32 = self.fConst4 * self.fHslider1;
+		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
+		for (((input0, input1), output0), output1) in zipped_iterators {
+			let mut fTemp0: F32 = *input0 + 0.5 * self.fRec0[1];
+			self.fVec0[(self.IOTA0 & 65535) as usize] = fTemp0;
+			let mut fTemp1: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
+			self.fRec2[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
+			let mut fTemp2: F32 = F32::max(1.0, F32::min(65534.0, self.fRec2[0]));
+			let mut iTemp3: i32 = (fTemp2) as i32;
+			let mut iTemp4: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp3));
+			let mut fTemp5: F32 = F32::floor(fTemp2);
+			let mut fTemp6: F32 = fTemp5 + (1.0 - fTemp2);
+			let mut fTemp7: F32 = fTemp2 - fTemp5;
+			let mut iTemp8: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp3, 1)));
+			let mut fTemp9: F32 = self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp4)) & 65535) as usize] * fTemp6 + fTemp7 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp8)) & 65535) as usize];
+			self.fRec0[0] = (if (F32::abs(fTemp9) > 1.1754944e-38) as i32 != 0 {fTemp9} else {0.0});
+			let mut fTemp10: F32 = fSlow1 + self.fConst3 * self.fRec3[1];
+			self.fRec3[0] = (if (F32::abs(fTemp10) > 1.1754944e-38) as i32 != 0 {fTemp10} else {0.0});
+			let mut fTemp11: F32 = F32::max(0.0, F32::min(0.95, self.fRec3[0]));
+			let mut fTemp12: F32 = F32::max(1.0, fTemp2 * (0.167 * fTemp11 + 0.5));
+			let mut iTemp13: i32 = (fTemp12) as i32;
+			let mut iTemp14: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp13));
+			let mut fTemp15: F32 = F32::floor(fTemp12);
+			let mut fTemp16: F32 = fTemp15 + (1.0 - fTemp12);
+			let mut fTemp17: F32 = fTemp12 - fTemp15;
+			let mut iTemp18: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp13, 1)));
+			let mut fTemp19: F32 = F32::max(1.0, fTemp2 * (0.083 * fTemp11 + 0.25));
+			let mut iTemp20: i32 = (fTemp19) as i32;
+			let mut iTemp21: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp20));
+			let mut fTemp22: F32 = F32::floor(fTemp19);
+			let mut fTemp23: F32 = fTemp22 + (1.0 - fTemp19);
+			let mut fTemp24: F32 = fTemp19 - fTemp22;
+			let mut iTemp25: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp20, 1)));
+			let mut fTemp26: F32 = F32::max(1.0, fTemp2 * (0.042 * fTemp11 + 0.125));
+			let mut iTemp27: i32 = (fTemp26) as i32;
+			let mut iTemp28: i32 = std::cmp::min(65537, std::cmp::max(0, iTemp27));
+			let mut fTemp29: F32 = F32::floor(fTemp26);
+			let mut fTemp30: F32 = fTemp29 + (1.0 - fTemp26);
+			let mut fTemp31: F32 = fTemp26 - fTemp29;
+			let mut iTemp32: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp27, 1)));
+			let mut fTemp33: F32 = fTemp9 + 0.7 * (self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp14)) & 65535) as usize] * fTemp16 + fTemp17 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp18)) & 65535) as usize]) + 0.5 * (self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp21)) & 65535) as usize] * fTemp23 + fTemp24 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp25)) & 65535) as usize]) + 0.35 * (self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp28)) & 65535) as usize] * fTemp30 + fTemp31 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp32)) & 65535) as usize]);
+			let mut fRec1: F32 = (if (F32::abs(fTemp33) > 1.1754944e-38) as i32 != 0 {fTemp33} else {0.0});
+			*output0 = fRec1;
+			let mut fTemp34: F32 = *input1 + 0.5 * self.fRec4[1];
+			self.fVec1[(self.IOTA0 & 65535) as usize] = fTemp34;
+			let mut fTemp35: F32 = fTemp6 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp4)) & 65535) as usize] + fTemp7 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp8)) & 65535) as usize];
+			self.fRec4[0] = (if (F32::abs(fTemp35) > 1.1754944e-38) as i32 != 0 {fTemp35} else {0.0});
+			let mut fTemp36: F32 = fTemp35 + 0.7 * (fTemp16 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp14)) & 65535) as usize] + fTemp17 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp18)) & 65535) as usize]) + 0.5 * (fTemp23 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp21)) & 65535) as usize] + fTemp24 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp25)) & 65535) as usize]) + 0.35 * (fTemp30 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp28)) & 65535) as usize] + fTemp31 * self.fVec1[((i32::wrapping_sub(self.IOTA0, iTemp32)) & 65535) as usize]);
+			let mut fRec5: F32 = (if (F32::abs(fTemp36) > 1.1754944e-38) as i32 != 0 {fTemp36} else {0.0});
+			*output1 = fRec5;
+			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);
+			self.fRec2[1] = self.fRec2[0];
+			self.fRec0[1] = self.fRec0[0];
+			self.fRec3[1] = self.fRec3[0];
+			self.fRec4[1] = self.fRec4[0];
+		}
+		
+	}
+
+}
+
+impl FaustDsp for DelayMultitapDsp {
+	type T = FaustFloat;
+	fn new() -> Self where Self: Sized {
+		Self::new()
+	}
+	fn metadata(&self, m: &mut dyn Meta) {
+		self.metadata(m)
+	}
+	fn get_sample_rate(&self) -> i32 {
+		self.get_sample_rate()
+	}
+	fn get_num_inputs(&self) -> i32 {
+		FAUST_INPUTS as i32
+	}
+	fn get_num_outputs(&self) -> i32 {
+		FAUST_OUTPUTS as i32
+	}
+	fn class_init(sample_rate: i32) where Self: Sized {
+		Self::class_init(sample_rate);
+	}
+	fn instance_reset_params(&mut self) {
+		self.instance_reset_params()
+	}
+	fn instance_clear(&mut self) {
+		self.instance_clear()
+	}
+	fn instance_constants(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate)
+	}
+	fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_init(sample_rate)
+	}
+	fn init(&mut self, sample_rate: i32) {
+		self.init(sample_rate)
+	}
+	fn build_user_interface(&self, ui_interface: &mut dyn UI<Self::T>) {
+		self.build_user_interface(ui_interface)
+	}
+	fn build_user_interface_static(ui_interface: &mut dyn UI<Self::T>) where Self: Sized {
+		Self::build_user_interface_static(ui_interface);
+	}
+	fn get_param(&self, param: ParamIndex) -> Option<Self::T> {
+		self.get_param(param)
+	}
+	fn set_param(&mut self, param: ParamIndex, value: Self::T) {
+		self.set_param(param, value)
+	}
+	fn compute(&mut self, count: i32, inputs: &[&[Self::T]], outputs: &mut [&mut [Self::T]]) {
+		self.compute(count as usize, inputs, outputs)
+	}
+}

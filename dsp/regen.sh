@@ -18,6 +18,8 @@ specs=(
   "distort:DistortDsp"
   "tilt:TiltDsp"
   "eq:EqDsp"
+  "wah:WahDsp"
+  "vinyl:VinylDsp"
   "phaser:PhaserDsp"
   "chorus:ChorusDsp"
   "flanger:FlangerDsp"
@@ -29,13 +31,23 @@ specs=(
   "jpverb:JpverbDsp"
   "comb:CombDsp"
   "feedback:FeedbackDsp"
-  "delay:DelayDsp"
+  "delay_standard:DelayStandardDsp"
+  "delay_pingpong:DelayPingpongDsp"
+  "delay_tape:DelayTapeDsp"
+  "delay_multitap:DelayMultitapDsp"
 )
+
+# DSPs with feedback loops / long decaying tails get a software denormal flush
+# (-ftz 1, fabs-based): wasm32 has no hardware FTZ (enable_flush_to_zero is a
+# no-op there), so their state can settle into denormals and spike CPU on old
+# cores. Memoryless effects keep the default -ftz 0.
+ftz_stems=" comb feedback delay_standard delay_pingpong delay_tape delay_multitap smear jpverb vital_rev "
 
 for spec in "${specs[@]}"; do
   name="${spec%%:*}"; cn="${spec##*:}"
   gen="$out/${name}_gen.rs"
-  faust -lang rust -cn "$cn" "dsp/$name.dsp" -o "$gen"
+  ftz=0; [[ "$ftz_stems" == *" $name "* ]] && ftz=1
+  faust -lang rust -ftz "$ftz" -cn "$cn" "dsp/$name.dsp" -o "$gen"
   # 1. Drop the `default-boxed` derive: the feature is never enabled and the
   #    unknown cfg value trips a check-cfg warning module-level allow can't catch.
   sed -i '' '/cfg_attr(feature = "default-boxed"/d' "$gen"
@@ -54,5 +66,14 @@ for spec in "${specs[@]}"; do
   #    `unsafe extern "C"` from the generated code.
   perl -i -ne 'print unless /^mod ffi \{/../^\}$/' "$gen"
 done
+
+# Guard: the libm/ffi stripping above is keyed to this faust version's output.
+# If a future .dsp emits a libm primitive (or faust changes its codegen) and the
+# strip misses it, the wasm32 link breaks silently with an unresolved symbol.
+# Fail loudly here instead. Pinned: faust 2.81.2.
+if grep -lE 'extern "C"|link\(name|ffi::' "$out"/*_gen.rs >/dev/null 2>&1; then
+  echo "ERROR: libm/ffi leak in generated code — regen.sh stripping drifted from this faust version" >&2
+  exit 1
+fi
 
 echo "regenerated $out/*_gen.rs"
