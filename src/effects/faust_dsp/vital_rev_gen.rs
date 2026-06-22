@@ -1610,8 +1610,8 @@ impl VitalRevDsp {
 			self.fRec14[0] = (if (F32::abs(fTemp331) > 1.1754944e-38) as i32 != 0 {fTemp331} else {0.0});
 			let mut fTemp332: F32 = fRec26 + self.fRec25[1] + fTemp308 - 0.5 * (fTemp316 + fTemp328);
 			self.fRec15[0] = (if (F32::abs(fTemp332) > 1.1754944e-38) as i32 != 0 {fTemp332} else {0.0});
-			*output0 = 0.5 * (self.fRec1[0] + self.fRec3[0] + self.fRec5[0] + self.fRec7[0] + self.fRec9[0] + self.fRec11[0] + self.fRec13[0] + self.fRec15[0]);
-			*output1 = 0.5 * (self.fRec0[0] + self.fRec2[0] + self.fRec4[0] + self.fRec6[0] + self.fRec8[0] + self.fRec10[0] + self.fRec12[0] + self.fRec14[0]);
+			*output0 = self.fRec1[0] + self.fRec3[0] + self.fRec5[0] + self.fRec7[0] + self.fRec9[0] + self.fRec11[0] + self.fRec13[0] + self.fRec15[0];
+			*output1 = self.fRec0[0] + self.fRec2[0] + self.fRec4[0] + self.fRec6[0] + self.fRec8[0] + self.fRec10[0] + self.fRec12[0] + self.fRec14[0];
 			self.iVec0[1] = self.iVec0[0];
 			self.fRec18[1] = self.fRec18[0];
 			self.fRec20[1] = self.fRec20[0];

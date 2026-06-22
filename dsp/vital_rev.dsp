@@ -19,4 +19,5 @@ j_time      = hslider("j_time", 0.55, 0, 1, 0.001);
 k_size      = hslider("k_size", 0.75, 0, 1, 0.001);
 
 process = re.vital_rev(a_prelow, b_prehigh, c_lowcut, d_highcut, e_lowgain,
-    f_highgain, g_chorus, h_chorusfreq, i_predelay, j_time, k_size, 1.0);
+    f_highgain, g_chorus, h_chorusfreq, i_predelay, j_time, k_size, 1.0)
+    : par(i, 2, *(2.0));   // re.vital_rev sums its output at 0.5x; restore unity
