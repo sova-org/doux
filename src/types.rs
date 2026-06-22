@@ -1146,8 +1146,8 @@ impl FromStr for FlangerMode {
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum VinylType {
     #[default]
-    Vinyl303,
-    Vinyl404,
+    Dull,
+    Clear,
     Cassette,
 }
 
@@ -1155,8 +1155,8 @@ impl VinylType {
     /// The `e_type` slider value the Faust DSP expects.
     pub fn to_index(self) -> f32 {
         match self {
-            Self::Vinyl303 => 0.0,
-            Self::Vinyl404 => 1.0,
+            Self::Dull => 0.0,
+            Self::Clear => 1.0,
             Self::Cassette => 2.0,
         }
     }
@@ -1167,8 +1167,8 @@ impl FromStr for VinylType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "vinyl303" | "303" | "0" => Ok(Self::Vinyl303),
-            "vinyl404" | "404" | "1" => Ok(Self::Vinyl404),
+            "dull" | "0" => Ok(Self::Dull),
+            "clear" | "1" => Ok(Self::Clear),
             "cassette" | "tape" | "2" => Ok(Self::Cassette),
             _ => Err(()),
         }

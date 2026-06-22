@@ -46,9 +46,9 @@ Tone tilt — negative darkens, positive brightens the high shelf.
 
 </CommandEntry>
 
-<CommandEntry name="vinyltype" type="enum" default="vinyl303" values={["vinyl303", "vinyl404", "cassette"]}>
+<CommandEntry name="vinyltype" type="enum" default="dull" values={["dull", "clear", "cassette"]}>
 
-Voicing. <strong>vinyl303</strong> is the warmest (dullest low-pass), <strong>vinyl404</strong> a touch brighter, <strong>cassette</strong> is mid-focused with the most hiss.
+Voicing. <strong>dull</strong> is the warmest (dullest low-pass), <strong>clear</strong> a touch brighter, <strong>cassette</strong> is mid-focused with the most hiss.
 
 <CodeEditor code={`/sound/saw/freq/110/vinyl/0.8/vinyltype/cassette`} rows={2} />
 

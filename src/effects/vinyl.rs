@@ -43,8 +43,8 @@ pub const INFO: ModuleInfo = ModuleInfo {
         ParamInfo {
             name: "vinyltype",
             aliases: &[],
-            description: "voicing (vinyl303, vinyl404, cassette)",
-            default: "vinyl303",
+            description: "voicing (dull, clear, cassette)",
+            default: "dull",
             min: 0.0,
             max: 2.0,
         },

@@ -1,7 +1,7 @@
 // VinylSim / Cassette "character" insert: wow + flutter (pitch wobble), band-
 // limiting, tape/vinyl hiss and gentle saturation — the lo-fi degrade box. One
 // mono instance per channel (so the hiss is decorrelated L/R). e_type picks the
-// voicing: 0 = vinyl303 (warmest), 1 = vinyl404 (brighter), 2 = cassette (mid-
+// voicing: 0 = dull (warmest), 1 = clear (brighter), 2 = cassette (mid-
 // focused, more hiss).
 //
 // Wow (slow) + flutter (fast) modulate a fractional delay read offset — the same

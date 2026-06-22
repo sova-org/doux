@@ -253,7 +253,7 @@ pub struct VoiceParams {
     pub vinylnoise: f32,
     /// Vinyl tone tilt (-1 darker .. 1 brighter).
     pub vinyltone: f32,
-    /// Vinyl voicing (vinyl303 / vinyl404 / cassette).
+    /// Vinyl voicing (dull / clear / cassette).
     pub vinyltype: VinylType,
 
     // ─────────────────────────────────────────────────────────────────────
@@ -437,7 +437,7 @@ impl Default for VoiceParams {
             vinylwow: 0.3,
             vinylnoise: 0.2,
             vinyltone: 0.0,
-            vinyltype: VinylType::Vinyl303,
+            vinyltype: VinylType::Dull,
             smear: 0.0,
             smearfreq: 1000.0,
             smearfb: 0.0,
