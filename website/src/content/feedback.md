@@ -52,29 +52,3 @@ Cross-channel blend in the feedback loop. 0 = self-feedback (each channel loops 
 <CodeEditor code={`/sound/pulse/freq/120/feedback/0.7/fbtime/180/fbdamp/0.3/fbcross/0.5/decay/0.5`} rows={2} />
 
 </CommandEntry>
-
-<CommandEntry name="fblfo" type="number" min={0} max={100} default={0} unit="Hz" mod>
-
-Feedback delay time LFO rate in Hz. Modulates the delay time to produce wobbling, warping delay tails. 0 = no modulation.
-
-<CodeEditor code={`/sound/saw/freq/100/feedback/0.7/fbtime/120/fblfo/2/fblfodepth/0.3/decay/0.5`} rows={2} />
-
-<CodeEditor code={`/sound/pulse/freq/80/feedback/0.8/fbtime/250/fblfo/0.5/decay/0.5`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fblfodepth" type="number" min={0} max={1} default={0.5} mod>
-
-Depth of the feedback delay time LFO modulation. Controls how much the delay time varies around its center value.
-
-<CodeEditor code={`/sound/saw/freq/100/feedback/0.7/fbtime/120/fblfo/3/fblfodepth/0.8/decay/0.5`} rows={2} />
-
-</CommandEntry>
-
-<CommandEntry name="fblfoshape" type="string" default="sine">
-
-Waveform shape of the feedback delay time LFO. Options: sine, tri, saw, square, ramp.
-
-<CodeEditor code={`/sound/saw/freq/100/feedback/0.7/fbtime/120/fblfo/2/fblfoshape/tri/decay/0.5`} rows={2} />
-
-</CommandEntry>

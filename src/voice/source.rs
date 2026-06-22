@@ -1,8 +1,8 @@
 //! Source generation - oscillators, samples, spread mode.
 
+use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
 #[cfg(feature = "native")]
 use crate::dsp::{exp2f, log2f};
-use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
 use crate::dsp::{PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;

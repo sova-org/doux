@@ -1,10 +1,11 @@
-//! Comb filter with damping.
+//! Comb filter metadata + params.
 //!
 //! Creates resonant peaks at `freq` and its harmonics by feeding delayed
-//! signal back into itself. Damping applies a lowpass in the feedback path,
-//! causing higher harmonics to decay faster (Karplus-Strong style).
+//! signal back into itself, with a lowpass in the feedback path (Karplus-Strong
+//! style). The DSP now lives in `dsp/comb.dsp` (`effects::FaustComb`); this
+//! module keeps the registry `INFO` and the `CombParams` the orbit threads into
+//! the Faust wrapper.
 
-use crate::dsp::DelayLine;
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -47,11 +48,6 @@ pub const INFO: ModuleInfo = ModuleInfo {
     ],
 };
 
-/// Max comb delay time in ms. Sized for `MAX_SAMPLE_RATE`.
-const MAX_DELAY_MS: usize = 50;
-const BUFFER_SIZE: usize =
-    (crate::types::MAX_SAMPLE_RATE * MAX_DELAY_MS / 1000).next_power_of_two();
-
 #[derive(Clone, Copy)]
 pub struct CombParams {
     pub freq: f32,
@@ -65,42 +61,6 @@ impl Default for CombParams {
             freq: 220.0,
             feedback: 0.9,
             damp: 0.1,
-        }
-    }
-}
-
-/// Feedback comb filter with one-pole damping.
-#[derive(Clone, Copy, Default)]
-pub struct Comb {
-    delay: DelayLine<BUFFER_SIZE>,
-    damp_state: f32,
-}
-
-impl Comb {
-    /// Processes one sample through the comb filter. Params are shared
-    /// across channels and supplied by the caller (typically the orbit).
-    pub fn process(&mut self, input: f32, p: &CombParams, sr: f32) -> f32 {
-        let delay_samples = (sr / p.freq).clamp(1.0, (BUFFER_SIZE - 1) as f32);
-        let delayed = self.delay.read(delay_samples);
-
-        let feedback = p.feedback.clamp(-0.99, 0.99);
-        let fb_signal = if p.damp > 0.0 {
-            self.damp_state = delayed * (1.0 - p.damp) + self.damp_state * p.damp;
-            self.damp_state
-        } else {
-            delayed
-        };
-
-        self.delay.write(input + fb_signal * feedback);
-        delayed
-    }
-
-    /// Block-variant: processes `n` samples in place by looping the per-sample
-    /// kernel. Params are constant across the block.
-    #[inline]
-    pub fn process_block(&mut self, buf: &mut [f32], n: usize, p: &CombParams, sr: f32) {
-        for slot in buf.iter_mut().take(n) {
-            *slot = self.process(*slot, p, sr);
         }
     }
 }

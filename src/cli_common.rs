@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::audio::{
-    find_device, get_host, host_controls_buffer_size, list_hosts, resolve_output_channels,
-    print_diagnostics, HostSelection,
+    find_device, get_host, host_controls_buffer_size, list_hosts, print_diagnostics,
+    resolve_output_channels, HostSelection,
 };
 use crate::error::DouxError;
 use crate::types::DEFAULT_BUFFER_SIZE;
@@ -435,8 +435,7 @@ pub fn build_audio_streams(
                     }
                 },
                 move |err: cpal::Error| match err.kind() {
-                    cpal::ErrorKind::DeviceNotAvailable
-                    | cpal::ErrorKind::StreamInvalidated => {
+                    cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated => {
                         eprintln!("[doux] output device lost: {err}");
                         flag.store(true, Ordering::Release);
                     }

@@ -1,5 +1,6 @@
 use crate::effects::{
-    Comb, CombParams, Compressor, Delay, FaustJpVerb, FaustVitalRev, Feedback, ReverbParams,
+    CombParams, Compressor, DelayParams, FaustComb, FaustDelay, FaustFeedback, FaustJpVerb,
+    FaustVitalRev, FeedbackParams, ReverbParams,
 };
 use crate::types::{ReverbType, StereoFrame, CHANNELS, MAX_BLOCK};
 use crate::voice::modulation::lcg;
@@ -10,7 +11,7 @@ const SILENCE_HOLDOFF_SECS: f32 = 1.0;
 pub const MAX_ORBIT_MODS: usize = 16;
 
 /// Continuous orbit FX params addressable by an inline ModChain. Enum/index
-/// params (delaytype, verbtype, fblfoshape, comporbit) stay static-only.
+/// params (delaytype, verbtype, comporbit) stay static-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OrbitParamId {
@@ -40,8 +41,6 @@ pub enum OrbitParamId {
     FbTime,
     FbDamp,
     FbCross,
-    FbLfo,
-    FbLfoDepth,
     CompAttack,
     CompRelease,
 }
@@ -83,16 +82,18 @@ pub struct Orbit {
     /// across chunks so the FX tail keeps flowing to the room after the source
     /// stops, released once the orbit goes silent.
     pub room_active: bool,
-    pub delay: Delay,
+    pub delay: FaustDelay,
+    pub delay_params: DelayParams,
     pub delay_level: f32,
     pub jpverb: FaustJpVerb,
     pub vital: FaustVitalRev,
     pub reverb_params: ReverbParams,
     pub verb_level: f32,
-    pub comb: [Comb; CHANNELS],
+    pub comb: [FaustComb; CHANNELS],
     pub comb_params: CombParams,
     pub comb_level: f32,
-    pub fb: Feedback,
+    pub fb: FaustFeedback,
+    pub fb_params: FeedbackParams,
     pub fb_level: f32,
     pub comp: Compressor,
     pub comp_orbit: usize,
@@ -101,6 +102,12 @@ pub struct Orbit {
     // === Param modulation (ticked once per block in `apply_mods`) ===
     param_mods: [(OrbitParamId, ParamMod); MAX_ORBIT_MODS],
     param_mod_count: u8,
+    // Previous block's send level per FX, for the per-sample send-level ramp in
+    // `process_block` (de-zippers a modulated send level — the staircase that
+    // lives in the native pre-scale, outside the Faust DSP).
+    prev_comb_level: f32,
+    prev_fb_level: f32,
+    prev_delay_level: f32,
     seed: u32,
     silent_samples: u32,
     silence_holdoff: u32,
@@ -118,16 +125,18 @@ impl Orbit {
             has_fx_send: false,
             has_pan_dry: false,
             room_active: false,
-            delay: Delay::new(sr),
+            delay: FaustDelay::new(sr),
+            delay_params: DelayParams::default(),
             delay_level: 0.0,
             jpverb: FaustJpVerb::new(sr),
             vital: FaustVitalRev::new(sr),
             reverb_params: ReverbParams::default(),
             verb_level: 0.0,
-            comb: [Comb::default(); CHANNELS],
+            comb: std::array::from_fn(|_| FaustComb::new(sr)),
             comb_params: CombParams::default(),
             comb_level: 0.0,
-            fb: Feedback::default(),
+            fb: FaustFeedback::new(sr),
+            fb_params: FeedbackParams::default(),
             fb_level: 0.0,
             comp: Compressor::default(),
             comp_orbit: 0,
@@ -135,6 +144,9 @@ impl Orbit {
             isr: 1.0 / sr,
             param_mods: [(OrbitParamId::Delay, ParamMod::default()); MAX_ORBIT_MODS],
             param_mod_count: 0,
+            prev_comb_level: 0.0,
+            prev_fb_level: 0.0,
+            prev_delay_level: 0.0,
             seed: lcg(index as u32 + 1),
             silent_samples: silence_holdoff + 1,
             silence_holdoff,
@@ -201,8 +213,8 @@ impl Orbit {
             OrbitParamId::Comb => self.comb_level,
             OrbitParamId::Feedback => self.fb_level,
             OrbitParamId::Comp => self.comp.params.amount,
-            OrbitParamId::DelayTime => self.delay.params.time,
-            OrbitParamId::DelayFeedback => self.delay.params.feedback,
+            OrbitParamId::DelayTime => self.delay_params.time,
+            OrbitParamId::DelayFeedback => self.delay_params.feedback,
             OrbitParamId::VerbDecay => self.reverb_params.decay,
             OrbitParamId::VerbDamp => self.reverb_params.damp,
             OrbitParamId::VerbPredelay => self.reverb_params.predelay,
@@ -219,11 +231,9 @@ impl Orbit {
             OrbitParamId::CombFreq => self.comb_params.freq,
             OrbitParamId::CombFeedback => self.comb_params.feedback,
             OrbitParamId::CombDamp => self.comb_params.damp,
-            OrbitParamId::FbTime => self.fb.params.time_ms,
-            OrbitParamId::FbDamp => self.fb.params.damp,
-            OrbitParamId::FbCross => self.fb.params.cross,
-            OrbitParamId::FbLfo => self.fb.params.lfo,
-            OrbitParamId::FbLfoDepth => self.fb.params.lfo_depth,
+            OrbitParamId::FbTime => self.fb_params.time_ms,
+            OrbitParamId::FbDamp => self.fb_params.damp,
+            OrbitParamId::FbCross => self.fb_params.cross,
             OrbitParamId::CompAttack => self.comp.params.attack,
             OrbitParamId::CompRelease => self.comp.params.release,
         }
@@ -239,8 +249,8 @@ impl Orbit {
             OrbitParamId::Comb => self.comb_level = v.max(0.0),
             OrbitParamId::Feedback => self.fb_level = v.max(0.0),
             OrbitParamId::Comp => self.comp.params.amount = v.max(0.0),
-            OrbitParamId::DelayTime => self.delay.params.time = v,
-            OrbitParamId::DelayFeedback => self.delay.params.feedback = v,
+            OrbitParamId::DelayTime => self.delay_params.time = v,
+            OrbitParamId::DelayFeedback => self.delay_params.feedback = v,
             OrbitParamId::VerbDecay => self.reverb_params.decay = v,
             OrbitParamId::VerbDamp => self.reverb_params.damp = v,
             OrbitParamId::VerbPredelay => self.reverb_params.predelay = v,
@@ -257,24 +267,42 @@ impl Orbit {
             OrbitParamId::CombFreq => self.comb_params.freq = v,
             OrbitParamId::CombFeedback => self.comb_params.feedback = v,
             OrbitParamId::CombDamp => self.comb_params.damp = v,
-            OrbitParamId::FbTime => self.fb.params.time_ms = v,
-            OrbitParamId::FbDamp => self.fb.params.damp = v,
-            OrbitParamId::FbCross => self.fb.params.cross = v,
-            OrbitParamId::FbLfo => self.fb.params.lfo = v,
-            OrbitParamId::FbLfoDepth => self.fb.params.lfo_depth = v,
+            OrbitParamId::FbTime => self.fb_params.time_ms = v,
+            OrbitParamId::FbDamp => self.fb_params.damp = v,
+            OrbitParamId::FbCross => self.fb_params.cross = v,
             OrbitParamId::CompAttack => self.comp.params.attack = v,
             OrbitParamId::CompRelease => self.comp.params.release = v,
         }
     }
 
-    /// Advance all active param mods by `n` samples and write the resulting
-    /// values. Runs before the silence bypass so a modulated send level can
-    /// wake the orbit and chains keep time through silent stretches.
-    fn apply_mods(&mut self, n: usize) {
+    /// Advance all active param mods by `n` samples. Block-rate params write a
+    /// single value (`tick_block`); the two audio-rate params (CombFreq, FbTime)
+    /// fill a per-sample buffer (`tick_into`) consumed as a Faust input, and
+    /// still sync their field to the block's final value. Runs before the
+    /// silence bypass so a modulated send level can wake the orbit and chains
+    /// keep time through silent stretches.
+    fn apply_mods(
+        &mut self,
+        n: usize,
+        freq_buf: &mut [f32; MAX_BLOCK],
+        time_buf: &mut [f32; MAX_BLOCK],
+    ) {
+        let isr = self.isr;
         for i in 0..self.param_mod_count as usize {
-            let (id, ref mut m) = self.param_mods[i];
-            let v = m.tick_block(self.isr, n);
-            self.write_param(id, v);
+            let id = self.param_mods[i].0;
+            match id {
+                OrbitParamId::CombFreq => {
+                    self.comb_params.freq = self.param_mods[i].1.tick_into(isr, &mut freq_buf[..n]);
+                }
+                OrbitParamId::FbTime => {
+                    self.fb_params.time_ms =
+                        self.param_mods[i].1.tick_into(isr, &mut time_buf[..n]);
+                }
+                _ => {
+                    let v = self.param_mods[i].1.tick_block(isr, n);
+                    self.write_param(id, v);
+                }
+            }
         }
     }
 
@@ -328,9 +356,16 @@ impl Orbit {
             n <= MAX_BLOCK,
             "Orbit::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
+        // Per-sample control buffers for the two audio-rate params (comb freq,
+        // feedback time). Pre-filled with the current static value so an
+        // unmodulated effect sees a constant signal identical to its old slider;
+        // `apply_mods` overwrites the trajectory when a ModChain is bound.
+        let mut freq_buf = [self.comb_params.freq; MAX_BLOCK];
+        let mut time_buf = [self.fb_params.time_ms; MAX_BLOCK];
+
         // Param mods first: the silence bypass below reads send levels, so a
         // modulated level must be current before `has_any_fx` is consulted.
-        self.apply_mods(n);
+        self.apply_mods(n, &mut freq_buf, &mut time_buf);
 
         // Room routing: latch on when a superpan voice sends with no pan dry; the
         // FX run on `bus + fx_send` and only the wet (recovered below) reaches the
@@ -395,48 +430,82 @@ impl Orbit {
         // below, so it must be cleared and mixed from here on.
         self.bus_used = true;
 
-        // Comb (per-channel mono resonator, shared params).
+        // Comb (per-channel mono resonator, shared params). The send level is
+        // ramped per sample from the previous block's value (`lvl` below) so a
+        // modulated comb level does not stair-step; constant level => step 0 =>
+        // exact `frame * level` (unchanged steady state).
         if self.comb_level > 0.0 {
             let level = self.comb_level;
+            let prev = self.prev_comb_level;
+            let step = (level - prev) / n as f32;
             let params = self.comb_params;
-            let sr = self.sr;
             let mut send = [0.0_f32; MAX_BLOCK];
             for c in 0..CHANNELS {
-                for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
-                    *slot = frame[c] * level;
+                for (i, (slot, frame)) in send
+                    .iter_mut()
+                    .take(n)
+                    .zip(self.bus.iter().take(n))
+                    .enumerate()
+                {
+                    *slot = frame[c] * (prev + step * (i as f32 + 1.0));
                 }
-                self.comb[c].process_block(&mut send[..n], n, &params, sr);
+                self.comb[c].process_block(&mut send[..n], n, &params, &freq_buf[..n]);
                 for (frame, &wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
                     frame[c] += wet;
                 }
             }
+            self.prev_comb_level = level;
         }
 
-        // Feedback (stereo short delay with cross-channel + LFO).
+        // Feedback (stereo short delay with cross-channel + LFO). Input pre-scale
+        // is ramped per sample (de-zippers a modulated send level); the same
+        // block-level `level` is still passed as the re-injection coefficient,
+        // which the DSP smooths internally (si.smooth on g_fb).
         if self.fb_level > 0.0 {
             let level = self.fb_level;
-            let sr = self.sr;
+            let prev = self.prev_fb_level;
+            let step = (level - prev) / n as f32;
+            let p = self.fb_params;
             let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-            for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
-                slot[0] = frame[0] * level;
-                slot[1] = frame[1] * level;
+            for (i, (slot, frame)) in send
+                .iter_mut()
+                .take(n)
+                .zip(self.bus.iter().take(n))
+                .enumerate()
+            {
+                let lvl = prev + step * (i as f32 + 1.0);
+                slot[0] = frame[0] * lvl;
+                slot[1] = frame[1] * lvl;
             }
-            self.fb.process_block(&mut send[..n], n, level, sr);
+            self.fb
+                .process_block(&mut send[..n], n, &p, level, &time_buf[..n]);
             for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
                 frame[0] += wet[0];
                 frame[1] += wet[1];
             }
+            self.prev_fb_level = level;
         }
 
-        // Delay (stereo).
+        // Delay (stereo). Send level ramped per sample (de-zippers a modulated
+        // delay level); delay time is already si.smooth-ed inside the DSP.
         if self.delay_level > 0.0 {
             let level = self.delay_level;
+            let prev = self.prev_delay_level;
+            let step = (level - prev) / n as f32;
+            let p = self.delay_params;
             let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-            for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
-                slot[0] = frame[0] * level;
-                slot[1] = frame[1] * level;
+            for (i, (slot, frame)) in send
+                .iter_mut()
+                .take(n)
+                .zip(self.bus.iter().take(n))
+                .enumerate()
+            {
+                let lvl = prev + step * (i as f32 + 1.0);
+                slot[0] = frame[0] * lvl;
+                slot[1] = frame[1] * lvl;
             }
-            self.delay.process_block(&mut send[..n], n);
+            self.delay.process_block(&mut send[..n], n, &p);
+            self.prev_delay_level = level;
             for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
                 frame[0] += wet[0];
                 frame[1] += wet[1];

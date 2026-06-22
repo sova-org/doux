@@ -501,6 +501,22 @@ impl ParamMod {
         v
     }
 
+    /// Advance the modulation by one step per element of `out`, writing the value
+    /// at each sample. The audio-rate counterpart of [`tick_block`]: where that
+    /// keeps only the final value (block-rate write), this keeps the whole
+    /// per-sample trajectory so a click-sensitive Faust param can be fed as an
+    /// audio-rate input. Returns the final value (for keeping the param field in
+    /// sync with the block boundary).
+    #[inline]
+    pub fn tick_into(&mut self, isr: f32, out: &mut [f32]) -> f32 {
+        let mut v = 0.0;
+        for slot in out.iter_mut() {
+            v = self.tick(isr);
+            *slot = v;
+        }
+        v
+    }
+
     fn tick_oscillate(&mut self, min: f32, max: f32, shape: ModShape) -> f32 {
         let range = max - min;
         match shape {

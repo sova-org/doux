@@ -27,6 +27,9 @@ specs=(
   "svf24:Svf24Dsp"
   "vital_rev:VitalRevDsp"
   "jpverb:JpverbDsp"
+  "comb:CombDsp"
+  "feedback:FeedbackDsp"
+  "delay:DelayDsp"
 )
 
 for spec in "${specs[@]}"; do

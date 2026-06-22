@@ -1,5 +1,5 @@
 // Soft saturation with a selectable shaper. doux params `distort` (drive),
-// `distortvol` (postgain), `distortmode` (curve 0-4).
+// `distortvol` (postgain), `distortmode` (curve 0-3).
 //   mode 0 = original (1+k)x/(1+k|x|) soft-sat with baked bias for even harmonics
 //            + drive-loudness comp (the bit-exact default).
 //   modes 1-3 = drive into a normalized +/-1 ADAA antialiased shaper (aanl.lib)

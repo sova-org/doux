@@ -276,8 +276,11 @@ impl Voice {
         // Short bandpassed noise click for the stick contact.
         self.drum_svf.cutoff = 3000.0 + self.params.harmonics * 6000.0;
         let click_noise = self.white();
-        let click =
-            self.drum_svf.process(click_noise, SvfMode::Bp, 0.5, self.sr) * decay(self.time, 200.0) * 0.5;
+        let click = self
+            .drum_svf
+            .process(click_noise, SvfMode::Bp, 0.5, self.sr)
+            * decay(self.time, 200.0)
+            * 0.5;
 
         tock + click
     }
@@ -328,15 +331,17 @@ impl Voice {
         // Body band: the metallic clang, highpassed, decaying fast.
         let cutoff = 2500.0 + self.params.harmonics * 12000.0;
         self.drum_svf.cutoff = cutoff;
-        let body = self.drum_svf.process(metallic, SvfMode::Hp, 0.15, self.sr) * decay(self.time, 10.0);
+        let body =
+            self.drum_svf.process(metallic, SvfMode::Hp, 0.15, self.sr) * decay(self.time, 10.0);
 
         // Air band: pink-shaped noise, very high, decaying slowly for the shimmer
         // tail — so the bright content outlasts the body instead of cutting with it.
         let w = self.white();
         let pink = self.pink_noise.next(w);
         self.drum_svf2.cutoff = 8000.0;
-        let sizzle =
-            self.drum_svf2.process(pink, SvfMode::Hp, 0.2, self.sr) * decay(self.time, 2.5) * self.params.timbre;
+        let sizzle = self.drum_svf2.process(pink, SvfMode::Hp, 0.2, self.sr)
+            * decay(self.time, 2.5)
+            * self.params.timbre;
 
         body + sizzle
     }

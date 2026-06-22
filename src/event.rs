@@ -156,9 +156,6 @@ pub struct Event {
     pub fbtime: Option<f32>,
     pub fbdamp: Option<f32>,
     pub fbcross: Option<f32>,
-    pub fblfo: Option<f32>,
-    pub fblfodepth: Option<f32>,
-    pub fblfoshape: Option<LfoShape>,
 
     // Chorus
     pub chorus: Option<f32>,
@@ -441,9 +438,6 @@ impl Event {
                 "fbtime" | "fbt" => parse_orbit_param!(val, fbtime, OrbitParamId::FbTime),
                 "fbdamp" | "fbd" => parse_orbit_param!(val, fbdamp, OrbitParamId::FbDamp),
                 "fbcross" | "fbc" => parse_orbit_param!(val, fbcross, OrbitParamId::FbCross),
-                "fblfo" => parse_orbit_param!(val, fblfo, OrbitParamId::FbLfo),
-                "fblfodepth" => parse_orbit_param!(val, fblfodepth, OrbitParamId::FbLfoDepth),
-                "fblfoshape" => event.fblfoshape = val.parse().ok(),
                 "chorus" | "chorusrate" => parse_param!(val, chorus, ParamId::Chorus),
                 "chorusdepth" => parse_param!(val, chorusdepth, ParamId::Chorusdepth),
                 "chorusdelay" => parse_param!(val, chorusdelay, ParamId::Chorusdelay),

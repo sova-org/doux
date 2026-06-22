@@ -16,16 +16,16 @@ mod reverb;
 mod smear;
 mod tilt;
 
-pub use comb::{Comb, CombParams};
+pub use comb::CombParams;
 pub use compressor::{Compressor, CompressorParams};
-pub use delay::Delay;
+pub use delay::DelayParams;
 pub use distort::DcBlocker;
 pub use faust_dsp::{
-    FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger, FaustFold, FaustHaas,
-    FaustJpVerb, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt,
-    FaustVitalRev, FaustWrap,
+    FaustChorus, FaustCoarse, FaustComb, FaustCrush, FaustDelay, FaustDistort, FaustEq,
+    FaustFeedback, FaustFlanger, FaustFold, FaustHaas, FaustJpVerb, FaustLadder, FaustPhaser,
+    FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt, FaustVitalRev, FaustWrap,
 };
-pub use feedback::{Feedback, FeedbackParams};
+pub use feedback::FeedbackParams;
 pub use ladder::LadderMode;
 pub use limiter::{Limiter, LIMITER_RELEASE_SECS, LIMITER_THRESHOLD};
 pub use reverb::ReverbParams;

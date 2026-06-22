@@ -12,9 +12,7 @@ use pluck::PluckState;
 
 use std::f32::consts::PI;
 
-use crate::dsp::{
-    cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode,
-};
+use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode};
 use crate::effects::{
     DcBlocker, FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger,
     FaustFold, FaustHaas, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade,
@@ -840,8 +838,13 @@ impl Voice {
                 if let Some(amount) = self.params.fold {
                     let mode = self.params.foldmode.to_index();
                     for c in 0..nch {
-                        self.fx.fold_state[c]
-                            .process_block(&mut self.scratch[..n], n, c, amount, mode);
+                        self.fx.fold_state[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            amount,
+                            mode,
+                        );
                     }
                 }
             }
@@ -857,8 +860,14 @@ impl Voice {
                     let postgain = self.params.distortvol;
                     let mode = self.params.distortmode.to_index();
                     for c in 0..nch {
-                        self.fx.distort_state[c]
-                            .process_block(&mut self.scratch[..n], n, c, amount, postgain, mode);
+                        self.fx.distort_state[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            amount,
+                            postgain,
+                            mode,
+                        );
                     }
                 }
             }
@@ -1265,8 +1274,7 @@ impl Voice {
                     let fb = self.params.flangerfeedback;
                     for c in 0..nch {
                         let x = self.scratch[i][c];
-                        self.scratch[i][c] =
-                            self.fx.flanger[c].process(x, rate, depth, fb, sr);
+                        self.scratch[i][c] = self.fx.flanger[c].process(x, rate, depth, fb, sr);
                     }
                 }
             }

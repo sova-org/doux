@@ -912,9 +912,9 @@ impl Engine {
             set_pos!(comb, orbit.comb_level);
             set_pos!(feedback, orbit.fb_level);
             set_pos!(comp, orbit.comp.params.amount);
-            set!(delaytime, orbit.delay.params.time);
-            set!(delayfeedback, orbit.delay.params.feedback);
-            set!(delaytype, orbit.delay.params.delay_type);
+            set!(delaytime, orbit.delay_params.time);
+            set!(delayfeedback, orbit.delay_params.feedback);
+            set!(delaytype, orbit.delay_params.delay_type);
             set!(verbtype, orbit.reverb_params.verb_type);
             set!(verbdecay, orbit.reverb_params.decay);
             set!(verbdamp, orbit.reverb_params.damp);
@@ -932,12 +932,9 @@ impl Engine {
             set!(combfreq, orbit.comb_params.freq);
             set!(combfeedback, orbit.comb_params.feedback);
             set!(combdamp, orbit.comb_params.damp);
-            set!(fbtime, orbit.fb.params.time_ms);
-            set!(fbdamp, orbit.fb.params.damp);
-            set!(fbcross, orbit.fb.params.cross);
-            set!(fblfo, orbit.fb.params.lfo);
-            set!(fblfodepth, orbit.fb.params.lfo_depth);
-            set!(fblfoshape, orbit.fb.params.lfo_shape);
+            set!(fbtime, orbit.fb_params.time_ms);
+            set!(fbdamp, orbit.fb_params.damp);
+            set!(fbcross, orbit.fb_params.cross);
             set!(compattack, orbit.comp.params.attack);
             set!(comprelease, orbit.comp.params.release);
             set!(comporbit, orbit.comp_orbit);
@@ -1188,20 +1185,21 @@ impl Engine {
             // drum defaults, no `init_envelope` backfill stomping the rest.
             copy_opt!(event, v.params, envdelay, attack, hold, decay, sustain, release);
         } else {
-            let (att, dec, sus, rel) =
-                if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) = v.params.sound.drum_defaults() {
-                    if event.freq.is_none() {
-                        v.params.freq = d_freq;
-                    }
-                    (
-                        event.attack.or(Some(d_att)),
-                        event.decay.or(Some(d_dec)),
-                        event.sustain.or(Some(d_sus)),
-                        event.release.or(Some(d_rel)),
-                    )
-                } else {
-                    (event.attack, event.decay, event.sustain, event.release)
-                };
+            let (att, dec, sus, rel) = if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) =
+                v.params.sound.drum_defaults()
+            {
+                if event.freq.is_none() {
+                    v.params.freq = d_freq;
+                }
+                (
+                    event.attack.or(Some(d_att)),
+                    event.decay.or(Some(d_dec)),
+                    event.sustain.or(Some(d_sus)),
+                    event.release.or(Some(d_rel)),
+                )
+            } else {
+                (event.attack, event.decay, event.sustain, event.release)
+            };
             let gain_env = init_envelope(None, event.envdelay, att, event.hold, dec, sus, rel);
             if gain_env.active {
                 v.params.envdelay = gain_env.dly;
@@ -1250,7 +1248,14 @@ impl Engine {
         );
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
-        copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay, chorustype);
+        copy_opt!(
+            event,
+            v.params,
+            chorus,
+            chorusdepth,
+            chorusdelay,
+            chorustype
+        );
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
         copy_opt!(event, v.params, distortvol, distortmode, foldmode);
         copy_opt!(event, v.params, width, haas);

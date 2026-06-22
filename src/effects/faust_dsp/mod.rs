@@ -14,6 +14,9 @@
 //! index 0. The wrappers mirror the `process` / `process_block` convention of
 //! the hand-written voice-insert effects so call sites are unchanged.
 
+use super::comb::CombParams;
+use super::delay::DelayParams;
+use super::feedback::FeedbackParams;
 use super::reverb::ReverbParams;
 use super::LadderMode;
 use crate::dsp::SvfMode;
@@ -182,6 +185,21 @@ mod jpverb_dsp {
     use faust_types::*;
     include!("jpverb_gen.rs");
 }
+mod comb_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("comb_gen.rs");
+}
+mod feedback_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("feedback_gen.rs");
+}
+mod delay_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("delay_gen.rs");
+}
 
 /// Run a mono Faust DSP for one sample. Used by the per-sample dispatch path so
 /// a modulated param threads in at sample rate. Params must be set beforehand.
@@ -208,6 +226,55 @@ fn run_block<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [StereoFrame], n: usiz
     }
 }
 
+/// Run a mono Faust DSP whose FIRST input is a per-sample control signal and
+/// second input is the audio in `buf` (a flat mono slice, the per-channel comb's
+/// send scratch on the orbit bus), over `n` samples in place. `ctrl` must be at
+/// least `n` long. The flat-mono counterpart of [`run_block_stereo_mod`] for
+/// DSPs that take a click-sensitive param as input 0.
+#[inline]
+fn run_block_flat_mod<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [f32], n: usize, ctrl: &[f32]) {
+    let mut input = [0.0f32; MAX_BLOCK];
+    let mut output = [0.0f32; MAX_BLOCK];
+    input[..n].copy_from_slice(&buf[..n]);
+    dsp.compute(
+        n as i32,
+        &[&ctrl[..n], &input[..n]],
+        &mut [&mut output[..n]],
+    );
+    buf[..n].copy_from_slice(&output[..n]);
+}
+
+/// Run a stereo (2-in/2-out audio) Faust DSP whose FIRST input is a per-sample
+/// control signal, so the actual input order is `[ctrl, l, r]`, over `n` frames
+/// of `buf` in place. `ctrl` must be at least `n` long. The audio-rate
+/// counterpart of [`run_block_stereo`] for DSPs that take a click-sensitive
+/// param as input 0.
+#[inline]
+fn run_block_stereo_mod<D: FaustDsp<T = f32>>(
+    dsp: &mut D,
+    buf: &mut [StereoFrame],
+    n: usize,
+    ctrl: &[f32],
+) {
+    let mut in_l = [0.0f32; MAX_BLOCK];
+    let mut in_r = [0.0f32; MAX_BLOCK];
+    let mut out_l = [0.0f32; MAX_BLOCK];
+    let mut out_r = [0.0f32; MAX_BLOCK];
+    for i in 0..n {
+        in_l[i] = buf[i][0];
+        in_r[i] = buf[i][1];
+    }
+    dsp.compute(
+        n as i32,
+        &[&ctrl[..n], &in_l[..n], &in_r[..n]],
+        &mut [&mut out_l[..n], &mut out_r[..n]],
+    );
+    for i in 0..n {
+        buf[i][0] = out_l[i];
+        buf[i][1] = out_r[i];
+    }
+}
+
 /// Run a stereo (2-in/2-out) Faust DSP for one frame. Params set beforehand.
 #[inline]
 fn run_one_stereo<D: FaustDsp<T = f32>>(dsp: &mut D, l: f32, r: f32) -> [f32; 2] {
@@ -215,7 +282,11 @@ fn run_one_stereo<D: FaustDsp<T = f32>>(dsp: &mut D, l: f32, r: f32) -> [f32; 2]
     let in_r = [r];
     let mut out_l = [0.0f32];
     let mut out_r = [0.0f32];
-    dsp.compute(1, &[&in_l[..], &in_r[..]], &mut [&mut out_l[..], &mut out_r[..]]);
+    dsp.compute(
+        1,
+        &[&in_l[..], &in_r[..]],
+        &mut [&mut out_l[..], &mut out_r[..]],
+    );
     [out_l[0], out_r[0]]
 }
 
@@ -708,7 +779,15 @@ impl FaustPhaser {
     }
 
     #[inline]
-    pub fn process(&mut self, x: f32, rate: f32, depth: f32, center: f32, sweep: f32, sr: f32) -> f32 {
+    pub fn process(
+        &mut self,
+        x: f32,
+        rate: f32,
+        depth: f32,
+        center: f32,
+        sweep: f32,
+        sr: f32,
+    ) -> f32 {
         self.ensure_sr(sr);
         self.write_params(rate, depth, center, sweep);
         run_one(&mut self.dsp, x)
@@ -1234,5 +1313,112 @@ impl FaustJpVerb {
         self.dsp.set_param(Self::LOWCUT, p.lowcut);
         self.dsp.set_param(Self::HIGHCUT, p.highcut);
         run_block_stereo(&mut *self.dsp, frames, n);
+    }
+}
+
+/// Feedback comb resonator (Karplus-Strong style), Faust-generated — a per-orbit
+/// bus send effect. Mono (1-in/1-out), one instance per channel, mirroring the
+/// hand-written `effects::comb::Comb`. Initialized at the orbit sample rate;
+/// `combfreq` derives the delay length from `ma.SR` inside the DSP.
+pub struct FaustComb {
+    dsp: comb_dsp::CombDsp,
+}
+
+impl FaustComb {
+    // Slider order in comb.dsp (b_/c_ prefixes). `freq` is an audio-rate input
+    // (channel 0), not a slider, so the gain params start at index 0.
+    const FB: ParamIndex = ParamIndex(0);
+    const DAMP: ParamIndex = ParamIndex(1);
+
+    pub fn new(sr: f32) -> Self {
+        assert_slider_idx!(comb_dsp::CombDsp, "b_fb" => Self::FB.0, "c_damp" => Self::DAMP.0);
+        let mut dsp = comb_dsp::CombDsp::new();
+        dsp.init(sr as i32);
+        Self { dsp }
+    }
+
+    /// Process `n` samples in place. `freq` is the per-sample fundamental (Hz),
+    /// fed as Faust input 0 so a swept ModChain stays audio-rate (no pitch-zipper).
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [f32], n: usize, p: &CombParams, freq: &[f32]) {
+        self.dsp.set_param(Self::FB, p.feedback);
+        self.dsp.set_param(Self::DAMP, p.damp);
+        run_block_flat_mod(&mut self.dsp, buf, n, freq);
+    }
+}
+
+/// Stereo feedback delay (cross-channel + LFO-modulated time), Faust-generated —
+/// a per-orbit bus send effect. Replaces `effects::feedback::Feedback`. Stereo
+/// 2-in/2-out, block-rate, initialized in `new(sr)`. The orbit's send level is
+/// passed in as `fb_amount` (the re-injection coefficient), matching the native
+/// call. Boxed: the 1 s stereo delay lines are multi-megabyte.
+pub struct FaustFeedback {
+    dsp: Box<feedback_dsp::FeedbackDsp>,
+}
+
+impl FaustFeedback {
+    // Slider order in feedback.dsp (b_/c_/g_ prefixes). `time` is an audio-rate
+    // input (channel 0), not a slider, so the remaining params start at index 0.
+    const DAMP: ParamIndex = ParamIndex(0);
+    const CROSS: ParamIndex = ParamIndex(1);
+    const FB: ParamIndex = ParamIndex(2);
+
+    pub fn new(sr: f32) -> Self {
+        assert_slider_idx!(feedback_dsp::FeedbackDsp,
+            "b_damp" => Self::DAMP.0, "c_cross" => Self::CROSS.0, "g_fb" => Self::FB.0);
+        let mut dsp = boxed_zeroed::<feedback_dsp::FeedbackDsp>();
+        dsp.init(sr as i32);
+        Self { dsp }
+    }
+
+    /// Process `n` stereo frames in place. `time` is the per-sample base delay
+    /// (ms), fed as Faust input 0 so a swept ModChain stays audio-rate.
+    /// `fb_amount` is the orbit send level doubling as the re-injection
+    /// coefficient.
+    #[inline]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        p: &FeedbackParams,
+        fb_amount: f32,
+        time: &[f32],
+    ) {
+        self.dsp.set_param(Self::DAMP, p.damp);
+        self.dsp.set_param(Self::CROSS, p.cross);
+        self.dsp.set_param(Self::FB, fb_amount);
+        run_block_stereo_mod(&mut *self.dsp, buf, n, time);
+    }
+}
+
+/// Stereo multi-algorithm delay (standard/pingpong/tape/multitap), Faust-
+/// generated — a per-orbit bus send effect. Replaces `effects::delay::Delay`.
+/// Stereo 2-in/2-out, block-rate, initialized in `new(sr)`. All four algorithms
+/// run every block (Faust has no cheap branch over stateful blocks); `delaytype`
+/// selects the output. Boxed: the four 65 k-sample stereo lines are ~2 MB.
+pub struct FaustDelay {
+    dsp: Box<delay_dsp::DelayDsp>,
+}
+
+impl FaustDelay {
+    // Slider order in delay.dsp (a_/b_/c_ prefixes).
+    const TIME: ParamIndex = ParamIndex(0);
+    const FB: ParamIndex = ParamIndex(1);
+    const TYPE: ParamIndex = ParamIndex(2);
+
+    pub fn new(sr: f32) -> Self {
+        assert_slider_idx!(delay_dsp::DelayDsp,
+            "a_time" => Self::TIME.0, "b_fb" => Self::FB.0, "c_type" => Self::TYPE.0);
+        let mut dsp = boxed_zeroed::<delay_dsp::DelayDsp>();
+        dsp.init(sr as i32);
+        Self { dsp }
+    }
+
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, p: &DelayParams) {
+        self.dsp.set_param(Self::TIME, p.time);
+        self.dsp.set_param(Self::FB, p.feedback);
+        self.dsp.set_param(Self::TYPE, p.delay_type as u32 as f32);
+        run_block_stereo(&mut *self.dsp, buf, n);
     }
 }
