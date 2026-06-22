@@ -14,7 +14,7 @@
 
 use crate::dsp::PhaseShape;
 use crate::superpan::SpeakerSet;
-use crate::types::{LfoShape, Source, SubWave, SyncMode};
+use crate::types::{ChorusType, DistortMode, FoldMode, LfoShape, Source, SubWave, SyncMode};
 
 /// All parameters that control a voice's sound generation.
 ///
@@ -245,6 +245,8 @@ pub struct VoiceParams {
     pub chorusdepth: f32,
     /// Chorus base delay time in ms.
     pub chorusdelay: f32,
+    /// Chorus voicing (classic / ensemble / dimension).
+    pub chorustype: ChorusType,
 
     // ─────────────────────────────────────────────────────────────────────
     // Distortion
@@ -261,6 +263,10 @@ pub struct VoiceParams {
     pub distort: Option<f32>,
     /// Distortion output volume compensation.
     pub distortvol: f32,
+    /// Distortion saturator curve (soft / tanh / arctan / hardclip).
+    pub distortmode: DistortMode,
+    /// Wavefolder shape (triangle / sine / wrap).
+    pub foldmode: FoldMode,
 
     // ─────────────────────────────────────────────────────────────────────
     // Stereo
@@ -294,6 +300,8 @@ pub struct VoiceParams {
     pub eqlofreq: f32,
     /// Mid peak frequency in Hz.
     pub eqmidfreq: f32,
+    /// Mid peak Q (bandwidth). 0.7 = the original fixed value; higher = narrower.
+    pub eqmidq: f32,
     /// High shelf frequency in Hz.
     pub eqhifreq: f32,
     /// Tilt EQ (-1.0 = dark, 0.0 = flat, 1.0 = bright).
@@ -394,12 +402,15 @@ impl Default for VoiceParams {
             chorus: 0.0,
             chorusdepth: 0.35,
             chorusdelay: 25.0,
+            chorustype: ChorusType::Classic,
             coarse: None,
             crush: None,
             fold: None,
             wrap: None,
             distort: None,
             distortvol: 1.0,
+            distortmode: DistortMode::Soft,
+            foldmode: FoldMode::Triangle,
             width: 1.0,
             haas: 0.0,
             superpan: None,
@@ -410,6 +421,7 @@ impl Default for VoiceParams {
             eqhi: 0.0,
             eqlofreq: 200.0,
             eqmidfreq: 1000.0,
+            eqmidq: 0.7,
             eqhifreq: 5000.0,
             tilt: 0.0,
             orbit: 0,

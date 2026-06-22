@@ -28,7 +28,7 @@ Low shelf gain at 200Hz.
 
 <CommandEntry name="eqmid" type="number" default={0} unit="dB" mod>
 
-Mid peak gain at 1000Hz (Q 0.7).
+Mid peak gain at 1000Hz (Q adjustable via `eqmidq`, default 0.7).
 
 <CodeEditor code={`/sound/saw/freq/50/eqmid/4`} rows={2} />
 
@@ -63,6 +63,14 @@ Low shelf frequency.
 Mid peak frequency.
 
 <CodeEditor code={`/sound/saw/freq/50/eqmid/4/eqmidfreq/2000`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="eqmidq" type="number" min={0.2} max={8} default={0.7} mod>
+
+Mid peak Q (bandwidth). 0.7 is the original broad bell; higher values narrow it toward a surgical notch.
+
+<CodeEditor code={`/sound/saw/freq/50/eqmid/12/eqmidq/4`} rows={2} />
 
 </CommandEntry>
 

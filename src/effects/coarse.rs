@@ -13,7 +13,7 @@
 //! Output: [a, a, a, a, e, e, e, e, ...]
 //! ```
 
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "coarse",
@@ -29,38 +29,5 @@ pub const INFO: ModuleInfo = ModuleInfo {
     }],
 };
 
-/// Sample-and-hold decimator for lo-fi effects.
-///
-/// Holds input values for `factor` samples, reducing effective sample rate.
-/// Often combined with bit depth reduction for full bitcrusher effects.
-#[derive(Clone, Copy, Default)]
-pub struct Coarse {
-    /// Currently held sample value.
-    hold: f32,
-    /// Sample counter (0 to factor-1).
-    t: usize,
-}
-
-impl Coarse {
-    #[inline]
-    pub fn process(&mut self, input: f32, factor: f32) -> f32 {
-        let stride = factor.max(1.0) as usize;
-        if self.t == 0 {
-            self.hold = input;
-        }
-        self.t = (self.t + 1) % stride;
-        self.hold
-    }
-
-    #[inline]
-    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, factor: f32) {
-        let stride = factor.max(1.0) as usize;
-        for slot in buf.iter_mut().take(n) {
-            if self.t == 0 {
-                self.hold = slot[ch];
-            }
-            self.t = (self.t + 1) % stride;
-            slot[ch] = self.hold;
-        }
-    }
-}
+// The sample-rate decimator is now Faust-generated; see [`super::faust_dsp`].
+// Only the `coarse` parameter metadata (`INFO`) remains here.

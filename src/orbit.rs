@@ -1,5 +1,5 @@
 use crate::effects::{
-    Comb, CombParams, Compressor, DattorroVerb, Delay, Feedback, ReverbParams, VitalVerb,
+    Comb, CombParams, Compressor, Delay, FaustJpVerb, FaustVitalRev, Feedback, ReverbParams,
 };
 use crate::types::{ReverbType, StereoFrame, CHANNELS, MAX_BLOCK};
 use crate::voice::modulation::lcg;
@@ -31,6 +31,7 @@ pub enum OrbitParamId {
     VerbLowcut,
     VerbHighcut,
     VerbLowgain,
+    VerbHighgain,
     VerbChorus,
     VerbChorusFreq,
     CombFreq,
@@ -84,8 +85,8 @@ pub struct Orbit {
     pub room_active: bool,
     pub delay: Delay,
     pub delay_level: f32,
-    pub dattorro: DattorroVerb,
-    pub vital: VitalVerb,
+    pub jpverb: FaustJpVerb,
+    pub vital: FaustVitalRev,
     pub reverb_params: ReverbParams,
     pub verb_level: f32,
     pub comb: [Comb; CHANNELS],
@@ -119,8 +120,8 @@ impl Orbit {
             room_active: false,
             delay: Delay::new(sr),
             delay_level: 0.0,
-            dattorro: DattorroVerb::new(sr),
-            vital: VitalVerb::new(sr),
+            jpverb: FaustJpVerb::new(sr),
+            vital: FaustVitalRev::new(sr),
             reverb_params: ReverbParams::default(),
             verb_level: 0.0,
             comb: [Comb::default(); CHANNELS],
@@ -212,6 +213,7 @@ impl Orbit {
             OrbitParamId::VerbLowcut => self.reverb_params.lowcut,
             OrbitParamId::VerbHighcut => self.reverb_params.highcut,
             OrbitParamId::VerbLowgain => self.reverb_params.lowgain,
+            OrbitParamId::VerbHighgain => self.reverb_params.highgain,
             OrbitParamId::VerbChorus => self.reverb_params.chorus,
             OrbitParamId::VerbChorusFreq => self.reverb_params.chorus_freq,
             OrbitParamId::CombFreq => self.comb_params.freq,
@@ -249,6 +251,7 @@ impl Orbit {
             OrbitParamId::VerbLowcut => self.reverb_params.lowcut = v,
             OrbitParamId::VerbHighcut => self.reverb_params.highcut = v,
             OrbitParamId::VerbLowgain => self.reverb_params.lowgain = v,
+            OrbitParamId::VerbHighgain => self.reverb_params.highgain = v,
             OrbitParamId::VerbChorus => self.reverb_params.chorus = v,
             OrbitParamId::VerbChorusFreq => self.reverb_params.chorus_freq = v,
             OrbitParamId::CombFreq => self.comb_params.freq = v,
@@ -444,32 +447,21 @@ impl Orbit {
         if self.verb_level > 0.0 {
             let level = self.verb_level;
             let rp = &self.reverb_params;
+            // Both reverbs are stereo (2-in/2-out) Faust effects run fully wet:
+            // build a stereo send = bus * level, run the chosen reverb, and add
+            // the wet back onto the bus.
+            let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
+            for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
+                slot[0] = frame[0] * level;
+                slot[1] = frame[1] * level;
+            }
             match rp.verb_type {
-                ReverbType::Plate => {
-                    // Mono-summed input into one Dattorro (mono in, stereo
-                    // out); its decorrelated L/R tap networks feed bus L/R.
-                    let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-                    for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
-                        slot[0] = (frame[0] + frame[1]) * 0.5 * level;
-                    }
-                    self.dattorro.process_block(&mut send[..n], n, rp);
-                    for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
-                        frame[0] += wet[0];
-                        frame[1] += wet[1];
-                    }
-                }
-                ReverbType::Space => {
-                    let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-                    for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
-                        slot[0] = frame[0] * level;
-                        slot[1] = frame[1] * level;
-                    }
-                    self.vital.process_block(&mut send[..n], n, rp);
-                    for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
-                        frame[0] += wet[0];
-                        frame[1] += wet[1];
-                    }
-                }
+                ReverbType::Cloud => self.jpverb.process_block(&mut send[..n], n, rp),
+                ReverbType::Space => self.vital.process_block(&mut send[..n], n, rp),
+            }
+            for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+                frame[0] += wet[0];
+                frame[1] += wet[1];
             }
         }
 

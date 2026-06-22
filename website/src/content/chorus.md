@@ -41,3 +41,17 @@ Chorus base delay time in milliseconds.
 <CodeEditor code={`/sound/saw/freq/200/chorus/0.3/chorusdelay/30`} rows={2} />
 
 </CommandEntry>
+
+<CommandEntry name="chorustype" type="enum" default="classic" values={["classic", "ensemble", "dimension"]}>
+
+Chorus voicing. The default reproduces the original 3-voice chorus exactly.
+
+<ul>
+<li><strong>classic</strong> — 3-voice chorus (the default).</li>
+<li><strong>ensemble</strong> — 4 voices, wider detune. Juno-style lushness.</li>
+<li><strong>dimension</strong> — 2 quadrature voices, deeper, no centre.</li>
+</ul>
+
+<CodeEditor code={`/sound/saw/freq/100/chorus/0.3/chorustype/ensemble`} rows={2} />
+
+</CommandEntry>

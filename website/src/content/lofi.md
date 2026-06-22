@@ -42,6 +42,20 @@ Reflective triangle wavefold (Buchla/Serge-style). At 0, near-passthrough. At 0.
 
 </CommandEntry>
 
+<CommandEntry name="foldmode" type="enum" default="triangle" values={["triangle", "sine", "wrap"]}>
+
+Fold shape. The default reproduces the original triangle fold exactly.
+
+<ul>
+<li><strong>triangle</strong> — Reflective triangle fold (the default). Rich odd harmonics.</li>
+<li><strong>sine</strong> — Sine fold. Rounder, fewer high harmonics.</li>
+<li><strong>wrap</strong> — Sawtooth wrap. Harsher, more digital.</li>
+</ul>
+
+<CodeEditor code={`/sound/sine/fold/.8/foldmode/sine`} rows={2} />
+
+</CommandEntry>
+
 <CommandEntry name="wrap" type="number" min={1} default={1} mod>
 
 Wrap distortion. Signal wraps around creating harsh digital artifacts.
@@ -65,5 +79,20 @@ Soft-clipping waveshaper using <code>(1+k)&#42;x / (1+k&#42;|x|)</code> where <c
 Output gain applied after distortion to compensate for increased level.
 
 <CodeEditor code={`/sound/sine/distort/4/distortvol/.5`} rows={2} />
+
+</CommandEntry>
+
+<CommandEntry name="distortmode" type="enum" default="soft" values={["soft", "tanh", "arctan", "hardclip"]}>
+
+Saturator curve. The default reproduces the original soft clip exactly; the others are antialiased (ADAA) shapers driven by the <code>distort</code> amount.
+
+<ul>
+<li><strong>soft</strong> — Original <code>(1+k)&#42;x / (1+k&#42;|x|)</code> soft clip (the default).</li>
+<li><strong>tanh</strong> — Smooth hyperbolic-tangent saturation.</li>
+<li><strong>arctan</strong> — Gentler arctangent knee.</li>
+<li><strong>hardclip</strong> — Hard digital clip.</li>
+</ul>
+
+<CodeEditor code={`/sound/saw/distort/8/distortmode/tanh`} rows={2} />
 
 </CommandEntry>

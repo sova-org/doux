@@ -1,7 +1,8 @@
 use crate::orbit::OrbitParamId;
 use crate::superpan::SpeakerSet;
 use crate::types::{
-    midi2freq, DelayType, GenericSlot, LfoShape, ReverbType, Source, SubWave, SyncMode,
+    midi2freq, ChorusType, DelayType, DistortMode, FoldMode, GenericSlot, LfoShape, ReverbType,
+    Source, SubWave, SyncMode,
 };
 use crate::voice::{ModChain, ParamId};
 
@@ -163,6 +164,7 @@ pub struct Event {
     pub chorus: Option<f32>,
     pub chorusdepth: Option<f32>,
     pub chorusdelay: Option<f32>,
+    pub chorustype: Option<ChorusType>,
 
     // Comb filter
     pub comb: Option<f32>,
@@ -183,6 +185,8 @@ pub struct Event {
     pub wrap: Option<f32>,
     pub distort: Option<f32>,
     pub distortvol: Option<f32>,
+    pub distortmode: Option<DistortMode>,
+    pub foldmode: Option<FoldMode>,
 
     // Stereo
     pub width: Option<f32>,
@@ -199,6 +203,7 @@ pub struct Event {
     pub eqhi: Option<f32>,
     pub eqlofreq: Option<f32>,
     pub eqmidfreq: Option<f32>,
+    pub eqmidq: Option<f32>,
     pub eqhifreq: Option<f32>,
     pub tilt: Option<f32>,
 
@@ -221,6 +226,7 @@ pub struct Event {
     pub verblowcut: Option<f32>,
     pub verbhighcut: Option<f32>,
     pub verblowgain: Option<f32>,
+    pub verbhighgain: Option<f32>,
     pub verbchorus: Option<f32>,
     pub verbchorusfreq: Option<f32>,
 
@@ -441,6 +447,7 @@ impl Event {
                 "chorus" | "chorusrate" => parse_param!(val, chorus, ParamId::Chorus),
                 "chorusdepth" => parse_param!(val, chorusdepth, ParamId::Chorusdepth),
                 "chorusdelay" => parse_param!(val, chorusdelay, ParamId::Chorusdelay),
+                "chorustype" | "ctype" => event.chorustype = val.parse().ok(),
                 "comb" => parse_orbit_param!(val, comb, OrbitParamId::Comb),
                 "combfreq" => parse_orbit_param!(val, combfreq, OrbitParamId::CombFreq),
                 "combfeedback" => {
@@ -461,6 +468,8 @@ impl Event {
                 "wrap" => parse_param!(val, wrap, ParamId::Wrap),
                 "distort" => parse_param!(val, distort, ParamId::Distort),
                 "distortvol" => event.distortvol = val.parse().ok(),
+                "distortmode" | "dmode" => event.distortmode = val.parse().ok(),
+                "foldmode" | "fmode" => event.foldmode = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),
                 "haas" => parse_param!(val, haas, ParamId::Haas),
                 "superpan" | "span" => parse_param!(val, superpan, ParamId::Superpan),
@@ -471,6 +480,7 @@ impl Event {
                 "eqhi" => parse_param!(val, eqhi, ParamId::Eqhi),
                 "eqlofreq" => parse_param!(val, eqlofreq, ParamId::EqLoFreq),
                 "eqmidfreq" => parse_param!(val, eqmidfreq, ParamId::EqMidFreq),
+                "eqmidq" => parse_param!(val, eqmidq, ParamId::EqMidQ),
                 "eqhifreq" => parse_param!(val, eqhifreq, ParamId::EqHiFreq),
                 "tilt" => parse_param!(val, tilt, ParamId::Tilt),
                 "delay" => parse_orbit_param!(val, delay, OrbitParamId::Delay),
@@ -493,6 +503,7 @@ impl Event {
                 "verblowcut" => parse_orbit_param!(val, verblowcut, OrbitParamId::VerbLowcut),
                 "verbhighcut" => parse_orbit_param!(val, verbhighcut, OrbitParamId::VerbHighcut),
                 "verblowgain" => parse_orbit_param!(val, verblowgain, OrbitParamId::VerbLowgain),
+                "verbhighgain" => parse_orbit_param!(val, verbhighgain, OrbitParamId::VerbHighgain),
                 "verbchorus" | "vchorus" => {
                     parse_orbit_param!(val, verbchorus, OrbitParamId::VerbChorus)
                 }

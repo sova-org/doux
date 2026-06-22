@@ -1,9 +1,9 @@
 //! Source generation - oscillators, samples, spread mode.
 
 #[cfg(feature = "native")]
-use crate::dsp::log2f;
+use crate::dsp::{exp2f, log2f};
 use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
-use crate::dsp::{exp2f, PhaseShape, Phasor};
+use crate::dsp::{PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
 use crate::types::{Source, SubWave, SyncMode, CHANNELS};
@@ -321,10 +321,10 @@ impl Voice {
                 if spread > 0.0 {
                     for i in 0..n {
                         let freq = self.tick_pre(isr);
-                        let s_main = self.run_spread(freq, isr);
-                        let s = self.run_sub(freq, isr, s_main);
+                        let (mid, side) = self.run_spread(freq, isr);
+                        let s = self.run_sub(freq, isr, mid);
                         self.scratch[i][0] = s;
-                        self.scratch[i][1] = 0.0;
+                        self.scratch[i][1] = side;
                         self.finish_sample(env[i], isr, i);
                     }
                 } else {
@@ -479,10 +479,10 @@ impl Voice {
                 if spread > 0.0 {
                     for i in 0..n {
                         let freq = self.tick_pre(isr);
-                        let s_main = self.run_spread(freq, isr);
-                        let s = self.run_sub(freq, isr, s_main);
+                        let (mid, side) = self.run_spread(freq, isr);
+                        let s = self.run_sub(freq, isr, mid);
                         self.scratch[i][0] = s;
-                        self.scratch[i][1] = 0.0;
+                        self.scratch[i][1] = side;
                         self.finish_sample(env[i], isr, i);
                     }
                 } else {
@@ -501,7 +501,7 @@ impl Voice {
         n
     }
 
-    fn run_spread(&mut self, freq: f32, isr: f32) -> f32 {
+    fn run_spread(&mut self, freq: f32, isr: f32) -> (f32, f32) {
         let mut left = 0.0;
         let mut right = 0.0;
         const PAN: [f32; 3] = [0.3, 0.6, 0.9];
@@ -536,8 +536,7 @@ impl Voice {
 
         let mid = (left + right) / 2.0;
         let side = (left - right) / 2.0;
-        self.spread_side = side / 4.0 * 0.5;
-        mid / 4.0 * 0.5
+        (mid / 4.0 * 0.5, side / 4.0 * 0.5)
     }
 
     fn run_sub(&mut self, freq: f32, isr: f32, current: f32) -> f32 {

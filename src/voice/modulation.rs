@@ -369,6 +369,7 @@ pub enum ParamId {
     Wrap,
     EqLoFreq,
     EqMidFreq,
+    EqMidQ,
     EqHiFreq,
     Mirror,
     SyncRatio,

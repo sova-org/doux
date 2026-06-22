@@ -974,7 +974,7 @@ impl FromStr for LfoShape {
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum ReverbType {
-    Plate,
+    Cloud,
     #[default]
     Space,
 }
@@ -984,7 +984,7 @@ impl FromStr for ReverbType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "plate" | "dattorro" | "0" => Ok(Self::Plate),
+            "cloud" | "jpverb" | "0" => Ok(Self::Cloud),
             "space" | "vital" | "1" => Ok(Self::Space),
             _ => Err(()),
         }
@@ -1033,16 +1033,109 @@ impl FromStr for DelayType {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum FilterType {
-    Lowpass,
-    Highpass,
-    Bandpass,
-    Notch,
-    Allpass,
-    Peaking,
-    Lowshelf,
-    Highshelf,
+/// Saturator curve for the `distort` insert. `Soft` is the original soft-clip;
+/// the rest are antialiased ADAA shapers (see `dsp/distort.dsp`).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum DistortMode {
+    #[default]
+    Soft,
+    Tanh,
+    Arctan,
+    Hardclip,
+}
+
+impl DistortMode {
+    /// The `distortmode` slider value the Faust DSP expects.
+    pub fn to_index(self) -> f32 {
+        match self {
+            Self::Soft => 0.0,
+            Self::Tanh => 1.0,
+            Self::Arctan => 2.0,
+            Self::Hardclip => 3.0,
+        }
+    }
+}
+
+impl FromStr for DistortMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "soft" | "0" => Ok(Self::Soft),
+            "tanh" | "1" => Ok(Self::Tanh),
+            "arctan" | "atan" | "2" => Ok(Self::Arctan),
+            "hardclip" | "clip" | "3" => Ok(Self::Hardclip),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Fold shape for the `fold` wavefolder insert. `Triangle` is the original
+/// reflective fold; see `dsp/fold.dsp`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum FoldMode {
+    #[default]
+    Triangle,
+    Sine,
+    Wrap,
+}
+
+impl FoldMode {
+    /// The `foldmode` slider value the Faust DSP expects.
+    pub fn to_index(self) -> f32 {
+        match self {
+            Self::Triangle => 0.0,
+            Self::Sine => 1.0,
+            Self::Wrap => 2.0,
+        }
+    }
+}
+
+impl FromStr for FoldMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "triangle" | "tri" | "0" => Ok(Self::Triangle),
+            "sine" | "sin" | "1" => Ok(Self::Sine),
+            "wrap" | "2" => Ok(Self::Wrap),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Voicing for the `chorus` insert. `Classic` is the original 3-voice chorus;
+/// see `dsp/chorus.dsp`.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum ChorusType {
+    #[default]
+    Classic,
+    Ensemble,
+    Dimension,
+}
+
+impl ChorusType {
+    /// The `chorustype` slider value the Faust DSP expects.
+    pub fn to_index(self) -> f32 {
+        match self {
+            Self::Classic => 0.0,
+            Self::Ensemble => 1.0,
+            Self::Dimension => 2.0,
+        }
+    }
+}
+
+impl FromStr for ChorusType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "classic" | "0" => Ok(Self::Classic),
+            "ensemble" | "1" => Ok(Self::Ensemble),
+            "dimension" | "dim" | "2" => Ok(Self::Dimension),
+            _ => Err(()),
+        }
+    }
 }
 
 pub fn midi2freq(note: f32) -> f32 {

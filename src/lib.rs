@@ -314,7 +314,7 @@ impl Engine {
             sr: config.sample_rate,
             isr: 1.0 / config.sample_rate,
             max_voices: config.max_voices,
-            voices: vec![Voice::default(); config.max_voices],
+            voices: (0..config.max_voices).map(|_| Voice::default()).collect(),
             active_voices: 0,
             orbits,
             schedule: Schedule::new(),
@@ -327,8 +327,7 @@ impl Engine {
             superpan_acc: vec![0.0; MAX_BLOCK * config.output_channels],
             superpan_acc_used: false,
             master_dc: [0.0; MAX_OUTPUT_CHANNELS],
-            // Bilinear one-pole coeff (same formula as vital_reverb's
-            // freq_to_coeff): w = PI * f / sr, coeff = 2w / (1 + 2w).
+            // Bilinear one-pole coeff: w = PI * f / sr, coeff = 2w / (1 + 2w).
             master_dc_coeff: {
                 let w = std::f32::consts::PI * MASTER_DC_HZ / config.sample_rate;
                 (2.0 * w) / (1.0 + 2.0 * w)
@@ -927,6 +926,7 @@ impl Engine {
             set!(verblowcut, orbit.reverb_params.lowcut);
             set!(verbhighcut, orbit.reverb_params.highcut);
             set!(verblowgain, orbit.reverb_params.lowgain);
+            set!(verbhighgain, orbit.reverb_params.highgain);
             set!(verbchorus, orbit.reverb_params.chorus);
             set!(verbchorusfreq, orbit.reverb_params.chorus_freq);
             set!(combfreq, orbit.comb_params.freq);
@@ -1250,16 +1250,16 @@ impl Engine {
         );
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
-        copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay);
+        copy_opt!(event, v.params, chorus, chorusdepth, chorusdelay, chorustype);
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
-        copy_opt!(event, v.params, distortvol);
+        copy_opt!(event, v.params, distortvol, distortmode, foldmode);
         copy_opt!(event, v.params, width, haas);
         copy_opt_some!(event, v.params, superpan);
         copy_opt!(event, v.params, superwidth);
         if let Some(set) = event.speakers {
             v.params.speakers = set;
         }
-        copy_opt!(event, v.params, eqlo, eqmid, eqhi, eqlofreq, eqmidfreq, eqhifreq, tilt);
+        copy_opt!(event, v.params, eqlo, eqmid, eqhi, eqlofreq, eqmidfreq, eqmidq, eqhifreq, tilt);
 
         // --- Routing (orbit FX state lives on the orbit, not the voice) ---
         copy_opt!(event, v.params, orbit);

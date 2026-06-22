@@ -593,6 +593,7 @@ dependencies = [
  "clap",
  "cpal",
  "crossbeam-channel",
+ "faust-types",
  "hound",
  "ringbuf",
  "rosc",
@@ -673,6 +674,12 @@ name = "extended"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
+
+[[package]]
+name = "faust-types"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fe0a71bbf0e1ff8c1cb91c1d63b5f60e2019e037ba5c1dc9ab74ced8c22d53b"
 
 [[package]]
 name = "fd-lock"

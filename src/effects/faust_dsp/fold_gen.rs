@@ -1,0 +1,183 @@
+/* ------------------------------------------------------------
+name: "fold"
+Code generated with Faust 2.81.2 (https://faust.grame.fr)
+Compilation options: -lang rust -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+------------------------------------------------------------ */
+#[repr(C)]
+pub struct FoldDsp {
+	fHslider0: F32,
+	fHslider1: F32,
+	fSampleRate: i32,
+}
+
+pub type FaustFloat = F32;
+fn remainder_f32(from: f32, to: f32) -> f32 {
+	from - to * (from / to).round_ties_even()
+}
+fn rint_f32(val: f32) -> f32 {
+	val.round_ties_even()
+}
+
+pub const FAUST_INPUTS: usize = 1;
+pub const FAUST_OUTPUTS: usize = 1;
+pub const FAUST_ACTIVES: usize = 2;
+pub const FAUST_PASSIVES: usize = 0;
+
+
+impl FoldDsp {
+		
+	pub fn new() -> FoldDsp { 
+		FoldDsp {
+			fHslider0: 0.0,
+			fHslider1: 0.0,
+			fSampleRate: 0,
+		}
+	}
+	pub fn metadata(&self, m: &mut dyn Meta) { 
+		m.declare("basics.lib/name", r"Faust Basic Element Library");
+		m.declare("basics.lib/version", r"1.21.0");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("filename", r"fold.dsp");
+		m.declare("maths.lib/author", r"GRAME");
+		m.declare("maths.lib/copyright", r"GRAME");
+		m.declare("maths.lib/license", r"LGPL with exception");
+		m.declare("maths.lib/name", r"Faust Math Library");
+		m.declare("maths.lib/version", r"2.8.1");
+		m.declare("name", r"fold");
+	}
+
+	pub fn get_sample_rate(&self) -> i32 { self.fSampleRate as i32}
+	
+	pub fn class_init(sample_rate: i32) {
+		// Obtaining locks on 0 static var(s)
+	}
+	pub fn instance_reset_params(&mut self) {
+		self.fHslider0 = 0.0;
+		self.fHslider1 = 0.0;
+	}
+	pub fn instance_clear(&mut self) {
+	}
+	pub fn instance_constants(&mut self, sample_rate: i32) {
+		// Obtaining locks on 0 static var(s)
+		self.fSampleRate = sample_rate;
+	}
+	pub fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate);
+		self.instance_reset_params();
+		self.instance_clear();
+	}
+	pub fn init(&mut self, sample_rate: i32) {
+		FoldDsp::class_init(sample_rate);
+		self.instance_init(sample_rate);
+	}
+	
+	pub fn build_user_interface(&self, ui_interface: &mut dyn UI<FaustFloat>) {
+		Self::build_user_interface_static(ui_interface);
+	}
+	
+	pub fn build_user_interface_static(ui_interface: &mut dyn UI<FaustFloat>) {
+		ui_interface.open_vertical_box("fold");
+		ui_interface.add_horizontal_slider("a_fold", ParamIndex(0), 0.0, 0.0, 1.0, 0.001);
+		ui_interface.add_horizontal_slider("b_foldmode", ParamIndex(1), 0.0, 0.0, 2.0, 1.0);
+		ui_interface.close_box();
+	}
+	
+	pub fn get_param(&self, param: ParamIndex) -> Option<FaustFloat> {
+		match param.0 {
+			0 => Some(self.fHslider0),
+			1 => Some(self.fHslider1),
+			_ => None,
+		}
+	}
+	
+	pub fn set_param(&mut self, param: ParamIndex, value: FaustFloat) {
+		match param.0 {
+			0 => { self.fHslider0 = value }
+			1 => { self.fHslider1 = value }
+			_ => {}
+		}
+	}
+	
+	pub fn compute(
+		&mut self,
+		count: usize,
+		inputs: &[impl AsRef<[FaustFloat]>],
+		outputs: &mut[impl AsMut<[FaustFloat]>],
+	) {
+		
+		// Obtaining locks on 0 static var(s)
+		let [inputs0, .. ] = inputs.as_ref() else { panic!("wrong number of input buffers"); };
+		let inputs0 = inputs0.as_ref()[..count].iter();
+		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
+		let outputs0 = outputs0.as_mut()[..count].iter_mut();
+		let mut fSlow0: F32 = self.fHslider0;
+		let mut fSlow1: F32 = F32::powf(2.0, -(1.5 * fSlow0));
+		let mut iSlow2: i32 = (self.fHslider1) as i32;
+		let mut iSlow3: i32 = (iSlow2 >= 2) as i32;
+		let mut iSlow4: i32 = (iSlow2 >= 1) as i32;
+		let mut fSlow5: F32 = F32::powf(2.0, 3.0 * fSlow0);
+		let mut fSlow6: F32 = 1.5707964 * fSlow5;
+		let zipped_iterators = inputs0.zip(outputs0);
+		for (input0, output0) in zipped_iterators {
+			let mut fTemp0: F32 = *input0;
+			let mut fTemp1: F32 = fSlow5 * fTemp0 + 1.0;
+			let mut fTemp2: F32 = 0.25 * fTemp1;
+			let mut fTemp3: F32 = 0.5 * fTemp1;
+			*output0 = fSlow1 * (if iSlow3 != 0 {2.0 * (fTemp3 - F32::floor(fTemp3)) + -1.0} else {(if iSlow4 != 0 {F32::sin(fSlow6 * fTemp0)} else {1.0 - F32::abs(4.0 * (fTemp2 - F32::floor(fTemp2)) + -2.0)})});
+		}
+		
+	}
+
+}
+
+impl FaustDsp for FoldDsp {
+	type T = FaustFloat;
+	fn new() -> Self where Self: Sized {
+		Self::new()
+	}
+	fn metadata(&self, m: &mut dyn Meta) {
+		self.metadata(m)
+	}
+	fn get_sample_rate(&self) -> i32 {
+		self.get_sample_rate()
+	}
+	fn get_num_inputs(&self) -> i32 {
+		FAUST_INPUTS as i32
+	}
+	fn get_num_outputs(&self) -> i32 {
+		FAUST_OUTPUTS as i32
+	}
+	fn class_init(sample_rate: i32) where Self: Sized {
+		Self::class_init(sample_rate);
+	}
+	fn instance_reset_params(&mut self) {
+		self.instance_reset_params()
+	}
+	fn instance_clear(&mut self) {
+		self.instance_clear()
+	}
+	fn instance_constants(&mut self, sample_rate: i32) {
+		self.instance_constants(sample_rate)
+	}
+	fn instance_init(&mut self, sample_rate: i32) {
+		self.instance_init(sample_rate)
+	}
+	fn init(&mut self, sample_rate: i32) {
+		self.init(sample_rate)
+	}
+	fn build_user_interface(&self, ui_interface: &mut dyn UI<Self::T>) {
+		self.build_user_interface(ui_interface)
+	}
+	fn build_user_interface_static(ui_interface: &mut dyn UI<Self::T>) where Self: Sized {
+		Self::build_user_interface_static(ui_interface);
+	}
+	fn get_param(&self, param: ParamIndex) -> Option<Self::T> {
+		self.get_param(param)
+	}
+	fn set_param(&mut self, param: ParamIndex, value: Self::T) {
+		self.set_param(param, value)
+	}
+	fn compute(&mut self, count: i32, inputs: &[&[Self::T]], outputs: &mut [&mut [Self::T]]) {
+		self.compute(count as usize, inputs, outputs)
+	}
+}

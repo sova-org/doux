@@ -6,36 +6,29 @@ mod crush;
 mod delay;
 mod distort;
 mod eq;
+mod faust_dsp;
 mod feedback;
 mod flanger;
-mod haas;
 mod ladder;
-mod lag;
 mod limiter;
 mod phaser;
 mod reverb;
 mod smear;
 mod tilt;
-mod vital_reverb;
 
-pub use chorus::Chorus;
-pub use coarse::Coarse;
 pub use comb::{Comb, CombParams};
 pub use compressor::{Compressor, CompressorParams};
 pub use delay::Delay;
-pub use distort::{DcBlocker, Fold, Saturate, Wrap};
-pub use eq::Eq;
+pub use distort::DcBlocker;
+pub use faust_dsp::{
+    FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger, FaustFold, FaustHaas,
+    FaustJpVerb, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt,
+    FaustVitalRev, FaustWrap,
+};
 pub use feedback::{Feedback, FeedbackParams};
-pub use flanger::Flanger;
-pub use haas::Haas;
-pub use ladder::{LadderFilter, LadderMode};
-pub use lag::Lag;
+pub use ladder::LadderMode;
 pub use limiter::{Limiter, LIMITER_RELEASE_SECS, LIMITER_THRESHOLD};
-pub use phaser::Phaser;
-pub use reverb::{DattorroVerb, ReverbParams};
-pub use smear::Smear;
-pub use tilt::Tilt;
-pub use vital_reverb::VitalVerb;
+pub use reverb::ReverbParams;
 
 use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 

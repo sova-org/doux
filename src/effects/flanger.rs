@@ -1,10 +1,7 @@
-//! Flanger effect with LFO-modulated delay.
-//!
-//! Creates the characteristic "jet plane" sweep by mixing the input with a
-//! short, modulated delay (0.5-10ms). Feedback intensifies the comb filtering.
+//! LFO-modulated flanger — now Faust-generated; see [`super::faust_dsp`].
+//! Only the parameter metadata (`INFO`) remains here.
 
-use crate::dsp::{ms_to_samples, DelayLine, Phasor};
-use crate::types::{ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "flanger",
@@ -37,71 +34,3 @@ pub const INFO: ModuleInfo = ModuleInfo {
         },
     ],
 };
-
-const MIN_DELAY_MS: f32 = 0.5;
-const MAX_DELAY_MS: f32 = 10.0;
-const DELAY_RANGE_MS: f32 = MAX_DELAY_MS - MIN_DELAY_MS;
-/// Sized for `MAX_DELAY_MS` at `MAX_SAMPLE_RATE`.
-const BUFFER_SIZE: usize = (crate::types::MAX_SAMPLE_RATE * 10 / 1000).next_power_of_two();
-
-/// Mono flanger with feedback.
-#[derive(Clone, Copy, Default)]
-pub struct Flanger {
-    delay: DelayLine<BUFFER_SIZE>,
-    lfo: Phasor,
-    feedback_sample: f32,
-}
-
-impl Flanger {
-    #[inline]
-    pub fn process(
-        &mut self,
-        input: f32,
-        rate: f32,
-        depth: f32,
-        feedback: f32,
-        sr: f32,
-        isr: f32,
-    ) -> f32 {
-        let depth_curve = depth * depth;
-        let span = depth_curve * DELAY_RANGE_MS;
-        let feedback = feedback.clamp(0.0, 0.95);
-        let max_delay_samples = BUFFER_SIZE as f32 - 2.0;
-        let lfo_val = self.lfo.sine(rate, isr);
-        let delay_ms = MIN_DELAY_MS + span * (lfo_val * 0.5 + 0.5);
-        let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, max_delay_samples);
-        let delayed = self.delay.read(delay_samples);
-        self.delay.write(input + self.feedback_sample * feedback);
-        self.feedback_sample = delayed;
-        input * 0.5 + delayed * 0.5
-    }
-
-    #[inline]
-    #[allow(clippy::too_many_arguments)]
-    pub fn process_block(
-        &mut self,
-        buf: &mut [StereoFrame],
-        n: usize,
-        ch: usize,
-        rate: f32,
-        depth: f32,
-        feedback: f32,
-        sr: f32,
-        isr: f32,
-    ) {
-        let depth_curve = depth * depth;
-        let span = depth_curve * DELAY_RANGE_MS;
-        let feedback = feedback.clamp(0.0, 0.95);
-        let max_delay_samples = BUFFER_SIZE as f32 - 2.0;
-        for slot in buf.iter_mut().take(n) {
-            let lfo_val = self.lfo.sine(rate, isr);
-            let delay_ms = MIN_DELAY_MS + span * (lfo_val * 0.5 + 0.5);
-            let delay_samples = ms_to_samples(delay_ms, sr).clamp(1.0, max_delay_samples);
-            let delayed = self.delay.read(delay_samples);
-            let input = slot[ch];
-            self.delay.write(input + self.feedback_sample * feedback);
-            self.feedback_sample = delayed;
-            slot[ch] = input * 0.5 + delayed * 0.5;
-        }
-    }
-}

@@ -13,11 +13,12 @@ use pluck::PluckState;
 use std::f32::consts::PI;
 
 use crate::dsp::{
-    cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfCascade, SvfMode, SvfState,
+    cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode,
 };
 use crate::effects::{
-    Chorus, Coarse, DcBlocker, Eq, Flanger, Fold, Haas, LadderFilter, LadderMode, Phaser, Saturate,
-    Smear, Tilt, Wrap,
+    DcBlocker, FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger,
+    FaustFold, FaustHaas, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade,
+    FaustTilt, FaustWrap, LadderMode,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -88,49 +89,50 @@ pub(crate) const MAX_STAGES: usize = 32;
 /// out of [`Voice`] keeps the hot-voice working set inside L1d when scanning
 /// `active_voices` during the per-block kernel. One indirection per FX
 /// stage per block; per-sample inner loops still touch only their own field.
-#[derive(Clone)]
 pub struct VoiceFxState {
-    pub slp: [SvfCascade; CHANNELS],
-    pub shp: [SvfCascade; CHANNELS],
-    pub sbp: [SvfCascade; CHANNELS],
-    pub ladder_lp: [LadderFilter; CHANNELS],
-    pub ladder_hp: [LadderFilter; CHANNELS],
-    pub ladder_bp: [LadderFilter; CHANNELS],
-    pub coarse: [Coarse; CHANNELS],
-    pub fold_state: [Fold; CHANNELS],
-    pub wrap_state: [Wrap; CHANNELS],
-    pub distort_state: [Saturate; CHANNELS],
+    pub slp: [FaustSvfCascade; CHANNELS],
+    pub shp: [FaustSvfCascade; CHANNELS],
+    pub sbp: [FaustSvfCascade; CHANNELS],
+    pub ladder_lp: [FaustLadder; CHANNELS],
+    pub ladder_hp: [FaustLadder; CHANNELS],
+    pub ladder_bp: [FaustLadder; CHANNELS],
+    pub coarse: [FaustCoarse; CHANNELS],
+    pub crush: [FaustCrush; CHANNELS],
+    pub fold_state: [FaustFold; CHANNELS],
+    pub wrap_state: [FaustWrap; CHANNELS],
+    pub distort_state: [FaustDistort; CHANNELS],
     pub dc_block: [DcBlocker; CHANNELS],
-    pub eq: [Eq; CHANNELS],
-    pub tilt: [Tilt; CHANNELS],
-    pub phaser: [Phaser; CHANNELS],
-    pub flanger: [Flanger; CHANNELS],
-    pub smear: [Smear; CHANNELS],
-    pub chorus: Chorus,
-    pub haas: Haas,
+    pub eq: [FaustEq; CHANNELS],
+    pub tilt: [FaustTilt; CHANNELS],
+    pub phaser: [FaustPhaser; CHANNELS],
+    pub flanger: [FaustFlanger; CHANNELS],
+    pub smear: [FaustSmear; CHANNELS],
+    pub chorus: FaustChorus,
+    pub haas: FaustHaas,
 }
 
 impl Default for VoiceFxState {
     fn default() -> Self {
         Self {
-            slp: [SvfCascade::default(); CHANNELS],
-            shp: [SvfCascade::default(); CHANNELS],
-            sbp: [SvfCascade::default(); CHANNELS],
-            ladder_lp: [LadderFilter::default(); CHANNELS],
-            ladder_hp: [LadderFilter::default(); CHANNELS],
-            ladder_bp: [LadderFilter::default(); CHANNELS],
-            coarse: [Coarse::default(); CHANNELS],
-            fold_state: [Fold::default(); CHANNELS],
-            wrap_state: [Wrap::default(); CHANNELS],
-            distort_state: [Saturate::default(); CHANNELS],
+            slp: std::array::from_fn(|_| FaustSvfCascade::default()),
+            shp: std::array::from_fn(|_| FaustSvfCascade::default()),
+            sbp: std::array::from_fn(|_| FaustSvfCascade::default()),
+            ladder_lp: std::array::from_fn(|_| FaustLadder::default()),
+            ladder_hp: std::array::from_fn(|_| FaustLadder::default()),
+            ladder_bp: std::array::from_fn(|_| FaustLadder::default()),
+            coarse: std::array::from_fn(|_| FaustCoarse::default()),
+            crush: std::array::from_fn(|_| FaustCrush::default()),
+            fold_state: std::array::from_fn(|_| FaustFold::default()),
+            wrap_state: std::array::from_fn(|_| FaustWrap::default()),
+            distort_state: std::array::from_fn(|_| FaustDistort::default()),
             dc_block: [DcBlocker::default(); CHANNELS],
-            eq: [Eq::default(); CHANNELS],
-            tilt: [Tilt::default(); CHANNELS],
-            phaser: std::array::from_fn(Phaser::new),
-            flanger: [Flanger::default(); CHANNELS],
-            smear: [Smear::default(); CHANNELS],
-            chorus: Chorus::default(),
-            haas: Haas::default(),
+            eq: std::array::from_fn(|_| FaustEq::default()),
+            tilt: std::array::from_fn(|_| FaustTilt::default()),
+            phaser: std::array::from_fn(FaustPhaser::new),
+            flanger: std::array::from_fn(FaustFlanger::new),
+            smear: std::array::from_fn(|_| FaustSmear::default()),
+            chorus: FaustChorus::default(),
+            haas: FaustHaas::default(),
         }
     }
 }
@@ -138,7 +140,6 @@ impl Default for VoiceFxState {
 /// Layout: hot fields (touched every block, every active voice) cluster on
 /// `Voice`; cold FX state lives behind [`Voice::fx`] (heap-allocated) so the
 /// hot working set stays inside L1d during the per-voice block kernel.
-#[derive(Clone)]
 pub struct Voice {
     // === Hot: source generation + always-active per-block state ===
     pub params: VoiceParams,
@@ -165,11 +166,10 @@ pub struct Voice {
     pub am_lfo: Phasor,
     pub rm_lfo: Phasor,
     pub current_freq: f32,
-    pub lp: [SvfState; CHANNELS],
-    pub hp: [SvfState; CHANNELS],
-    pub bp: [SvfState; CHANNELS],
+    pub lp: [FaustSvf; CHANNELS],
+    pub hp: [FaustSvf; CHANNELS],
+    pub bp: [FaustSvf; CHANNELS],
     pub nch: usize,
-    pub spread_side: f32,
     pub spread_cache_value: f32,
     pub spread_detune_ratios: [f32; 3],
     pub triggered: bool,
@@ -194,8 +194,8 @@ pub struct Voice {
     #[cfg(feature = "native")]
     pub stretch: StretchState,
     pub web_sample: Option<WebSampleSource>,
-    pub(super) drum_svf: SvfState,
-    pub(super) drum_svf2: SvfState,
+    pub(super) drum_svf: FaustSvf,
+    pub(super) drum_svf2: FaustSvf,
     /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
     /// and allocated once at construction — never on the audio thread.
     pub(super) pluck: Box<PluckState>,
@@ -241,11 +241,10 @@ impl Default for Voice {
             am_lfo: Phasor::default(),
             rm_lfo: Phasor::default(),
             current_freq: 330.0,
-            lp: [SvfState::default(); CHANNELS],
-            hp: [SvfState::default(); CHANNELS],
-            bp: [SvfState::default(); CHANNELS],
+            lp: std::array::from_fn(|_| FaustSvf::default()),
+            hp: std::array::from_fn(|_| FaustSvf::default()),
+            bp: std::array::from_fn(|_| FaustSvf::default()),
             nch: 1,
-            spread_side: 0.0,
             spread_cache_value: f32::NAN,
             spread_detune_ratios: [1.0; 3],
             triggered: false,
@@ -266,8 +265,8 @@ impl Default for Voice {
             #[cfg(feature = "native")]
             stretch: StretchState::default(),
             web_sample: None,
-            drum_svf: SvfState::default(),
-            drum_svf2: SvfState::default(),
+            drum_svf: FaustSvf::default(),
+            drum_svf2: FaustSvf::default(),
             pluck: Box::new(PluckState::default()),
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
@@ -289,9 +288,9 @@ impl Voice {
             p.phase = i as f32 / 7.0;
         }
         self.dahdsr = Dahdsr::default();
-        self.lp = [SvfState::default(); CHANNELS];
-        self.hp = [SvfState::default(); CHANNELS];
-        self.bp = [SvfState::default(); CHANNELS];
+        self.lp = std::array::from_fn(|_| FaustSvf::default());
+        self.hp = std::array::from_fn(|_| FaustSvf::default());
+        self.bp = std::array::from_fn(|_| FaustSvf::default());
         self.vib_lfo = Phasor::default();
         self.fm_phasor = Phasor::default();
         self.fm2_phasor = Phasor::default();
@@ -327,14 +326,13 @@ impl Voice {
         self.tag = None;
         *self.scratch = [[0.0; CHANNELS]; MAX_BLOCK];
         self.nch = 1;
-        self.spread_side = 0.0;
         self.spread_cache_value = f32::NAN;
         self.spread_detune_ratios = [1.0; 3];
         self.shape_active = false;
         self.sr = 44100.0;
         self.seed = 123456789;
-        self.drum_svf = SvfState::default();
-        self.drum_svf2 = SvfState::default();
+        self.drum_svf = FaustSvf::default();
+        self.drum_svf2 = FaustSvf::default();
         // O(1): the 32 KB delay line is re-zeroed lazily by `run_pluck` on the
         // first sample of a pluck note, never here on every note-on.
         self.pluck.primed = false;
@@ -359,7 +357,7 @@ impl Voice {
     pub(crate) fn spread_detune_ratios(&mut self) -> &[f32; 3] {
         if self.spread_cache_value != self.params.spread {
             for (i, ratio) in self.spread_detune_ratios.iter_mut().enumerate() {
-                let detune_cents = ((i + 1) * (i + 1)) as f32 * self.params.spread;
+                let detune_cents = (i + 1) as f32 / 3.0 * self.params.spread;
                 *ratio = exp2f(detune_cents / 1200.0);
             }
             self.spread_cache_value = self.params.spread;
@@ -501,6 +499,7 @@ impl Voice {
             ParamId::Haas => self.params.haas,
             ParamId::EqLoFreq => self.params.eqlofreq,
             ParamId::EqMidFreq => self.params.eqmidfreq,
+            ParamId::EqMidQ => self.params.eqmidq,
             ParamId::EqHiFreq => self.params.eqhifreq,
             ParamId::Superpan => self.params.superpan.unwrap_or(0.0),
             ParamId::Superwidth => self.params.superwidth,
@@ -832,20 +831,17 @@ impl Voice {
             }
             Stage::Crush => {
                 if let Some(crush_bits) = self.params.crush {
-                    let bits = crush_bits.max(1.0);
-                    let x = exp2f(bits - 1.0);
-                    let inv_x = 1.0 / x;
-                    for i in 0..n {
-                        for c in 0..nch {
-                            self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
-                        }
+                    for c in 0..nch {
+                        self.fx.crush[c].process_block(&mut self.scratch[..n], n, c, crush_bits);
                     }
                 }
             }
             Stage::Fold => {
                 if let Some(amount) = self.params.fold {
+                    let mode = self.params.foldmode.to_index();
                     for c in 0..nch {
-                        self.fx.fold_state[c].process_block(&mut self.scratch[..n], n, c, amount);
+                        self.fx.fold_state[c]
+                            .process_block(&mut self.scratch[..n], n, c, amount, mode);
                     }
                 }
             }
@@ -859,9 +855,10 @@ impl Voice {
             Stage::Distort => {
                 if let Some(amount) = self.params.distort {
                     let postgain = self.params.distortvol;
+                    let mode = self.params.distortmode.to_index();
                     for c in 0..nch {
                         self.fx.distort_state[c]
-                            .process_block(&mut self.scratch[..n], n, c, amount, postgain);
+                            .process_block(&mut self.scratch[..n], n, c, amount, postgain, mode);
                     }
                 }
             }
@@ -914,7 +911,6 @@ impl Voice {
                             center,
                             sweep,
                             sr,
-                            isr,
                         );
                     }
                 }
@@ -933,7 +929,6 @@ impl Voice {
                             depth,
                             fb,
                             sr,
-                            isr,
                         );
                     }
                 }
@@ -946,6 +941,7 @@ impl Voice {
                     let lo_freq = self.params.eqlofreq;
                     let mid_freq = self.params.eqmidfreq;
                     let hi_freq = self.params.eqhifreq;
+                    let mid_q = self.params.eqmidq;
                     for c in 0..nch {
                         self.fx.eq[c].process_block(
                             &mut self.scratch[..n],
@@ -957,6 +953,7 @@ impl Voice {
                             lo_freq,
                             mid_freq,
                             hi_freq,
+                            mid_q,
                             sr,
                         );
                     }
@@ -1001,11 +998,11 @@ impl Voice {
                 if nch == 1 {
                     if self.params.spread > 0.0 {
                         let base = self.params.postgain * self.params.velocity;
-                        let side_base = self.spread_side * base;
                         for i in 0..n {
-                            let side = env[i] * side_base;
-                            self.scratch[i][1] = self.scratch[i][0] - side;
-                            self.scratch[i][0] += side;
+                            let mid = self.scratch[i][0];
+                            let side = env[i] * base * self.scratch[i][1];
+                            self.scratch[i][0] = mid + side;
+                            self.scratch[i][1] = mid - side;
                         }
                     } else {
                         for i in 0..n {
@@ -1019,14 +1016,15 @@ impl Voice {
                     let rate = self.params.chorus;
                     let depth = self.params.chorusdepth;
                     let delay_ms = self.params.chorusdelay;
+                    let ctype = self.params.chorustype.to_index();
                     self.fx.chorus.process_block(
                         &mut self.scratch[..n],
                         n,
                         rate,
                         depth,
                         delay_ms,
+                        ctype,
                         sr,
-                        isr,
                     );
                 }
             }
@@ -1184,19 +1182,18 @@ impl Voice {
             }
             Stage::Crush => {
                 if let Some(crush_bits) = self.params.crush {
-                    let bits = crush_bits.max(1.0);
-                    let x = exp2f(bits - 1.0);
-                    let inv_x = 1.0 / x;
                     for c in 0..nch {
-                        self.scratch[i][c] = (self.scratch[i][c] * x).round() * inv_x;
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.crush[c].process(x, crush_bits);
                     }
                 }
             }
             Stage::Fold => {
                 if let Some(fold_amount) = self.params.fold {
+                    let mode = self.params.foldmode.to_index();
                     for c in 0..nch {
                         let x = self.scratch[i][c];
-                        self.scratch[i][c] = self.fx.fold_state[c].process(x, fold_amount);
+                        self.scratch[i][c] = self.fx.fold_state[c].process(x, fold_amount, mode);
                     }
                 }
             }
@@ -1211,10 +1208,11 @@ impl Voice {
             Stage::Distort => {
                 if let Some(dist_amount) = self.params.distort {
                     let postgain = self.params.distortvol;
+                    let mode = self.params.distortmode.to_index();
                     for c in 0..nch {
                         let x = self.scratch[i][c];
                         self.scratch[i][c] =
-                            self.fx.distort_state[c].process(x, dist_amount, postgain);
+                            self.fx.distort_state[c].process(x, dist_amount, postgain, mode);
                     }
                 }
             }
@@ -1256,7 +1254,7 @@ impl Voice {
                     for c in 0..nch {
                         let x = self.scratch[i][c];
                         self.scratch[i][c] =
-                            self.fx.phaser[c].process(x, rate, depth, center, sweep, sr, isr);
+                            self.fx.phaser[c].process(x, rate, depth, center, sweep, sr);
                     }
                 }
             }
@@ -1268,7 +1266,7 @@ impl Voice {
                     for c in 0..nch {
                         let x = self.scratch[i][c];
                         self.scratch[i][c] =
-                            self.fx.flanger[c].process(x, rate, depth, fb, sr, isr);
+                            self.fx.flanger[c].process(x, rate, depth, fb, sr);
                     }
                 }
             }
@@ -1280,10 +1278,12 @@ impl Voice {
                     let lo_freq = self.params.eqlofreq;
                     let mid_freq = self.params.eqmidfreq;
                     let hi_freq = self.params.eqhifreq;
+                    let mid_q = self.params.eqmidq;
                     for c in 0..nch {
                         let x = self.scratch[i][c];
-                        self.scratch[i][c] = self.fx.eq[c]
-                            .process(x, lo_db, mid_db, hi_db, lo_freq, mid_freq, hi_freq, sr);
+                        self.scratch[i][c] = self.fx.eq[c].process(
+                            x, lo_db, mid_db, hi_db, lo_freq, mid_freq, hi_freq, mid_q, sr,
+                        );
                     }
                 }
             }
@@ -1317,9 +1317,10 @@ impl Voice {
                 if nch == 1 {
                     if self.params.spread > 0.0 {
                         let voice_gain = env * self.params.postgain * self.params.velocity;
-                        let side = self.spread_side * voice_gain;
-                        self.scratch[i][1] = self.scratch[i][0] - side;
-                        self.scratch[i][0] += side;
+                        let mid = self.scratch[i][0];
+                        let side = voice_gain * self.scratch[i][1];
+                        self.scratch[i][0] = mid + side;
+                        self.scratch[i][1] = mid - side;
                     } else {
                         self.scratch[i][1] = self.scratch[i][0];
                     }
@@ -1330,14 +1331,15 @@ impl Voice {
                     let rate = self.params.chorus;
                     let depth = self.params.chorusdepth;
                     let delay_ms = self.params.chorusdelay;
+                    let ctype = self.params.chorustype.to_index();
                     let stereo = self.fx.chorus.process(
                         self.scratch[i][0],
                         self.scratch[i][1],
                         rate,
                         depth,
                         delay_ms,
+                        ctype,
                         sr,
-                        isr,
                     );
                     self.scratch[i][0] = stereo[0];
                     self.scratch[i][1] = stereo[1];
@@ -1477,6 +1479,7 @@ impl Voice {
             ParamId::Haas => self.params.haas = val,
             ParamId::EqLoFreq => self.params.eqlofreq = val,
             ParamId::EqMidFreq => self.params.eqmidfreq = val,
+            ParamId::EqMidQ => self.params.eqmidq = val,
             ParamId::EqHiFreq => self.params.eqhifreq = val,
             ParamId::Superpan => self.params.superpan = Some(val),
             ParamId::Superwidth => self.params.superwidth = val,

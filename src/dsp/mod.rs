@@ -4,7 +4,6 @@ pub mod delay_line;
 pub mod envelope;
 pub mod fastmath;
 pub mod fft;
-pub mod filter;
 pub mod noise;
 pub mod oscillator;
 
@@ -14,6 +13,14 @@ pub use fastmath::{
     atan2f, cosf, enable_flush_to_zero, exp2f, fast_tan, fast_tanh_f32, ftz, hermite4, log2f,
     modpi, ms_to_samples, par_cosf, par_sinf, pow10, pow1half, powf, sinf,
 };
-pub use filter::{Biquad, SvfCascade, SvfMode, SvfState};
 pub use noise::{BrownNoise, PinkNoise};
 pub use oscillator::{polyblep_square, PhaseShape, Phasor};
+
+/// Multimode selector for the state-variable filters (used by the Faust SVF
+/// wrappers in [`crate::effects`]).
+#[derive(Clone, Copy, PartialEq)]
+pub enum SvfMode {
+    Lp,
+    Hp,
+    Bp,
+}

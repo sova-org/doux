@@ -1,7 +1,7 @@
-//! Single-knob tilt EQ using a high shelf filter.
+//! Single-knob tilt EQ — now Faust-generated; see [`super::faust_dsp`].
+//! Only the parameter metadata (`INFO`) remains here.
 
-use crate::dsp::Biquad;
-use crate::types::{FilterType, ModuleGroup, ModuleInfo, ParamInfo, StereoFrame};
+use crate::types::{ModuleGroup, ModuleInfo, ParamInfo};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "tilt",
@@ -16,44 +16,3 @@ pub const INFO: ModuleInfo = ModuleInfo {
         max: 1.0,
     }],
 };
-
-const TILT_FREQ: f32 = 800.0;
-const TILT_Q: f32 = 0.707;
-const MAX_DB: f32 = 6.0;
-
-/// Tilt EQ: one knob shifts spectral balance.
-#[derive(Clone, Copy, Default)]
-pub struct Tilt {
-    shelf: Biquad,
-}
-
-impl Tilt {
-    #[inline]
-    pub fn process(&mut self, input: f32, tilt: f32, sr: f32) -> f32 {
-        let db = tilt.clamp(-1.0, 1.0) * MAX_DB;
-        self.shelf
-            .process_with_gain(input, FilterType::Highshelf, TILT_FREQ, TILT_Q, db, sr)
-    }
-
-    #[inline]
-    pub fn process_block(
-        &mut self,
-        buf: &mut [StereoFrame],
-        n: usize,
-        ch: usize,
-        tilt: f32,
-        sr: f32,
-    ) {
-        let db = tilt.clamp(-1.0, 1.0) * MAX_DB;
-        self.shelf.process_block_with_gain(
-            buf,
-            n,
-            ch,
-            FilterType::Highshelf,
-            TILT_FREQ,
-            TILT_Q,
-            db,
-            sr,
-        );
-    }
-}
