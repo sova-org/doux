@@ -1,3 +1,5 @@
+//! Core engine constants, the `Source` catalog, and the typed param vocabulary.
+
 use std::str::FromStr;
 
 /// Default cpal device buffer size on wasm builds (samples per audio quantum).
@@ -8,6 +10,11 @@ pub const CHANNELS: usize = 2;
 pub const DEFAULT_MAX_VOICES: usize = 32;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_ORBITS: usize = 8;
+/// Hard ceiling on the frames `process_block` may receive in one callback.
+/// cpal can hand back periods larger than the requested `host_buffer_size`
+/// (aggregate CoreAudio devices, JACK, PipeWire), so engine-owned per-block
+/// buffers are sized to this, not to the configured size.
+pub const MAX_BUFFER_FRAMES: usize = 8192;
 
 /// Bound on the control→audio command channel. Larger than the per-block
 /// drain budget (64) so a few backed-up events survive one slow callback;

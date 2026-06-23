@@ -202,7 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sample_index = engine.sample_index().to_vec();
     let sample_registry = Arc::clone(engine.sample_registry());
     #[cfg(feature = "soundfont")]
-    let gm_bank = engine.gm_bank().cloned();
+    let gm_bank = engine.gm_bank();
     let max_voices = args.common.max_voices;
     let dsp_block_size = args.common.dsp_block_size;
     let mut metrics = Arc::clone(engine.metrics());
@@ -237,8 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(streams);
             std::thread::sleep(std::time::Duration::from_secs(1));
 
-            #[cfg_attr(not(feature = "soundfont"), allow(unused_mut))]
-            let mut engine = Engine::new(EngineConfig {
+            let engine = Engine::new(EngineConfig {
                 sample_rate: oc.sample_rate,
                 output_channels: oc.output_channels,
                 max_voices,

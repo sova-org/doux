@@ -1,3 +1,7 @@
+//! Per-voice insert + orbit effect chain; most effects are Faust-backed (see
+//! the `faust_dsp` submodule). Hand-written DSP remains only for the master
+//! compressor/limiter and the DC blocker.
+
 mod chorus;
 mod coarse;
 mod comb;
@@ -19,7 +23,7 @@ mod vinyl;
 mod wah;
 
 pub use comb::CombParams;
-pub use compressor::{Compressor, CompressorParams};
+pub use compressor::Compressor;
 pub use delay::DelayParams;
 pub use distort::DcBlocker;
 pub use faust_dsp::{

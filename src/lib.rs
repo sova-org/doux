@@ -1,3 +1,20 @@
+//! doux — a real-time software-synthesizer engine for live coding.
+//!
+//! Builds two ways: a native library + binaries (cdylib/rlib, `native` feature,
+//! cpal audio) and a `wasm32-unknown-unknown` module driven from a browser
+//! AudioWorklet (`src/wasm.rs`). Both share the same engine core.
+//!
+//! Module map: `voice` (per-voice synthesis + insert chain), `effects` and its
+//! `faust_dsp` submodule (orbit/insert effects, most Faust-generated), `orbit`
+//! (Tidal-style persistent FX buses), `event` (parses OSC/eval strings into
+//! typed events), `schedule`, `sampling`, `types` (constants + param vocabulary).
+//!
+//! Hard invariant: the audio render callback (`Engine::process_block`) must
+//! never allocate, lock, or panic — that all belongs on the control thread.
+//!
+//! `src/effects/faust_dsp/*_gen.rs` is generated from `dsp/*.dsp` by
+//! `dsp/regen.sh`; edit the `.dsp` source and regenerate, never the `.rs`.
+
 #[cfg(feature = "native")]
 pub mod audio;
 #[cfg(feature = "native")]
@@ -32,9 +49,11 @@ mod wasm;
 
 #[allow(clippy::large_enum_variant)]
 pub enum AudioCmd {
-    /// Pre-parsed event — RT-safe, no allocations on the audio thread.
-    /// Held inline (not boxed) so the audio thread does not deallocate a
-    /// Box on receive.
+    /// Pre-parsed event. Held inline (not boxed) so the audio thread does not
+    /// deallocate a `Box` on receive. Note: an immediate event's interior
+    /// `String`/`Vec` fields are still freed on the audio thread when it is
+    /// dropped after dispatch; scheduled events move into the bounded schedule
+    /// and only drop when they fire.
     DispatchEvent(event::Event),
     Hush,
     Panic,
@@ -74,7 +93,7 @@ use types::DEFAULT_BUFFER_SIZE;
 use types::WASM_BUFFER_SIZE;
 use types::{
     DspBlockSize, ModuleInfo, Source, CHANNELS, DEFAULT_DSP_BLOCK_SIZE, DEFAULT_MAX_VOICES,
-    MAX_BLOCK, MAX_ORBITS,
+    MAX_BLOCK, MAX_BUFFER_FRAMES, MAX_ORBITS,
 };
 use voice::modulation::{ModChain, ModCurve, ParamId};
 use voice::{modulation, Voice, VoiceParams};
@@ -249,7 +268,7 @@ pub struct Engine {
     #[cfg(feature = "native")]
     pub(crate) metrics: Arc<EngineMetrics>,
     #[cfg(feature = "soundfont")]
-    pub(crate) gm_bank: Option<soundfont::GmBank>,
+    pub(crate) gm_bank: Arc<arc_swap::ArcSwapOption<soundfont::GmBank>>,
     pub(crate) input_channels: usize,
     voice_seed: u32,
     #[cfg(feature = "native")]
@@ -304,7 +323,6 @@ impl Engine {
         #[cfg(feature = "native")]
         let recorder = Recorder::new(
             config.sample_rate,
-            config.host_buffer_size,
             Arc::clone(&config.metrics),
             Arc::clone(&sample_registry),
             Arc::clone(&sample_index),
@@ -348,11 +366,11 @@ impl Engine {
             #[cfg(feature = "native")]
             recorder,
             #[cfg(feature = "native")]
-            orbit_rec_bus: vec![0.0; MAX_ORBITS * config.host_buffer_size * CHANNELS],
+            orbit_rec_bus: vec![0.0; MAX_ORBITS * MAX_BUFFER_FRAMES * CHANNELS],
             #[cfg(feature = "native")]
             metrics: config.metrics,
             #[cfg(feature = "soundfont")]
-            gm_bank: None,
+            gm_bank: Arc::new(arc_swap::ArcSwapOption::const_empty()),
             input_channels: 2,
             voice_seed: 123456789,
             #[cfg(feature = "native")]
@@ -449,6 +467,13 @@ impl Engine {
         &self.sample_registry
     }
 
+    /// Shared handle to the GM-bank slot, so an off-RT worker can publish a
+    /// decoded soundfont via `store` (mirrors `sample_index_handle`).
+    #[cfg(feature = "soundfont")]
+    pub fn gm_bank_handle(&self) -> Arc<arc_swap::ArcSwapOption<soundfont::GmBank>> {
+        Arc::clone(&self.gm_bank)
+    }
+
     #[cfg(feature = "native")]
     pub fn time_anchor(&self) -> time::TimeAnchor {
         time::TimeAnchor {
@@ -465,35 +490,23 @@ impl Engine {
             .map(|(name, data)| (name, Arc::new(data)))
             .collect();
         self.sample_registry.insert_batch(batch);
-        self.gm_bank = Some(bank);
+        self.gm_bank.store(Some(Arc::new(bank)));
         Ok(())
     }
 
-    /// Install a pre-decoded soundfont (samples already loaded, bank parsed).
-    /// Used by callers that decode SF2 off the audio thread.
     #[cfg(feature = "soundfont")]
-    pub fn install_soundfont(
-        &mut self,
-        samples: Vec<(String, Arc<SampleData>)>,
-        bank: soundfont::GmBank,
-    ) {
-        self.sample_registry.insert_batch(samples);
-        self.gm_bank = Some(bank);
+    pub fn gm_bank(&self) -> Option<Arc<soundfont::GmBank>> {
+        self.gm_bank.load_full()
     }
 
     #[cfg(feature = "soundfont")]
-    pub fn gm_bank(&self) -> Option<&soundfont::GmBank> {
-        self.gm_bank.as_ref()
+    pub fn take_gm_bank(&self) -> Option<Arc<soundfont::GmBank>> {
+        self.gm_bank.swap(None)
     }
 
     #[cfg(feature = "soundfont")]
-    pub fn take_gm_bank(&mut self) -> Option<soundfont::GmBank> {
-        self.gm_bank.take()
-    }
-
-    #[cfg(feature = "soundfont")]
-    pub fn set_gm_bank(&mut self, bank: soundfont::GmBank) {
-        self.gm_bank = Some(bank);
+    pub fn set_gm_bank(&self, bank: Arc<soundfont::GmBank>) {
+        self.gm_bank.store(Some(bank));
     }
 
     #[cfg(not(feature = "native"))]
@@ -566,7 +579,8 @@ impl Engine {
             .unwrap_or(60);
         let vel = (event.velocity.unwrap_or(1.0) * 127.0).clamp(1.0, 127.0) as u8;
 
-        let bank = self.gm_bank.as_ref()?;
+        let bank_guard = self.gm_bank.load();
+        let bank = bank_guard.as_ref()?;
         let zone = bank.find(program_str, note, vel)?;
         let data = self.sample_registry.get(zone.sample_name)?;
         Some(GmResolved {
@@ -1657,10 +1671,10 @@ impl Engine {
 
     pub fn process_block(&mut self, output: &mut [f32], web_pcm: &[f32], live_input: &[f32]) {
         debug_assert!(
-            output.len() <= self.host_buffer_size * self.output_channels,
-            "process_block: output ({} samples) exceeds pre-allocated capacity ({})",
+            output.len() <= MAX_BUFFER_FRAMES * self.output_channels,
+            "process_block: output ({} samples) exceeds per-callback ceiling ({})",
             output.len(),
-            self.host_buffer_size * self.output_channels,
+            MAX_BUFFER_FRAMES * self.output_channels,
         );
 
         // Wall-clock for the load gate + `BlockTotal` metric. Permitted on the
@@ -1670,17 +1684,22 @@ impl Engine {
         #[cfg(feature = "native")]
         let start = std::time::Instant::now();
 
-        let samples = output.len() / self.output_channels;
+        // Clamp to the allocation ceiling so a device period larger than
+        // `MAX_BUFFER_FRAMES` can never drive the recorder bus out of bounds on
+        // the audio thread (the native cpal callback already caps its output
+        // slice to the same ceiling, so this never truncates a real block).
+        let samples = (output.len() / self.output_channels).min(MAX_BUFFER_FRAMES);
 
         #[cfg(feature = "native")]
         {
-            // SAFETY: orbit_rec_bus is pre-allocated in constructor to buffer_size capacity.
-            // This debug_assert catches mismatches during development without panicking in release.
-            let needed = MAX_ORBITS * samples * CHANNELS;
+            // orbit_rec_bus is sized for MAX_BUFFER_FRAMES and `samples` is
+            // clamped to it above, so this is always satisfied — kept as a dev
+            // guard against a future change to either side.
             debug_assert!(
-                self.orbit_rec_bus.len() >= needed,
-                "orbit_rec_bus too small: {} < {needed}",
-                self.orbit_rec_bus.len()
+                self.orbit_rec_bus.len() >= MAX_ORBITS * samples * CHANNELS,
+                "orbit_rec_bus too small: {} < {}",
+                self.orbit_rec_bus.len(),
+                MAX_ORBITS * samples * CHANNELS,
             );
         }
 

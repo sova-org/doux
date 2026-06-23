@@ -113,18 +113,27 @@ impl SampleRegistry {
     /// Creates a new HashMap with the sample added and atomically swaps it in.
     /// Existing readers continue using their snapshot until they reload.
     pub fn insert(&self, name: String, data: Arc<SampleData>) {
-        let mut new_map = HashMap::clone(&self.samples.load());
-        new_map.insert(name, data);
-        self.samples.store(Arc::new(new_map));
+        // `rcu` retries the clone-modify on a concurrent write, so multiple
+        // off-RT writers (loader, recorder, soundfont worker) can't lose updates.
+        // The closure may run more than once, so clone inside it.
+        self.samples.rcu(|cur| {
+            let mut new_map = HashMap::clone(cur);
+            new_map.insert(name.clone(), Arc::clone(&data));
+            Arc::new(new_map)
+        });
     }
 
     /// Inserts many samples in a single atomic swap.
     pub fn insert_batch(&self, entries: impl IntoIterator<Item = (String, Arc<SampleData>)>) {
-        let mut new_map = HashMap::clone(&self.samples.load());
-        for (name, data) in entries {
-            new_map.insert(name, data);
-        }
-        self.samples.store(Arc::new(new_map));
+        // Collect once: `rcu`'s closure may retry, but an iterator is single-use.
+        let entries: Vec<(String, Arc<SampleData>)> = entries.into_iter().collect();
+        self.samples.rcu(|cur| {
+            let mut new_map = HashMap::clone(cur);
+            for (name, data) in &entries {
+                new_map.insert(name.clone(), Arc::clone(data));
+            }
+            Arc::new(new_map)
+        });
     }
 
     /// Checks if a sample exists (lock-free).

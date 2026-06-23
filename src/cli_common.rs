@@ -12,7 +12,7 @@ use crate::audio::{
     resolve_output_channels, HostSelection,
 };
 use crate::error::DouxError;
-use crate::types::DEFAULT_BUFFER_SIZE;
+use crate::types::{DEFAULT_BUFFER_SIZE, MAX_BUFFER_FRAMES};
 use crate::{AudioCmd, Engine};
 
 /// Input ring depth in host callback periods. Four covers jitter without
@@ -371,9 +371,8 @@ pub fn build_audio_streams(
     let nch_in = input_channels.max(1);
     let sr = params.config.sample_rate;
     let ch = params.config.output_channels;
-    // Pre-allocate so the RT callback never grows the heap. 8192 frames covers
-    // all common host buffer sizes; mirrors doux-sova's manager.rs sizing.
-    const MAX_BUFFER_FRAMES: usize = 8192;
+    // Pre-allocate so the RT callback never grows the heap. `MAX_BUFFER_FRAMES`
+    // covers all common host buffer sizes; mirrors doux-sova's manager.rs sizing.
     let mut scratch = vec![0.0f32; MAX_BUFFER_FRAMES * nch_in];
     let output_format = params.config.sample_format;
 

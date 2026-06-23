@@ -10,7 +10,7 @@
 
 use crate::sampling::{SampleData, SampleEntry, SampleRegistry};
 use crate::telemetry::EngineMetrics;
-use crate::types::CHANNELS;
+use crate::types::{CHANNELS, MAX_BUFFER_FRAMES};
 use arc_swap::ArcSwap;
 use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendError};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
@@ -60,7 +60,6 @@ pub struct Recorder {
 impl Recorder {
     pub fn new(
         sr: f32,
-        host_buffer_size: usize,
         metrics: Arc<EngineMetrics>,
         registry: Arc<SampleRegistry>,
         sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
@@ -76,7 +75,7 @@ impl Recorder {
             writer,
             metrics,
             empty_name: Arc::new(String::new()),
-            scratch: vec![0.0; host_buffer_size * CHANNELS],
+            scratch: vec![0.0; MAX_BUFFER_FRAMES * CHANNELS],
             elapsed_frames: 0,
         }
     }

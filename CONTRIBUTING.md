@@ -35,6 +35,17 @@ cd website && pnpm install && pnpm dev
 - `src/` - Audio engine (Rust)
 - `website/` - Documentation and playground (SvelteKit)
 
+## DSP codegen and build notes
+
+- The effect DSP in `src/effects/faust_dsp/*_gen.rs` is **generated** from the
+  Faust sources in `dsp/*.dsp`. A normal `cargo build` uses the committed
+  generated files and does not need Faust. When you change a `.dsp`, regenerate
+  with `dsp/regen.sh` (needs the `faust` compiler on PATH); never hand-edit a
+  `*_gen.rs`. Run `dsp/regen.sh --check` to verify the committed code is in sync.
+- This branch currently `[patch]`es `sova` to a local `../sova/core` checkout
+  (see `Cargo.toml`) pending an upstream `midir` bump. Until that patch is
+  removed, building the workspace requires that sibling checkout to be present.
+
 ## Code contributions
 
 1. Fork the repository

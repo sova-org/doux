@@ -1,6 +1,6 @@
 //! Lock-free oscilloscope capture for the audio engine.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 const BUFFER_SIZE: usize = 2048;
 
@@ -10,27 +10,22 @@ const BUFFER_SIZE: usize = 2048;
 /// reading, and one in transition. This allows lock-free concurrent access
 /// from the audio callback (writer) and UI thread (reader).
 pub struct ScopeCapture {
-    buffers: [Box<[f32; BUFFER_SIZE]>; 3],
+    // Samples held as bit-cast f32 in atomics so the single-writer audio thread
+    // and the UI reader never race on the data (auto `Send`/`Sync`, no `unsafe`).
+    buffers: [Box<[AtomicU32; BUFFER_SIZE]>; 3],
     write_idx: AtomicUsize,
     write_buffer: AtomicUsize,
     read_buffer: AtomicUsize,
 }
-
-// SAFETY: All mutable access is through atomic operations or single-writer guarantee.
-// The write methods are only called from one audio callback thread at a time.
-unsafe impl Send for ScopeCapture {}
-// SAFETY: Concurrent read/write is safe due to triple-buffering design.
-// Writer and reader operate on different buffers, synchronized via atomics.
-unsafe impl Sync for ScopeCapture {}
 
 impl ScopeCapture {
     /// Creates a new scope capture with zeroed buffers.
     pub fn new() -> Self {
         Self {
             buffers: [
-                Box::new([0.0; BUFFER_SIZE]),
-                Box::new([0.0; BUFFER_SIZE]),
-                Box::new([0.0; BUFFER_SIZE]),
+                Box::new(std::array::from_fn(|_| AtomicU32::new(0))),
+                Box::new(std::array::from_fn(|_| AtomicU32::new(0))),
+                Box::new(std::array::from_fn(|_| AtomicU32::new(0))),
             ],
             write_idx: AtomicUsize::new(0),
             write_buffer: AtomicUsize::new(0),
@@ -51,11 +46,8 @@ impl ScopeCapture {
         let buf_idx = self.write_buffer.load(Ordering::Relaxed);
         let write_pos = self.write_idx.load(Ordering::Relaxed);
 
-        let buf_ptr = self.buffers[buf_idx].as_ptr() as *mut f32;
-        // SAFETY: write_pos is always < BUFFER_SIZE, and only one writer exists.
-        unsafe {
-            *buf_ptr.add(write_pos) = sample;
-        }
+        // Single writer (audio thread); Relaxed is enough for scope display.
+        self.buffers[buf_idx][write_pos].store(sample.to_bits(), Ordering::Relaxed);
 
         let next_pos = write_pos + 1;
         if next_pos >= BUFFER_SIZE {
@@ -81,7 +73,8 @@ impl ScopeCapture {
         buf.chunks(window)
             .take(num_peaks)
             .map(|chunk| {
-                chunk.iter().fold((f32::MAX, f32::MIN), |(min, max), &s| {
+                chunk.iter().fold((f32::MAX, f32::MIN), |(min, max), a| {
+                    let s = f32::from_bits(a.load(Ordering::Relaxed));
                     (min.min(s), max.max(s))
                 })
             })
@@ -91,7 +84,10 @@ impl ScopeCapture {
     /// Returns a copy of the current read buffer samples.
     pub fn read_samples(&self) -> Vec<f32> {
         let buf_idx = self.read_buffer.load(Ordering::Acquire);
-        self.buffers[buf_idx].to_vec()
+        self.buffers[buf_idx]
+            .iter()
+            .map(|a| f32::from_bits(a.load(Ordering::Relaxed)))
+            .collect()
     }
 
     /// Returns the buffer size in samples.

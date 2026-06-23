@@ -1,3 +1,5 @@
+//! Event parsing — the boundary that turns OSC/eval strings into typed `Event`s.
+
 use crate::orbit::OrbitParamId;
 use crate::superpan::SpeakerSet;
 use crate::types::{

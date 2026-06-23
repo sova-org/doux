@@ -1,19 +1,15 @@
 use std::path::PathBuf;
-#[cfg(feature = "soundfont")]
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-#[cfg(feature = "soundfont")]
-use crossbeam_channel::TrySendError;
 use crossbeam_channel::{Receiver, Sender};
 
 use doux::arc_swap::ArcSwap;
+#[cfg(feature = "soundfont")]
+use doux::arc_swap::ArcSwapOption;
 use doux::sampling::{scan_samples_dir, SampleEntry, SampleRegistry};
 #[cfg(feature = "soundfont")]
-use doux::telemetry::EngineMetrics;
-
-use crate::manager::AudioCmd;
+use doux::soundfont::GmBank;
 
 pub enum WorkerTask {
     RescanSamples(Vec<PathBuf>),
@@ -28,16 +24,14 @@ pub struct EngineWorker {
 }
 
 impl EngineWorker {
-    /// `cmd_tx` is retained for the soundfont install path; sample-index
-    /// updates go through `sample_index` directly and never round-trip
-    /// through the audio thread.
+    /// Sample-index and soundfont updates are published directly off-RT (via
+    /// the `sample_index` / `gm_bank` ArcSwaps); nothing round-trips through the
+    /// audio thread.
     pub fn spawn(
-        cmd_tx: Sender<AudioCmd>,
         registry: Arc<SampleRegistry>,
         sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
         sample_rate: f32,
-        #[cfg(feature = "soundfont")] metrics: Arc<EngineMetrics>,
-        #[cfg(not(feature = "soundfont"))] _metrics: Arc<doux::telemetry::EngineMetrics>,
+        #[cfg(feature = "soundfont")] gm_bank: Arc<ArcSwapOption<GmBank>>,
     ) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded::<WorkerTask>();
 
@@ -46,12 +40,11 @@ impl EngineWorker {
             .spawn(move || {
                 run(
                     rx,
-                    cmd_tx,
                     registry,
                     sample_index,
                     sample_rate,
                     #[cfg(feature = "soundfont")]
-                    metrics,
+                    gm_bank,
                 );
             })
             .expect("failed to spawn engine worker thread");
@@ -67,16 +60,11 @@ impl EngineWorker {
 
 fn run(
     rx: Receiver<WorkerTask>,
-    cmd_tx: Sender<AudioCmd>,
     registry: Arc<SampleRegistry>,
     sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
     sample_rate: f32,
-    #[cfg(feature = "soundfont")] metrics: Arc<EngineMetrics>,
+    #[cfg(feature = "soundfont")] gm_bank: Arc<ArcSwapOption<GmBank>>,
 ) {
-    // `cmd_tx` is only consulted from the soundfont arm; bind silently when
-    // the feature is off so clippy doesn't flag the unused parameter.
-    #[cfg(not(feature = "soundfont"))]
-    let _ = &cmd_tx;
     for task in &rx {
         match task {
             WorkerTask::RescanSamples(paths) => {
@@ -107,16 +95,13 @@ fn run(
                                     .into_iter()
                                     .map(|(name, data)| (name, Arc::new(data)))
                                     .collect();
-                                match cmd_tx.try_send(AudioCmd::InstallSoundfont {
-                                    bank,
-                                    samples: batch,
-                                }) {
-                                    Ok(()) => {}
-                                    Err(TrySendError::Full(_)) => {
-                                        metrics.dropped_cmds.fetch_add(1, Ordering::Relaxed);
-                                    }
-                                    Err(TrySendError::Disconnected(_)) => {}
-                                }
+                                // Publish off-RT, mirroring the sample-index path:
+                                // samples into the shared registry FIRST, then the
+                                // bank, so a GM note never resolves a zone whose
+                                // sample isn't present yet. The old bank/map drop
+                                // here on the worker, never on the audio thread.
+                                registry.insert_batch(batch);
+                                gm_bank.store(Some(Arc::new(bank)));
                             }
                             Err(e) => {
                                 eprintln!(

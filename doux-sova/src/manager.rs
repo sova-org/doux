@@ -35,11 +35,6 @@ pub enum AudioCmd {
     DispatchEvent(doux::event::Event),
     Hush,
     Panic,
-    #[cfg(feature = "soundfont")]
-    InstallSoundfont {
-        bank: doux::soundfont::GmBank,
-        samples: Vec<(String, std::sync::Arc<doux::sampling::SampleData>)>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +105,10 @@ pub struct DouxManager {
     /// by `store`-ing on this ArcSwap. The audio thread reads via the
     /// engine's snapshot accessor.
     sample_index: Arc<doux::arc_swap::ArcSwap<Vec<doux::sampling::SampleEntry>>>,
+    /// Shared with the engine: the worker publishes a decoded GM bank by
+    /// `store`-ing here; the audio thread reads it in `resolve_gm`.
+    #[cfg(feature = "soundfont")]
+    gm_bank: Arc<doux::arc_swap::ArcSwapOption<doux::soundfont::GmBank>>,
     worker: Option<EngineWorker>,
 }
 
@@ -228,6 +227,8 @@ impl DouxManager {
 
         let registry = Arc::clone(engine.sample_registry());
         let sample_index = engine.sample_index_handle();
+        #[cfg(feature = "soundfont")]
+        let gm_bank = engine.gm_bank_handle();
         spawn_preload(&engine.sample_index(), sample_rate, &registry);
 
         Ok(Self {
@@ -248,6 +249,8 @@ impl DouxManager {
             master_gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             registry,
             sample_index,
+            #[cfg(feature = "soundfont")]
+            gm_bank,
             worker: None,
         })
     }
@@ -436,12 +439,6 @@ impl DouxManager {
                 .as_ref()
                 .expect("cmd_rx must be set before build_streams"),
         );
-        let cmd_tx = self
-            .cmd_tx
-            .as_ref()
-            .expect("cmd_tx must be set before build_streams")
-            .clone();
-
         engine.set_input_channels(input_channels);
 
         let mut input_consumer = input_consumer;
@@ -489,10 +486,6 @@ impl DouxManager {
                                         }
                                         AudioCmd::Hush => engine.hush(),
                                         AudioCmd::Panic => engine.panic(),
-                                        #[cfg(feature = "soundfont")]
-                                        AudioCmd::InstallSoundfont { bank, samples } => {
-                                            engine.install_soundfont(samples, bank);
-                                        }
                                     },
                                     Err(_) => break,
                                 }
@@ -598,11 +591,11 @@ impl DouxManager {
 
         self.output_stream = Some(output_stream);
         self.worker = Some(EngineWorker::spawn(
-            cmd_tx,
             Arc::clone(&self.registry),
             Arc::clone(&self.sample_index),
             self.sample_rate,
-            Arc::clone(&self.metrics),
+            #[cfg(feature = "soundfont")]
+            Arc::clone(&self.gm_bank),
         ));
         self.scope = Some(scope);
         self.peaks = Some(peaks);
@@ -661,6 +654,10 @@ impl DouxManager {
         }
         self.registry = Arc::clone(engine.sample_registry());
         self.sample_index = engine.sample_index_handle();
+        #[cfg(feature = "soundfont")]
+        {
+            self.gm_bank = engine.gm_bank_handle();
+        }
         spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
@@ -729,6 +726,10 @@ impl DouxManager {
         }
         self.registry = Arc::clone(engine.sample_registry());
         self.sample_index = engine.sample_index_handle();
+        #[cfg(feature = "soundfont")]
+        {
+            self.gm_bank = engine.gm_bank_handle();
+        }
         spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
 
         self.pending_engine = Some(engine);

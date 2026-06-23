@@ -40,6 +40,15 @@
 //! - `dsp()` is called each audio quantum (~128 samples)
 //! - Output buffer is copied to the worklet's output
 //! - Input buffer receives microphone data for live processing
+//!
+//! # Safety
+//!
+//! `wasm32-unknown-unknown` is single-threaded and every `extern "C"` export
+//! here runs only from the browser AudioWorklet, which never calls them
+//! concurrently or re-enters one mid-execution. Under that invariant the
+//! `&mut`/`&`/pointer references into the `static mut` engine and buffers below
+//! never alias — that is what makes each `unsafe` block sound. The blanket
+//! `#![allow(static_mut_refs)]` is scoped to this module for the same reason.
 
 #![allow(static_mut_refs)]
 
@@ -79,6 +88,8 @@ static mut INPUT_BUFFER: [f32; WASM_BUFFER_SIZE * CHANNELS] = [0.0; WASM_BUFFER_
 /// Must be called once before any other functions.
 #[no_mangle]
 pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
+    // SAFETY: single-threaded worklet (see "# Safety"); called once before any
+    // other export, so the ENGINE static is not aliased.
     unsafe {
         ENGINE = Some(Engine::new(EngineConfig {
             sample_rate,
@@ -101,6 +112,12 @@ pub extern "C" fn doux_init(sample_rate: f32, max_voices: usize) {
 #[no_mangle]
 pub extern "C" fn dsp() {
     crate::dsp::enable_flush_to_zero();
+    // Unlike the native cpal callback (cli_common.rs), there is no catch_unwind
+    // here: wasm32-unknown-unknown is panic=abort, so a panic in the render path
+    // tears down the worklet with no recovery. process_block must stay panic-free.
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE, OUTPUT,
+    // SAMPLE_BUFFER, INPUT_BUFFER and FRAMEBUFFER are disjoint statics touched
+    // only from this non-reentrant callback.
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             engine.process_block(&mut OUTPUT, &SAMPLE_BUFFER, &INPUT_BUFFER);
@@ -131,6 +148,8 @@ pub extern "C" fn dsp() {
 /// - `-1` on error or for commands that don't return a value
 #[no_mangle]
 pub extern "C" fn evaluate() -> i32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE and EVENT_INPUT
+    // are not accessed concurrently or reentrantly.
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             let len = EVENT_INPUT
@@ -157,6 +176,8 @@ pub extern "C" fn evaluate() -> i32 {
 /// Returns pointer to the audio output buffer.
 #[no_mangle]
 pub extern "C" fn get_output_pointer() -> *const f32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static buffer.
     unsafe { OUTPUT.as_ptr() }
 }
 
@@ -171,6 +192,8 @@ pub extern "C" fn get_output_len() -> usize {
 /// Write null-terminated UTF-8 command strings here, then call `evaluate()`.
 #[no_mangle]
 pub extern "C" fn get_event_input_pointer() -> *mut u8 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static buffer.
     unsafe { EVENT_INPUT.as_mut_ptr() }
 }
 
@@ -179,6 +202,8 @@ pub extern "C" fn get_event_input_pointer() -> *mut u8 {
 /// Write decoded f32 samples here, then call `load_sample()`.
 #[no_mangle]
 pub extern "C" fn get_sample_buffer_pointer() -> *mut f32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static buffer.
     unsafe { SAMPLE_BUFFER.as_mut_ptr() }
 }
 
@@ -193,6 +218,8 @@ pub extern "C" fn get_sample_buffer_len() -> usize {
 /// Write microphone/line-in samples here before calling `dsp()`.
 #[no_mangle]
 pub extern "C" fn get_input_buffer_pointer() -> *mut f32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static buffer.
     unsafe { INPUT_BUFFER.as_mut_ptr() }
 }
 
@@ -205,12 +232,16 @@ pub extern "C" fn get_input_buffer_len() -> usize {
 /// Returns pointer to the waveform visualization ring buffer.
 #[no_mangle]
 pub extern "C" fn get_framebuffer_pointer() -> *const f32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static buffer.
     unsafe { FRAMEBUFFER.as_ptr() }
 }
 
 /// Returns pointer to the current frame index in the ring buffer.
 #[no_mangle]
 pub extern "C" fn get_frame_pointer() -> *const i32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); returns a pointer to a
+    // disjoint static.
     unsafe { &FRAME_IDX as *const i32 }
 }
 
@@ -231,6 +262,8 @@ pub extern "C" fn get_frame_pointer() -> *const i32 {
 /// Pool index on success, `-1` on failure.
 #[no_mangle]
 pub extern "C" fn load_sample(len: usize, channels: u8, freq: f32) -> i32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE and SAMPLE_BUFFER
+    // are not accessed concurrently or reentrantly.
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             let samples = &SAMPLE_BUFFER[..len.min(SAMPLE_BUFFER_SIZE)];
@@ -247,6 +280,7 @@ pub extern "C" fn load_sample(len: usize, channels: u8, freq: f32) -> i32 {
 /// Returns the number of samples loaded in the pool.
 #[no_mangle]
 pub extern "C" fn get_sample_count() -> usize {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             engine.samples.len()
@@ -263,6 +297,7 @@ pub extern "C" fn get_sample_count() -> usize {
 /// Returns the current engine time in seconds.
 #[no_mangle]
 pub extern "C" fn get_time() -> f64 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             engine.time
@@ -275,6 +310,7 @@ pub extern "C" fn get_time() -> f64 {
 /// Returns the current engine tick (sample position).
 #[no_mangle]
 pub extern "C" fn get_tick() -> u64 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             engine.tick
@@ -287,6 +323,7 @@ pub extern "C" fn get_tick() -> u64 {
 /// Returns the engine's sample rate.
 #[no_mangle]
 pub extern "C" fn get_sample_rate() -> f32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             engine.sr
@@ -299,6 +336,7 @@ pub extern "C" fn get_sample_rate() -> f32 {
 /// Returns the number of currently active voices.
 #[no_mangle]
 pub extern "C" fn get_active_voices() -> usize {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             engine.active_voices
@@ -311,6 +349,7 @@ pub extern "C" fn get_active_voices() -> usize {
 /// Fades out all active voices smoothly.
 #[no_mangle]
 pub extern "C" fn hush() {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             engine.hush();
@@ -321,6 +360,7 @@ pub extern "C" fn hush() {
 /// Immediately silences all voices (may click).
 #[no_mangle]
 pub extern "C" fn panic() {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref mut engine) = ENGINE {
             engine.panic();
@@ -335,6 +375,7 @@ pub extern "C" fn panic() {
 /// Debug: reads a byte from the event input buffer.
 #[no_mangle]
 pub extern "C" fn debug_event_input_byte(idx: usize) -> u8 {
+    // SAFETY: single-threaded worklet (see "# Safety"); EVENT_INPUT is not aliased.
     unsafe { EVENT_INPUT.get(idx).copied().unwrap_or(255) }
 }
 
@@ -344,6 +385,7 @@ pub extern "C" fn debug_event_input_byte(idx: usize) -> u8 {
 /// Returns `-1` if voice index is invalid.
 #[no_mangle]
 pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             if voice_idx < engine.active_voices {
@@ -360,6 +402,7 @@ pub extern "C" fn debug_voice_source(voice_idx: usize) -> i32 {
 /// Debug: returns 1 if voice has a web sample attached, 0 otherwise.
 #[no_mangle]
 pub extern "C" fn debug_voice_has_web_sample(voice_idx: usize) -> i32 {
+    // SAFETY: single-threaded worklet (see "# Safety"); ENGINE is not aliased.
     unsafe {
         if let Some(ref engine) = ENGINE {
             if voice_idx < engine.active_voices {

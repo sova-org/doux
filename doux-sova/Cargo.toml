@@ -2,6 +2,9 @@
 name = "doux-sova"
 version = "0.0.1"
 edition = "2021"
+description = "Sova integration layer for the doux audio engine"
+license = "AGPL-3.0-only"
+repository = "https://github.com/Bubobubobubobubo/doux"
 
 [features]
 default = []

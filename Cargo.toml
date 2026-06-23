@@ -5,6 +5,12 @@ members = [".", "doux-sova"]
 name = "doux"
 version = "0.0.41"
 edition = "2021"
+description = "A software synthesizer engine for live coding"
+license = "AGPL-3.0-only"
+repository = "https://github.com/Bubobubobubobubo/doux"
+homepage = "https://doux.livecoding.fr"
+authors = ["Raphaël Forment <raphael.forment@gmail.com>"]
+readme = "README.md"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -29,7 +35,7 @@ default = ["native"]
 native = ["dep:clap", "dep:cpal", "dep:rosc", "dep:symphonia", "dep:rustyline", "dep:arc-swap", "dep:crossbeam-channel", "dep:ringbuf"]
 render = ["native", "dep:hound"]
 soundfont = ["native", "dep:soundfont"]
-asio = ["dep:cpal", "cpal/asio"]
+asio = ["native", "cpal/asio"]
 profiling = []
 
 [dependencies]
