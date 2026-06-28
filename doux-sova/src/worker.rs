@@ -90,17 +90,11 @@ fn run(
                 for path in &paths {
                     if let Some(sf2_path) = doux::soundfont::find_sf2_file(path) {
                         match doux::soundfont::load_sf2(&sf2_path, sample_rate) {
-                            Ok((samples, bank)) => {
-                                let batch: Vec<_> = samples
-                                    .into_iter()
-                                    .map(|(name, data)| (name, Arc::new(data)))
-                                    .collect();
-                                // Publish off-RT, mirroring the sample-index path:
-                                // samples into the shared registry FIRST, then the
-                                // bank, so a GM note never resolves a zone whose
-                                // sample isn't present yet. The old bank/map drop
-                                // here on the worker, never on the audio thread.
-                                registry.insert_batch(batch);
+                            Ok(bank) => {
+                                // The bank owns its sample PCM, so publishing is a
+                                // single atomic store off the RT thread — a GM note
+                                // never resolves a zone whose sample isn't present.
+                                // The old bank drops here on the worker.
                                 gm_bank.store(Some(Arc::new(bank)));
                             }
                             Err(e) => {

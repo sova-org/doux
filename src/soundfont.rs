@@ -1,101 +1,165 @@
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Arc;
 
 use soundfont::raw::GeneratorType;
 use soundfont::SoundFont2;
 
-use crate::sampling::{resample_linear, SampleData};
+use crate::sampling::SampleData;
 use crate::types::midi2freq;
 
+/// One flattened preset→instrument→zone, resolved off the audio thread into a
+/// voice-ready entry. The sample PCM is owned here (via `Arc<SampleData>`), so a
+/// note-on never touches the global sample registry — the whole bank is one
+/// self-contained, atomically-published structure.
 #[derive(Clone)]
 struct ZoneEntry {
-    preset: u16,
+    program: u16,
     bank: u16,
     key_lo: u8,
     key_hi: u8,
     vel_lo: u8,
     vel_hi: u8,
-    sample_name: String,
+    data: Arc<SampleData>,
     root_freq: f32,
+    /// Native sample rate / device rate. Folded into playback speed so samples
+    /// are stored at native rate (no up-front resample) and the cursor resamples
+    /// at playback time, exactly like FluidSynth/RustySynth.
+    sr_ratio: f32,
     loop_start: f32,
     loop_end: f32,
     looping: bool,
+    /// SF2 sample mode 3: loop while held, then play the tail after release.
+    loop_until_release: bool,
+    /// Linear playback gain from the SF2 initialAttenuation generator (EMU-scaled).
     attenuation: f32,
     pan: f32,
-    filter_fc: f32,
+    /// Base filter cutoff in absolute cents (before the per-note velocity term).
+    filter_fc_cents: f32,
     filter_q: f32,
     scale_tuning: f32,
+    /// Vibrato LFO rate in Hz (0 if no vibrato generator present).
+    vib_rate: f32,
+    /// Vibrato depth in semitones (0 = no vibrato).
+    vib_depth: f32,
+    exclusive_class: u8,
     delay: f32,
-    hold: f32,
     attack: f32,
-    decay: f32,
+    /// Raw volume-envelope hold/decay in timecents plus their key-scaling
+    /// coefficients; resolved to seconds at note-on (keynum is known there).
+    hold_tc: i16,
+    decay_tc: i16,
+    keynum_to_hold: i16,
+    keynum_to_decay: i16,
     sustain: f32,
     release: f32,
 }
 
-pub struct GmZone<'a> {
-    pub sample_name: &'a str,
+/// A resolved zone for one note-on. Owns a cheap `Arc` clone of the sample;
+/// the velocity-dependent terms (amplitude, cutoff) are applied by the caller.
+pub struct GmZone {
+    pub data: Arc<SampleData>,
     pub root_freq: f32,
+    pub sr_ratio: f32,
     pub loop_start: f32,
     pub loop_end: f32,
     pub looping: bool,
+    pub loop_until_release: bool,
     pub attenuation: f32,
     pub pan: f32,
-    pub filter_fc: f32,
+    pub filter_fc_cents: f32,
     pub filter_q: f32,
     pub scale_tuning: f32,
+    pub vib_rate: f32,
+    pub vib_depth: f32,
+    pub exclusive_class: u8,
     pub delay: f32,
-    pub hold: f32,
     pub attack: f32,
+    pub hold: f32,
     pub decay: f32,
     pub sustain: f32,
     pub release: f32,
 }
 
-#[derive(Clone)]
+/// Contiguous run of zones sharing one `(program, bank)`. Lets a note-on binary
+/// search to its program then scan only that program's zones — no full scan.
+struct Bucket {
+    program: u16,
+    bank: u16,
+    start: u32,
+    len: u32,
+}
+
 pub struct GmBank {
     zones: Vec<ZoneEntry>,
+    buckets: Vec<Bucket>,
 }
 
 impl GmBank {
-    pub fn find(&self, program_str: &str, note: u8, vel: u8) -> Option<GmZone<'_>> {
-        let (preset, bank) = resolve_gm_program(program_str)?;
-        self.zones
-            .iter()
-            .find(|z| {
-                z.preset == preset
-                    && z.bank == bank
-                    && note >= z.key_lo
-                    && note <= z.key_hi
-                    && vel >= z.vel_lo
-                    && vel <= z.vel_hi
-            })
-            .map(|z| GmZone {
-                sample_name: &z.sample_name,
-                root_freq: z.root_freq,
-                loop_start: z.loop_start,
-                loop_end: z.loop_end,
-                looping: z.looping,
-                attenuation: z.attenuation,
-                pan: z.pan,
-                filter_fc: z.filter_fc,
-                filter_q: z.filter_q,
-                scale_tuning: z.scale_tuning,
-                delay: z.delay,
-                hold: z.hold,
-                attack: z.attack,
-                decay: z.decay,
-                sustain: z.sustain,
-                release: z.release,
-            })
+    fn new(mut zones: Vec<ZoneEntry>) -> Self {
+        zones.sort_by_key(|z| (z.program, z.bank));
+        let mut buckets: Vec<Bucket> = Vec::new();
+        for (i, z) in zones.iter().enumerate() {
+            match buckets.last_mut() {
+                Some(b) if b.program == z.program && b.bank == z.bank => b.len += 1,
+                _ => buckets.push(Bucket {
+                    program: z.program,
+                    bank: z.bank,
+                    start: i as u32,
+                    len: 1,
+                }),
+            }
+        }
+        Self { zones, buckets }
+    }
+
+    /// Resolve a `(program, bank, note, velocity)` to the first matching zone.
+    /// RT-safe: a binary search over buckets plus a short scan, no allocation.
+    pub fn find(&self, program: u16, bank: u16, note: u8, vel: u8) -> Option<GmZone> {
+        let bi = self
+            .buckets
+            .binary_search_by(|b| (b.program, b.bank).cmp(&(program, bank)))
+            .ok()?;
+        let b = &self.buckets[bi];
+        let lo = b.start as usize;
+        let hi = lo + b.len as usize;
+        let z = self.zones[lo..hi].iter().find(|z| {
+            note >= z.key_lo && note <= z.key_hi && vel >= z.vel_lo && vel <= z.vel_hi
+        })?;
+
+        // Key-scale hold/decay (SF2 gens 39/40): tc' = tc + (60 - key) * coeff.
+        let kn = 60i32 - note as i32;
+        let hold = timecents_to_secs(z.hold_tc as i32 + kn * z.keynum_to_hold as i32);
+        let decay = timecents_to_secs(z.decay_tc as i32 + kn * z.keynum_to_decay as i32);
+
+        Some(GmZone {
+            data: Arc::clone(&z.data),
+            root_freq: z.root_freq,
+            sr_ratio: z.sr_ratio,
+            loop_start: z.loop_start,
+            loop_end: z.loop_end,
+            looping: z.looping,
+            loop_until_release: z.loop_until_release,
+            attenuation: z.attenuation,
+            pan: z.pan,
+            filter_fc_cents: z.filter_fc_cents,
+            filter_q: z.filter_q,
+            scale_tuning: z.scale_tuning,
+            vib_rate: z.vib_rate,
+            vib_depth: z.vib_depth,
+            exclusive_class: z.exclusive_class,
+            delay: z.delay,
+            attack: z.attack,
+            hold,
+            decay,
+            sustain: z.sustain,
+            release: z.release,
+        })
     }
 
     pub fn preset_count(&self) -> usize {
-        self.zones
-            .iter()
-            .map(|z| (z.preset, z.bank))
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
+        self.buckets.len()
     }
 }
 
@@ -103,8 +167,19 @@ pub fn resolve_gm_program(s: &str) -> Option<(u16, u16)> {
     if let Ok(n) = s.parse::<u16>() {
         return if n < 128 { Some((n, 0)) } else { None };
     }
-    let lower = s.to_ascii_lowercase();
-    match lower.as_str() {
+    // Case-insensitive alias match without allocating: lowercase into a stack
+    // buffer (GM alias names are short). Runs off-RT at parse time and on the
+    // audio thread at note-on, so it must not touch the heap.
+    let bytes = s.as_bytes();
+    let mut buf = [0u8; 32];
+    if bytes.len() > buf.len() {
+        return None;
+    }
+    for (d, &b) in buf.iter_mut().zip(bytes) {
+        *d = b.to_ascii_lowercase();
+    }
+    let lower = std::str::from_utf8(&buf[..bytes.len()]).ok()?;
+    match lower {
         "drums" | "drum" | "percussion" => Some((0, 128)),
         "piano" | "grandpiano" => Some((0, 0)),
         "brightpiano" => Some((1, 0)),
@@ -364,8 +439,9 @@ fn centibels_to_linear(cb: i16) -> f32 {
     10.0_f32.powf(-cb as f32 / 200.0)
 }
 
-/// SF2 timecents to seconds: 2^(tc/1200)
-fn timecents_to_secs(tc: i16) -> f32 {
+/// SF2 timecents to seconds: 2^(tc/1200). Takes i32 so key-scaled envelope
+/// times (which can exceed i16) don't overflow.
+fn timecents_to_secs(tc: i32) -> f32 {
     if tc <= -12000 {
         0.001
     } else {
@@ -373,10 +449,57 @@ fn timecents_to_secs(tc: i16) -> f32 {
     }
 }
 
-pub fn load_sf2(
-    path: &Path,
-    target_sr: f32,
-) -> Result<(Vec<(String, SampleData)>, GmBank), String> {
+/// Absolute cents to Hz: 8.176 * 2^(cents/1200). Used for LFO rates.
+fn abscents_to_hz(cents: i16) -> f32 {
+    8.176 * 2.0_f32.powf(cents as f32 / 1200.0)
+}
+
+/// FluidSynth `FLUID_PEAK_ATTENUATION` (src/utils/fluid_conv_tables.h).
+const FLUID_PEAK_ATTENUATION: f32 = 960.0;
+/// `FLUID_VEL_CB_SIZE - 1`: the concave curve spans integer indices 0..=127.
+const VEL_CB_MAX_INDEX: f32 = 127.0;
+
+/// FluidSynth's concave transform on a normalized input `x` in `[0, 1]`, ported
+/// verbatim from `src/gentables/fluid_concave.cpp` (coefficient `-200*2/960`,
+/// endpoints pinned to 0 and 1). The SF2 2.04 §8.2.4 formula is wrong — this is
+/// the implemented curve ("according to the pictures on SF2.01 page 73").
+fn concave(x: f32) -> f32 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
+    -(200.0 * 2.0 / FLUID_PEAK_ATTENUATION) * (1.0 - x).log10()
+}
+
+/// SF2 default modulator #1 (NoteOnVelocity → Initial Attenuation, concave,
+/// negative-unipolar, amount 960 cB). Returns the centibels of additional
+/// attenuation to add to the zone's `initialAttenuation`: ~0 cB at vel=127,
+/// ~952.5 cB at vel=0 (FluidSynth's 127/128 clamp). Ported from
+/// `fluid_mod.c` / `fluid_synth.c` `default_vel2att_mod`.
+pub fn velocity_to_attenuation_cb(vel: u8) -> f32 {
+    let v = vel.min(127) as f32;
+    let inv_norm = (VEL_CB_MAX_INDEX - v) / VEL_CB_MAX_INDEX;
+    FLUID_PEAK_ATTENUATION * concave(inv_norm).min(127.0 / 128.0)
+}
+
+/// Centibels of attenuation → linear amplitude gain: `10^(-cb/200)`
+/// (FluidSynth `fluid_cb2amp`).
+pub fn cb_to_linear_gain(cb: f32) -> f32 {
+    10.0_f32.powf(-cb / 200.0)
+}
+
+/// Native PCM for one SF2 sample header, kept at its original sample rate.
+struct SampleSrc {
+    pcm: Vec<f32>,
+    native_sr: u32,
+    link: u16,
+    is_left: bool,
+    is_right: bool,
+}
+
+pub fn load_sf2(path: &Path, device_sr: f32) -> Result<GmBank, String> {
     let mut file = std::fs::File::open(path).map_err(|e| format!("Failed to open SF2: {e}"))?;
     let sf2 = SoundFont2::load(&mut file).map_err(|e| format!("Failed to parse SF2: {e}"))?;
 
@@ -392,52 +515,91 @@ pub fn load_sf2(
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]))
         .collect();
-    // Extract each sample into SampleData, keyed by index
-    let mut samples = Vec::new();
-    let mut sample_ratios: Vec<f32> = Vec::new();
+    drop(raw_bytes);
 
-    for (i, hdr) in sf2.sample_headers.iter().enumerate() {
+    // Decode each sample header to native-rate f32 PCM (no resampling: pitch and
+    // device-rate conversion both happen at playback time via the cursor speed).
+    // Vorbis (SF3) and ROM samples can't be read as raw PCM, so they're skipped.
+    let mut srcs: Vec<Option<SampleSrc>> = Vec::with_capacity(sf2.sample_headers.len());
+    for hdr in &sf2.sample_headers {
         let start = hdr.start as usize;
         let end = hdr.end as usize;
-        if start >= end || end > raw_i16.len() {
-            sample_ratios.push(1.0);
+        if start >= end
+            || end > raw_i16.len()
+            || hdr.sample_type.is_vorbis()
+            || hdr.sample_type.is_rom()
+        {
+            srcs.push(None);
             continue;
         }
-
-        let pcm: Vec<f32> = raw_i16[start..end]
-            .iter()
-            .map(|&s| s as f32 / 32768.0)
-            .collect();
-
-        let needs_resample = (hdr.sample_rate as f32 - target_sr).abs() > 1.0;
-        let ratio = if needs_resample {
-            target_sr / hdr.sample_rate as f32
-        } else {
-            1.0
-        };
-        sample_ratios.push(ratio);
-
-        let pcm = if needs_resample {
-            resample_linear(&pcm, 1, hdr.sample_rate as f32, target_sr)
-        } else {
-            pcm
-        };
-
-        let root_note = hdr.origpitch as f32 + hdr.pitchadj as f32 / 100.0;
-        let root_freq = midi2freq(root_note);
-        let name = format!("_sf2_{i}");
-        samples.push((name, SampleData::new(pcm, 1, root_freq)));
+        let pcm: Vec<f32> = raw_i16[start..end].iter().map(|&s| s as f32 / 32768.0).collect();
+        srcs.push(Some(SampleSrc {
+            pcm,
+            native_sr: hdr.sample_rate,
+            link: hdr.sample_link,
+            is_left: hdr.sample_type.is_left(),
+            is_right: hdr.sample_type.is_right(),
+        }));
     }
 
-    // Build zone lookup table
-    let zones = build_zone_table(&sf2, &sample_ratios);
-    let bank = GmBank { zones };
-
-    Ok((samples, bank))
+    let zones = build_zone_table(&sf2, &srcs, device_sr);
+    Ok(GmBank::new(zones))
 }
 
-fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
+/// Build (or fetch from cache) the mono `SampleData` for one sample index.
+fn mono_arc(
+    idx: usize,
+    srcs: &[Option<SampleSrc>],
+    headers: &[soundfont::raw::SampleHeader],
+    cache: &mut [Option<Arc<SampleData>>],
+) -> Option<Arc<SampleData>> {
+    if let Some(a) = &cache[idx] {
+        return Some(Arc::clone(a));
+    }
+    let src = srcs[idx].as_ref()?;
+    let hdr = &headers[idx];
+    let freq = midi2freq(hdr.origpitch as f32 + hdr.pitchadj as f32 / 100.0);
+    let arc = Arc::new(SampleData::new(src.pcm.clone(), 1, freq));
+    cache[idx] = Some(Arc::clone(&arc));
+    Some(arc)
+}
+
+/// Build (or fetch from cache) a 2-channel interleaved `SampleData` from a
+/// linked L/R sample pair (SF2 §7.10). Frame count is the shorter of the two.
+fn stereo_arc(
+    left_idx: usize,
+    right_idx: usize,
+    srcs: &[Option<SampleSrc>],
+    headers: &[soundfont::raw::SampleHeader],
+    cache: &mut HashMap<(usize, usize), Arc<SampleData>>,
+) -> Option<Arc<SampleData>> {
+    let key = (left_idx, right_idx);
+    if let Some(a) = cache.get(&key) {
+        return Some(Arc::clone(a));
+    }
+    let left = srcs[left_idx].as_ref()?;
+    let right = srcs[right_idx].as_ref()?;
+    let frames = left.pcm.len().min(right.pcm.len());
+    let mut interleaved = Vec::with_capacity(frames * 2);
+    for f in 0..frames {
+        interleaved.push(left.pcm[f]);
+        interleaved.push(right.pcm[f]);
+    }
+    let hdr = &headers[right_idx];
+    let freq = midi2freq(hdr.origpitch as f32 + hdr.pitchadj as f32 / 100.0);
+    let arc = Arc::new(SampleData::new(interleaved, 2, freq));
+    cache.insert(key, Arc::clone(&arc));
+    Some(arc)
+}
+
+fn build_zone_table(
+    sf2: &SoundFont2,
+    srcs: &[Option<SampleSrc>],
+    device_sr: f32,
+) -> Vec<ZoneEntry> {
     let mut entries = Vec::new();
+    let mut mono_cache: Vec<Option<Arc<SampleData>>> = vec![None; sf2.sample_headers.len()];
+    let mut stereo_cache: HashMap<(usize, usize), Arc<SampleData>> = HashMap::new();
 
     for preset in &sf2.presets {
         let program = preset.header.preset;
@@ -484,6 +646,10 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                     Some(h) => h,
                     None => continue,
                 };
+                let src = match srcs.get(sample_idx).and_then(|s| s.as_ref()) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
                 let i_key = gen_range(izone, GeneratorType::KeyRange).unwrap_or((0, 127));
                 let i_vel = gen_range(izone, GeneratorType::VelRange).unwrap_or((0, 127));
@@ -511,6 +677,33 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                     inst_val(ty).unwrap_or(default) + preset_offset(ty)
                 };
 
+                // Resolve the sample data: merge a linked L/R pair into one stereo
+                // SampleData (the read path is already interleaved-aware), else mono.
+                let data = if (src.is_left || src.is_right) && (src.link as usize) < srcs.len() {
+                    let partner = src.link as usize;
+                    let partner_ok = srcs
+                        .get(partner)
+                        .and_then(|s| s.as_ref())
+                        .map(|p| p.is_left != src.is_left)
+                        .unwrap_or(false);
+                    if partner_ok {
+                        let (l, r) = if src.is_left {
+                            (sample_idx, partner)
+                        } else {
+                            (partner, sample_idx)
+                        };
+                        stereo_arc(l, r, srcs, &sf2.sample_headers, &mut stereo_cache)
+                    } else {
+                        mono_arc(sample_idx, srcs, &sf2.sample_headers, &mut mono_cache)
+                    }
+                } else {
+                    mono_arc(sample_idx, srcs, &sf2.sample_headers, &mut mono_cache)
+                };
+                let data = match data {
+                    Some(d) => d,
+                    None => continue,
+                };
+
                 // Root key (override, not additive)
                 let root_key = inst_val(GeneratorType::OverridingRootKey)
                     .filter(|&k| k >= 0)
@@ -521,64 +714,110 @@ fn build_zone_table(sf2: &SoundFont2, sample_ratios: &[f32]) -> Vec<ZoneEntry> {
                 let root_freq =
                     midi2freq(root_key as f32 + coarse_tune as f32 + fine_tune as f32 / 100.0);
 
-                // Loop points (adjusted for sample start offset and resampling)
-                let ratio = sample_ratios.get(sample_idx).copied().unwrap_or(1.0);
+                let sr_ratio = src.native_sr as f32 / device_sr;
+
+                // Loop points in native frames, relative to the sample start. No
+                // resample ratio: the sample is stored at native rate. Clamp to
+                // the frame count — a no-op for mono, but a merged stereo pair is
+                // only as long as its shorter channel, so a malformed font can't
+                // push the loop past the buffer.
                 let sample_start = hdr.start;
-                let loop_start_raw = hdr.loop_start.saturating_sub(sample_start);
-                let loop_end_raw = hdr.loop_end.saturating_sub(sample_start);
-                let loop_start = loop_start_raw as f32 * ratio;
-                let loop_end = loop_end_raw as f32 * ratio;
+                let frames = data.frame_count as f32;
+                let loop_start = (hdr.loop_start.saturating_sub(sample_start) as f32).min(frames);
+                let loop_end = (hdr.loop_end.saturating_sub(sample_start) as f32).min(frames);
 
-                // Sample mode: 0=no loop, 1=loop continuous, 3=loop until release
+                // Sample mode: 0=no loop, 1=loop continuous, 3=loop until release.
                 let sample_mode = inst_val(GeneratorType::SampleModes).unwrap_or(0);
-                let looping = sample_mode == 1 || sample_mode == 3;
-                let valid_loop = looping && loop_end > loop_start + 1.0;
+                let loops = sample_mode == 1 || sample_mode == 3;
+                let valid_loop = loops && loop_end > loop_start + 1.0;
+                let loop_until_release = valid_loop && sample_mode == 3;
 
-                // Attenuation (centibels, default 0 = full volume)
-                let attenuation = centibels_to_linear(get(GeneratorType::InitialAttenuation, 0));
+                // Initial attenuation. The EMU8k/10k 0.4 factor on the generator
+                // value matches FluidSynth/BASSMIDI — virtually every GM font is
+                // authored expecting it, and spec-literal attenuation plays them far
+                // too quietly. Scope is the generator only (the velocity concave and
+                // sustainVolEnv stay unscaled).
+                let attenuation =
+                    cb_to_linear_gain(0.4 * get(GeneratorType::InitialAttenuation, 0) as f32);
 
-                // Pan (-500..500 = -50%..+50%, default 0 = center)
-                let pan_raw = get(GeneratorType::Pan, 0);
-                let pan = (pan_raw as f32 / 1000.0).clamp(-0.5, 0.5) + 0.5;
+                // Pan (-500..500 = -50%..+50%, default 0 = center). A sample that
+                // belongs to a stereo L/R pair encodes its side in the pan
+                // generator (left = -500, right = +500); since the pair is merged
+                // into one 2-channel buffer, applying that generator would collapse
+                // the stereo image back onto one side (a hard-panned piano). Stereo
+                // zones therefore stay centered (pan 0.5 makes the Pan stage a no-op).
+                let pan = if src.is_left || src.is_right {
+                    0.5
+                } else {
+                    let pan_raw = get(GeneratorType::Pan, 0);
+                    (pan_raw as f32 / 1000.0).clamp(-0.5, 0.5) + 0.5
+                };
 
-                // Filter (cents for cutoff, centibels for Q → 0..1 resonance)
-                let fc_cents = get(GeneratorType::InitialFilterFc, 13500);
-                let filter_fc = 8.176 * 2.0_f32.powf(fc_cents as f32 / 1200.0);
-                let fq_cb = get(GeneratorType::InitialFilterQ, 0);
+                // Filter: cutoff stays in cents (the velocity term is added per
+                // note); Q in centibels maps to 0..1 resonance. No passband makeup
+                // gain — doux's SVF lowpass keeps unity passband at all Q (resonance
+                // only adds a peak at cutoff), so there is nothing to compensate.
+                let filter_fc_cents = get(GeneratorType::InitialFilterFc, 13500) as f32;
+                let fq_cb = get(GeneratorType::InitialFilterQ, 0).max(0);
                 let filter_q = (fq_cb as f32 / 960.0).clamp(0.0, 1.0);
 
                 // Scale tuning (cents/key, default 100 = normal chromatic)
                 let scale_tuning = get(GeneratorType::ScaleTuning, 100) as f32 / 100.0;
 
-                // Volume envelope
-                let delay = timecents_to_secs(get(GeneratorType::DelayVolEnv, -12000));
-                let attack = timecents_to_secs(get(GeneratorType::AttackVolEnv, -12000));
-                let hold = timecents_to_secs(get(GeneratorType::HoldVolEnv, -12000));
-                let decay = timecents_to_secs(get(GeneratorType::DecayVolEnv, -12000));
+                // Vibrato LFO → pitch (gens 6/24). Mapped onto the existing voice
+                // vibrato; only carried when the depth generator is non-zero.
+                let vib_depth_cents = get(GeneratorType::VibLfoToPitch, 0);
+                let (vib_rate, vib_depth) = if vib_depth_cents != 0 {
+                    (
+                        abscents_to_hz(get(GeneratorType::FreqVibLFO, 0)),
+                        vib_depth_cents.abs() as f32 / 100.0,
+                    )
+                } else {
+                    (0.0, 0.0)
+                };
+
+                let exclusive_class = get(GeneratorType::ExclusiveClass, 0).clamp(0, 127) as u8;
+
+                // Volume envelope. delay/attack/sustain/release resolve to
+                // seconds now; hold/decay keep raw timecents so key-scaling
+                // (gens 39/40) can be applied at note-on.
+                let delay = timecents_to_secs(get(GeneratorType::DelayVolEnv, -12000) as i32);
+                let attack = timecents_to_secs(get(GeneratorType::AttackVolEnv, -12000) as i32);
+                let hold_tc = get(GeneratorType::HoldVolEnv, -12000);
+                let decay_tc = get(GeneratorType::DecayVolEnv, -12000);
+                let keynum_to_hold = get(GeneratorType::KeynumToVolEnvHold, 0);
+                let keynum_to_decay = get(GeneratorType::KeynumToVolEnvDecay, 0);
                 let sustain = centibels_to_linear(get(GeneratorType::SustainVolEnv, 0));
-                let release = timecents_to_secs(get(GeneratorType::ReleaseVolEnv, -12000));
+                let release = timecents_to_secs(get(GeneratorType::ReleaseVolEnv, -12000) as i32);
 
                 entries.push(ZoneEntry {
-                    preset: program,
+                    program,
                     bank,
                     key_lo,
                     key_hi,
                     vel_lo,
                     vel_hi,
-                    sample_name: format!("_sf2_{sample_idx}"),
+                    data,
                     root_freq,
+                    sr_ratio,
                     loop_start: if valid_loop { loop_start } else { 0.0 },
                     loop_end: if valid_loop { loop_end } else { 0.0 },
                     looping: valid_loop,
+                    loop_until_release,
                     attenuation,
                     pan,
-                    filter_fc,
+                    filter_fc_cents,
                     filter_q,
                     scale_tuning,
+                    vib_rate,
+                    vib_depth,
+                    exclusive_class,
                     delay,
-                    hold,
                     attack,
-                    decay,
+                    hold_tc,
+                    decay_tc,
+                    keynum_to_hold,
+                    keynum_to_decay,
                     sustain,
                     release,
                 });

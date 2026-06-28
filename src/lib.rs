@@ -128,14 +128,20 @@ pub fn all_modules() -> Vec<&'static ModuleInfo> {
 struct GmResolved {
     data: Arc<SampleData>,
     root_freq: f32,
+    sr_ratio: f32,
     loop_start: f32,
     loop_end: f32,
     looping: bool,
+    loop_until_release: bool,
     attenuation: f32,
     pan: f32,
-    filter_fc: f32,
+    /// Initial filter cutoff in Hz; `None` when the zone leaves the filter open.
+    filter_fc: Option<f32>,
     filter_q: f32,
     scale_tuning: f32,
+    vib_rate: f32,
+    vib_depth: f32,
+    exclusive_class: u8,
     delay: f32,
     hold: f32,
     attack: f32,
@@ -484,12 +490,10 @@ impl Engine {
 
     #[cfg(feature = "soundfont")]
     pub fn load_soundfont(&mut self, path: &std::path::Path) -> Result<(), String> {
-        let (samples, bank) = soundfont::load_sf2(path, self.sr)?;
-        let batch: Vec<_> = samples
-            .into_iter()
-            .map(|(name, data)| (name, Arc::new(data)))
-            .collect();
-        self.sample_registry.insert_batch(batch);
+        // The bank owns its sample PCM (Arc<SampleData>), so publishing it is a
+        // single atomic store — the RT thread never observes a zone whose sample
+        // isn't present, and nothing lands in the shared sample registry.
+        let bank = soundfont::load_sf2(path, self.sr)?;
         self.gm_bank.store(Some(Arc::new(bank)));
         Ok(())
     }
@@ -562,16 +566,14 @@ impl Engine {
         None
     }
 
-    /// Resolve a GM soundfont zone: extract program from sound string, look up zone, get sample.
+    /// Resolve a GM soundfont zone for a note-on. RT-safe: program/bank
+    /// resolution is allocation-free, the bank lookup is a binary search plus a
+    /// short scan, and the sample is a cheap `Arc` clone owned by the bank.
     #[cfg(feature = "soundfont")]
     fn resolve_gm(&self, event: &Event) -> Option<GmResolved> {
         let sound_str = event.sound.as_ref()?;
-        let program_str = sound_str.strip_prefix("gm")?;
-        let program_str = if program_str.is_empty() {
-            "0"
-        } else {
-            program_str
-        };
+        let suffix = sound_str.strip_prefix("gm")?;
+        let (program, bank) = soundfont::resolve_gm_program(suffix)?;
 
         let note = event
             .freq
@@ -580,20 +582,36 @@ impl Engine {
         let vel = (event.velocity.unwrap_or(1.0) * 127.0).clamp(1.0, 127.0) as u8;
 
         let bank_guard = self.gm_bank.load();
-        let bank = bank_guard.as_ref()?;
-        let zone = bank.find(program_str, note, vel)?;
-        let data = self.sample_registry.get(zone.sample_name)?;
+        let bank_ref = bank_guard.as_ref()?;
+        let zone = bank_ref.find(program, bank, note, vel)?;
+
+        // SF2 default modulator #1: note-on velocity → amplitude (concave,
+        // FluidSynth-matched). The zone attenuation already folds in the
+        // resonance −Q/2 dB makeup.
+        let vel_gain = soundfont::cb_to_linear_gain(soundfont::velocity_to_attenuation_cb(vel));
+        let attenuation = zone.attenuation * vel_gain;
+
+        // Initial filter cutoff: cents → Hz; the ~19912 Hz "open" default leaves
+        // the lowpass bypassed.
+        let fc_hz = 8.176 * 2.0_f32.powf(zone.filter_fc_cents / 1200.0);
+        let filter_fc = if fc_hz < 19500.0 { Some(fc_hz) } else { None };
+
         Some(GmResolved {
-            data,
+            data: zone.data,
             root_freq: zone.root_freq,
+            sr_ratio: zone.sr_ratio,
             loop_start: zone.loop_start,
             loop_end: zone.loop_end,
             looping: zone.looping,
-            attenuation: zone.attenuation,
+            loop_until_release: zone.loop_until_release,
+            attenuation,
             pan: zone.pan,
-            filter_fc: zone.filter_fc,
+            filter_fc,
             filter_q: zone.filter_q,
             scale_tuning: zone.scale_tuning,
+            vib_rate: zone.vib_rate,
+            vib_depth: zone.vib_depth,
+            exclusive_class: zone.exclusive_class,
             delay: zone.delay,
             hold: zone.hold,
             attack: zone.attack,
@@ -821,6 +839,25 @@ impl Engine {
 
         // Update voice params (only the ones explicitly set in event)
         self.update_voice_params(voice_idx, event, mode);
+
+        // SF2 exclusiveClass: a new note in a non-zero class silences any other
+        // voice sounding in the same class on the same orbit (hi-hat / drum choke).
+        #[cfg(feature = "soundfont")]
+        {
+            let class = self.voices[voice_idx].exclusive_class;
+            if class != 0 {
+                let orbit = self.voices[voice_idx].params.orbit;
+                for j in 0..self.active_voices {
+                    if j != voice_idx
+                        && self.voices[j].exclusive_class == class
+                        && self.voices[j].params.orbit == orbit
+                    {
+                        self.voices[j].force_release();
+                    }
+                }
+            }
+        }
+
         if mode == EventMode::Retrigger {
             self.voices[voice_idx].retrigger();
         }
@@ -993,6 +1030,12 @@ impl Engine {
         // --- Source ---
         if let Some(source) = parsed_source {
             v.params.sound = source;
+            // A re-sounded voice drops any inherited exclusive class; the GM
+            // block below re-sets it for soundfont notes.
+            #[cfg(feature = "soundfont")]
+            {
+                v.exclusive_class = 0;
+            }
         }
         copy_opt!(event, v.params, pw, spread);
         if let Some(wave) = event.wave {
@@ -1046,15 +1089,20 @@ impl Engine {
 
         // GM soundfont sample setup
         #[cfg(feature = "soundfont")]
+        let is_gm = gm_resolved.is_some();
+        #[cfg(feature = "soundfont")]
         if let Some(gm) = gm_resolved {
             let mut rs = RegistrySample::new(None, gm.data, 0.0, 1.0);
             rs.root_freq = gm.root_freq;
             rs.scale_tuning = gm.scale_tuning;
+            rs.sr_ratio = gm.sr_ratio;
+            rs.attenuation = gm.attenuation;
+            rs.loop_until_release = gm.loop_until_release;
             if gm.looping {
                 rs.set_loop(gm.loop_start, gm.loop_end);
             }
-            rs.attenuation = gm.attenuation;
             v.registry_sample = Some(rs);
+            v.exclusive_class = gm.exclusive_class;
             if event.freq.is_none() {
                 v.params.freq = 261.626;
             }
@@ -1079,9 +1127,16 @@ impl Engine {
             if event.pan.is_none() {
                 v.params.pan = gm.pan;
             }
-            if event.lpf.is_none() && gm.filter_fc < 19500.0 {
-                v.params.lpf = Some(gm.filter_fc);
-                v.params.lpq = gm.filter_q;
+            if event.lpf.is_none() {
+                if let Some(fc) = gm.filter_fc {
+                    v.params.lpf = Some(fc);
+                    v.params.lpq = gm.filter_q;
+                }
+            }
+            // Vibrato LFO from the zone (SF2 vibLfoToPitch), only when present.
+            if gm.vib_depth > 0.0 {
+                v.params.vib = gm.vib_rate;
+                v.params.vibmod = gm.vib_depth;
             }
         }
 
@@ -1192,6 +1247,13 @@ impl Engine {
 
         // --- Gain ---
         copy_opt!(event, v.params, gain, postgain, velocity, pan, gate);
+        // GM applies velocity as the SF2 concave amplitude curve (folded into the
+        // sample attenuation in `resolve_gm`); neutralize the linear VCA velocity
+        // so it isn't applied twice.
+        #[cfg(feature = "soundfont")]
+        if is_gm {
+            v.params.velocity = 1.0;
+        }
 
         // --- Gain Envelope ---
         if mode == EventMode::Update {

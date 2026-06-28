@@ -17,6 +17,13 @@ pub struct RegistrySample {
     pub root_freq: f32,
     pub attenuation: f32,
     pub scale_tuning: f32,
+    /// Native-rate / device-rate ratio, multiplied into playback speed so
+    /// soundfont samples can be stored at native rate (no up-front resample).
+    /// 1.0 for ordinary samples already decoded at the device rate.
+    pub sr_ratio: f32,
+    /// SF2 sample mode 3: keep looping while held, then play the tail once the
+    /// voice enters its release phase.
+    pub loop_until_release: bool,
     cursor: Cursor,
 }
 
@@ -31,6 +38,8 @@ impl RegistrySample {
             root_freq,
             attenuation: 1.0,
             scale_tuning: 1.0,
+            sr_ratio: 1.0,
+            loop_until_release: false,
             cursor,
         }
     }
@@ -109,6 +118,8 @@ impl Clone for RegistrySample {
             root_freq: self.root_freq,
             attenuation: self.attenuation,
             scale_tuning: self.scale_tuning,
+            sr_ratio: self.sr_ratio,
+            loop_until_release: self.loop_until_release,
             cursor: self.cursor,
         }
     }

@@ -224,6 +224,9 @@ pub struct Voice {
     /// Stable identity for event addressing (`voice/N`). Survives the
     /// swap-remove in voice freeing because the whole `Voice` moves.
     pub tag: Option<usize>,
+    /// SF2 exclusive class (0 = none). A new GM note in a non-zero class chokes
+    /// other voices of the same class on the same orbit (hi-hat / drum groups).
+    pub exclusive_class: u8,
     pub(crate) shape_active: bool,
 
     // === Source-specific state (one variant active per voice) ===
@@ -297,6 +300,7 @@ impl Default for Voice {
             sr,
             seed: 123456789,
             tag: None,
+            exclusive_class: 0,
             shape_active: false,
             pink_noise: PinkNoise::default(),
             brown_noise: BrownNoise::default(),
@@ -370,6 +374,7 @@ impl Voice {
         self.triggered = false;
         self.time = 0.0;
         self.tag = None;
+        self.exclusive_class = 0;
         *self.scratch = [[0.0; CHANNELS]; MAX_BLOCK];
         self.nch = 1;
         self.spread_cache_value = f32::NAN;

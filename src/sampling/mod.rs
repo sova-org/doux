@@ -19,8 +19,6 @@ pub use sample::SampleEntry;
 pub use sample::{FileSource, SampleInfo, SamplePool};
 pub use sample::{WebSampleInfo, WebSampleSource};
 
-#[cfg(feature = "soundfont")]
-pub(crate) use decode::resample_linear;
 #[cfg(feature = "native")]
 pub use decode::{decode_sample_file, decode_sample_head, scan_samples_dir, HEAD_FRAMES};
 #[cfg(feature = "native")]

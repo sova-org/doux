@@ -109,23 +109,33 @@ impl Voice {
                 self.nch = CHANNELS;
                 for i in 0..n {
                     let freq = self.tick_pre(isr);
+                    let releasing = self.dahdsr.is_releasing();
                     if let Some(ref mut rs) = self.registry_sample {
+                        // SF2 sample mode 3: once the voice enters release, stop
+                        // looping and let the cursor run out the post-loop tail.
+                        if rs.loop_until_release && releasing && rs.is_looping() {
+                            rs.set_loop(0.0, 0.0);
+                        }
                         let done = rs.is_done();
                         if done {
                             self.dahdsr.force_release();
                         }
+                        // Mono samples read ch0 for both; stereo (linked L/R) pairs
+                        // read their two interleaved channels.
                         let gain = rs.attenuation * 0.7;
-                        let (l, r) = (rs.read(0) * gain, rs.read(1) * gain);
-                        self.scratch[i][0] = l;
-                        self.scratch[i][1] = r;
+                        self.scratch[i][0] = rs.read(0) * gain;
+                        self.scratch[i][1] = rs.read(1) * gain;
                         if !done {
                             let ratio = freq / rs.root_freq;
-                            let speed = if rs.scale_tuning == 1.0 {
+                            let pitch = if rs.scale_tuning == 1.0 {
                                 ratio
                             } else {
                                 exp2f(rs.scale_tuning * log2f(ratio))
                             };
-                            rs.advance(speed);
+                            // Fold native→device rate conversion into the speed so
+                            // the sample plays at its native rate without an
+                            // up-front resample.
+                            rs.advance(pitch * rs.sr_ratio);
                         }
                     } else {
                         self.scratch[i] = [0.0; CHANNELS];
