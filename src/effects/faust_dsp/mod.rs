@@ -160,6 +160,16 @@ mod smear_dsp {
     use faust_types::*;
     include!("smear_gen.rs");
 }
+mod fshift_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("fshift_gen.rs");
+}
+mod pshift_dsp {
+    #![allow(clippy::all, warnings)]
+    use faust_types::*;
+    include!("pshift_gen.rs");
+}
 mod haas_dsp {
     #![allow(clippy::all, warnings)]
     use faust_types::*;
@@ -575,6 +585,123 @@ impl Default for FaustWah {
             "c_sens" => Self::SENS.0, "d_manual" => Self::MANUAL.0);
         Self {
             dsp: wah_dsp::WahDsp::new(),
+            sr: 0.0,
+        }
+    }
+}
+
+/// Single-sideband frequency shifter (analytic-signal heterodyne: `fi.pospass`
+/// Hilbert pair × `os.quadosc` carrier), Faust-generated. One mono instance per
+/// channel. The signed shift in Hz selects the sideband (>0 up, <0 down).
+/// Sample-rate dependent (the pospass filters + the carrier), so it lazily
+/// (re)inits when the rate arrives or changes.
+pub struct FaustFreqShift {
+    dsp: fshift_dsp::FreqShiftDsp,
+    sr: f32,
+}
+
+impl FaustFreqShift {
+    const SHIFT: ParamIndex = ParamIndex(0);
+
+    #[inline]
+    fn ensure_sr(&mut self, sr: f32) {
+        if self.sr != sr {
+            self.dsp.init(sr as i32);
+            self.sr = sr;
+        }
+    }
+
+    #[inline]
+    pub fn process(&mut self, x: f32, shift: f32, sr: f32) -> f32 {
+        self.ensure_sr(sr);
+        self.dsp.set_param(Self::SHIFT, shift);
+        run_one(&mut self.dsp, x)
+    }
+
+    #[inline]
+    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, shift: f32, sr: f32) {
+        self.ensure_sr(sr);
+        self.dsp.set_param(Self::SHIFT, shift);
+        run_block(&mut self.dsp, buf, n, ch);
+    }
+}
+
+impl Default for FaustFreqShift {
+    fn default() -> Self {
+        assert_slider_idx!(fshift_dsp::FreqShiftDsp, "a_shift" => Self::SHIFT.0);
+        Self {
+            dsp: fshift_dsp::FreqShiftDsp::new(),
+            sr: 0.0,
+        }
+    }
+}
+
+/// Granular (delay-line) pitch shifter via `ef.transpose`, Faust-generated. One
+/// mono instance per channel. `shift` transposes in semitones (signed); `window`
+/// is the grain length in ms — the warble/character knob. Sample-rate dependent
+/// (the window is ms → samples via `ma.SR`), so it lazily (re)inits when the rate
+/// arrives or changes.
+pub struct FaustPitchShift {
+    dsp: pshift_dsp::PitchShiftDsp,
+    sr: f32,
+}
+
+impl FaustPitchShift {
+    const SHIFT: ParamIndex = ParamIndex(0);
+    const WINDOW: ParamIndex = ParamIndex(1);
+
+    #[inline]
+    fn ensure_sr(&mut self, sr: f32) {
+        if self.sr != sr {
+            self.dsp.init(sr as i32);
+            self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, shift: f32, window: f32) {
+        self.dsp.set_param(Self::SHIFT, shift);
+        self.dsp.set_param(Self::WINDOW, window);
+    }
+
+    #[inline]
+    pub fn process(&mut self, x: f32, shift: f32, window: f32, sr: f32) -> f32 {
+        self.ensure_sr(sr);
+        self.write_params(shift, window);
+        run_one(&mut self.dsp, x)
+    }
+
+    #[inline]
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        shift: f32,
+        window: f32,
+        sr: f32,
+    ) {
+        self.ensure_sr(sr);
+        self.write_params(shift, window);
+        run_block(&mut self.dsp, buf, n, ch);
+    }
+
+    /// Clear the 512 KB delay line in place. Rebuilding via `Default` would
+    /// materialize that buffer as a stack temporary — fine on the main thread,
+    /// fatal on the audio thread's small stack (note-on `reset` runs there).
+    /// `sr = 0.0` forces a full re-init on the next `process`.
+    pub fn reset_in_place(&mut self) {
+        self.dsp.instance_clear();
+        self.sr = 0.0;
+    }
+}
+
+impl Default for FaustPitchShift {
+    fn default() -> Self {
+        assert_slider_idx!(pshift_dsp::PitchShiftDsp,
+            "a_shift" => Self::SHIFT.0, "b_window" => Self::WINDOW.0);
+        Self {
+            dsp: pshift_dsp::PitchShiftDsp::new(),
             sr: 0.0,
         }
     }

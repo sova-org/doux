@@ -15,8 +15,8 @@ use std::f32::consts::PI;
 use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode};
 use crate::effects::{
     DcBlocker, FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger,
-    FaustFold, FaustHaas, FaustLadder, FaustPhaser, FaustSmear, FaustSvf, FaustSvfCascade,
-    FaustTilt, FaustVinyl, FaustWah, FaustWrap, LadderMode,
+    FaustFold, FaustFreqShift, FaustHaas, FaustLadder, FaustPhaser, FaustPitchShift, FaustSmear,
+    FaustSvf, FaustSvfCascade, FaustTilt, FaustVinyl, FaustWah, FaustWrap, LadderMode,
 };
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
@@ -68,6 +68,8 @@ pub(crate) enum Stage {
     Rm,
     Phaser,
     Flanger,
+    FreqShift,
+    PitchShift,
     Eq,
     Tilt,
     Smear,
@@ -108,6 +110,8 @@ pub struct VoiceFxState {
     pub tilt: [FaustTilt; CHANNELS],
     pub phaser: [FaustPhaser; CHANNELS],
     pub flanger: [FaustFlanger; CHANNELS],
+    pub fshift: [FaustFreqShift; CHANNELS],
+    pub pshift: [FaustPitchShift; CHANNELS],
     pub smear: [FaustSmear; CHANNELS],
     pub chorus: FaustChorus,
     pub haas: FaustHaas,
@@ -134,10 +138,47 @@ impl Default for VoiceFxState {
             tilt: std::array::from_fn(|_| FaustTilt::default()),
             phaser: std::array::from_fn(FaustPhaser::new),
             flanger: std::array::from_fn(FaustFlanger::new),
+            fshift: std::array::from_fn(|_| FaustFreqShift::default()),
+            pshift: std::array::from_fn(|_| FaustPitchShift::default()),
             smear: std::array::from_fn(|_| FaustSmear::default()),
             chorus: FaustChorus::default(),
             haas: FaustHaas::default(),
         }
+    }
+}
+
+impl VoiceFxState {
+    /// Re-default every field in place, clearing all cold FX state without ever
+    /// building a whole `VoiceFxState` (~1.1 MB) on the stack. Note-on calls this
+    /// on the audio thread, whose stack (~512 KB on a CoreAudio callback thread)
+    /// a by-value rebuild would overflow in non-LTO builds. Each field's own temp
+    /// stays small; `pshift` (a 512 KB delay line per channel) is cleared in place.
+    pub fn reset(&mut self) {
+        self.slp = std::array::from_fn(|_| FaustSvfCascade::default());
+        self.shp = std::array::from_fn(|_| FaustSvfCascade::default());
+        self.sbp = std::array::from_fn(|_| FaustSvfCascade::default());
+        self.ladder_lp = std::array::from_fn(|_| FaustLadder::default());
+        self.ladder_hp = std::array::from_fn(|_| FaustLadder::default());
+        self.ladder_bp = std::array::from_fn(|_| FaustLadder::default());
+        self.wah = std::array::from_fn(|_| FaustWah::default());
+        self.coarse = std::array::from_fn(|_| FaustCoarse::default());
+        self.crush = std::array::from_fn(|_| FaustCrush::default());
+        self.fold_state = std::array::from_fn(|_| FaustFold::default());
+        self.wrap_state = std::array::from_fn(|_| FaustWrap::default());
+        self.distort_state = std::array::from_fn(|_| FaustDistort::default());
+        self.dc_block = [DcBlocker::default(); CHANNELS];
+        self.vinyl = std::array::from_fn(|_| FaustVinyl::default());
+        self.eq = std::array::from_fn(|_| FaustEq::default());
+        self.tilt = std::array::from_fn(|_| FaustTilt::default());
+        self.phaser = std::array::from_fn(FaustPhaser::new);
+        self.flanger = std::array::from_fn(FaustFlanger::new);
+        self.fshift = std::array::from_fn(|_| FaustFreqShift::default());
+        for p in &mut self.pshift {
+            p.reset_in_place();
+        }
+        self.smear = std::array::from_fn(|_| FaustSmear::default());
+        self.chorus = FaustChorus::default();
+        self.haas = FaustHaas::default();
     }
 }
 
@@ -321,8 +362,9 @@ impl Voice {
             self.stretch = StretchState::default();
         }
         self.web_sample = None;
-        // Clear all cold FX state in one go — no reallocation.
-        *self.fx = VoiceFxState::default();
+        // Clear all cold FX state in place — never rebuild the ~1.1 MB struct by
+        // value (a stack temporary that overflows the audio thread on note-on).
+        self.fx.reset();
         self.param_mods = [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS];
         self.param_mod_count = 0;
         self.triggered = false;
@@ -484,6 +526,9 @@ impl Voice {
             ParamId::Flanger => self.params.flanger,
             ParamId::Flangerdepth => self.params.flangerdepth,
             ParamId::Flangerfeedback => self.params.flangerfeedback,
+            ParamId::Fshift => self.params.fshift,
+            ParamId::Pshift => self.params.pshift,
+            ParamId::Pshiftwin => self.params.pshiftwin,
             ParamId::Smear => self.params.smear,
             ParamId::Smearfreq => self.params.smearfreq,
             ParamId::Smearfb => self.params.smearfb,
@@ -612,6 +657,12 @@ impl Voice {
         }
         if self.params.flanger > 0.0 || self.mod_targets(ParamId::Flanger) {
             push!(Stage::Flanger);
+        }
+        if self.params.fshift != 0.0 || self.mod_targets(ParamId::Fshift) {
+            push!(Stage::FreqShift);
+        }
+        if self.params.pshift != 0.0 || self.mod_targets(ParamId::Pshift) {
+            push!(Stage::PitchShift);
         }
         if self.params.eqlo != 0.0
             || self.params.eqmid != 0.0
@@ -1000,6 +1051,24 @@ impl Voice {
                     }
                 }
             }
+            Stage::FreqShift => {
+                if self.params.fshift != 0.0 {
+                    let shift = self.params.fshift;
+                    for c in 0..nch {
+                        self.fx.fshift[c].process_block(&mut self.scratch[..n], n, c, shift, sr);
+                    }
+                }
+            }
+            Stage::PitchShift => {
+                if self.params.pshift != 0.0 {
+                    let shift = self.params.pshift;
+                    let window = self.params.pshiftwin;
+                    for c in 0..nch {
+                        self.fx.pshift[c]
+                            .process_block(&mut self.scratch[..n], n, c, shift, window, sr);
+                    }
+                }
+            }
             Stage::Eq => {
                 if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
                     let lo_db = self.params.eqlo;
@@ -1366,6 +1435,25 @@ impl Voice {
                     }
                 }
             }
+            Stage::FreqShift => {
+                if self.params.fshift != 0.0 {
+                    let shift = self.params.fshift;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.fshift[c].process(x, shift, sr);
+                    }
+                }
+            }
+            Stage::PitchShift => {
+                if self.params.pshift != 0.0 {
+                    let shift = self.params.pshift;
+                    let window = self.params.pshiftwin;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        self.scratch[i][c] = self.fx.pshift[c].process(x, shift, window, sr);
+                    }
+                }
+            }
             Stage::Eq => {
                 if self.params.eqlo != 0.0 || self.params.eqmid != 0.0 || self.params.eqhi != 0.0 {
                     let lo_db = self.params.eqlo;
@@ -1556,6 +1644,9 @@ impl Voice {
             ParamId::Flanger => self.params.flanger = val,
             ParamId::Flangerdepth => self.params.flangerdepth = val,
             ParamId::Flangerfeedback => self.params.flangerfeedback = val,
+            ParamId::Fshift => self.params.fshift = val,
+            ParamId::Pshift => self.params.pshift = val,
+            ParamId::Pshiftwin => self.params.pshiftwin = val,
             ParamId::Smear => self.params.smear = val,
             ParamId::Smearfreq => self.params.smearfreq = val,
             ParamId::Smearfb => self.params.smearfb = val,

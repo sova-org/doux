@@ -47,6 +47,8 @@ specs=(
   "chorus:ChorusDsp"
   "flanger:FlangerDsp"
   "smear:SmearDsp"
+  "fshift:FreqShiftDsp"
+  "pshift:PitchShiftDsp"
   "haas:HaasDsp"
   "ladder:LadderDsp"
   "svf24:Svf24Dsp"
@@ -64,7 +66,7 @@ specs=(
 # (-ftz 1, fabs-based): wasm32 has no hardware FTZ (enable_flush_to_zero is a
 # no-op there), so their state can settle into denormals and spike CPU on old
 # cores. Memoryless effects keep the default -ftz 0.
-ftz_stems=" comb feedback delay_standard delay_pingpong delay_tape delay_multitap smear jpverb vital_rev "
+ftz_stems=" comb feedback delay_standard delay_pingpong delay_tape delay_multitap smear fshift jpverb vital_rev "
 
 for spec in "${specs[@]}"; do
   name="${spec%%:*}"; cn="${spec##*:}"

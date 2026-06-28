@@ -231,6 +231,21 @@ pub struct VoiceParams {
     pub flangermode: FlangerMode,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Frequency shifter (single-sideband)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Single-sideband frequency shift in Hz. Signed: >0 up, <0 down. 0 = bypassed.
+    pub fshift: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Pitch shifter (granular)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Granular pitch shift in semitones. Signed: >0 up, <0 down. 0 = bypassed.
+    pub pshift: f32,
+    /// Pitch-shifter grain window in ms. Small = grainy/robotic, large = smoother
+    /// but more latency. Character only — does nothing while `pshift` is 0.
+    pub pshiftwin: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // Auto-wah (envelope-follower bandpass)
     // ─────────────────────────────────────────────────────────────────────
     /// Auto-wah dry/wet mix (0 = bypass, 1 = full wet).
@@ -429,6 +444,9 @@ impl Default for VoiceParams {
             flangerdepth: 0.7,
             flangerfeedback: 0.35,
             flangermode: FlangerMode::Classic,
+            fshift: 0.0,
+            pshift: 0.0,
+            pshiftwin: 40.0,
             wah: 0.0,
             wahpeak: 0.5,
             wahsens: 0.5,

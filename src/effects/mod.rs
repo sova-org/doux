@@ -13,9 +13,11 @@ mod eq;
 mod faust_dsp;
 mod feedback;
 mod flanger;
+mod fshift;
 mod ladder;
 mod limiter;
 mod phaser;
+mod pshift;
 mod reverb;
 mod smear;
 mod tilt;
@@ -28,9 +30,9 @@ pub use delay::DelayParams;
 pub use distort::DcBlocker;
 pub use faust_dsp::{
     FaustChorus, FaustCoarse, FaustComb, FaustCrush, FaustDelay, FaustDistort, FaustEq,
-    FaustFeedback, FaustFlanger, FaustFold, FaustHaas, FaustJpVerb, FaustLadder, FaustPhaser,
-    FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt, FaustVinyl, FaustVitalRev, FaustWah,
-    FaustWrap,
+    FaustFeedback, FaustFlanger, FaustFold, FaustFreqShift, FaustHaas, FaustJpVerb, FaustLadder,
+    FaustPhaser, FaustPitchShift, FaustSmear, FaustSvf, FaustSvfCascade, FaustTilt, FaustVinyl,
+    FaustVitalRev, FaustWah, FaustWrap,
 };
 pub use feedback::FeedbackParams;
 pub use ladder::LadderMode;
@@ -672,6 +674,8 @@ pub const ALL_MODULES: &[&ModuleInfo] = &[
     &flanger::INFO,
     &chorus::INFO,
     &smear::INFO,
+    &fshift::INFO,
+    &pshift::INFO,
     &wah::INFO,
     &vinyl::INFO,
     // Effects — distortion

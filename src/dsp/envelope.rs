@@ -135,6 +135,15 @@ impl Dahdsr {
         self.phase_time = 0.0;
     }
 
+    /// Retarget the gate of a sounding envelope. `gate` is total time from
+    /// trigger (0 = infinite). Takes effect on the next `update`: if the new
+    /// gate has already elapsed, the next `check_gate` releases the voice; a
+    /// larger gate schedules a later release; 0 keeps (or returns to) infinite
+    /// sustain. No effect once releasing or off (gate is no longer consulted).
+    pub fn set_gate(&mut self, gate: f32) {
+        self.gate_time = gate;
+    }
+
     /// Check if gate time has elapsed and auto-release if so.
     #[inline]
     fn check_gate(&mut self) -> bool {
@@ -545,5 +554,49 @@ mod tests {
             matches!(env.state, DahdsrState::Sustain),
             "Should be in Sustain state"
         );
+    }
+
+    #[test]
+    fn set_gate_releases_held_voice() {
+        let mut env = Dahdsr::default();
+        let isr = 1.0 / 44100.0;
+
+        env.trigger(0.0); // infinite / held
+        for _ in 0..44100 {
+            env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+        }
+        assert!(matches!(env.state, DahdsrState::Sustain), "should be holding");
+
+        // Retarget the gate to a length already elapsed: the next update releases.
+        env.set_gate(0.1);
+        let mut reached_release = false;
+        for _ in 0..10000 {
+            env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+            if matches!(env.state, DahdsrState::Release) {
+                reached_release = true;
+            }
+            if env.is_off() {
+                break;
+            }
+        }
+        assert!(reached_release, "set_gate(positive) should release a held voice");
+        assert!(env.is_off(), "should fade out to Off");
+    }
+
+    #[test]
+    fn set_gate_zero_keeps_holding() {
+        let mut env = Dahdsr::default();
+        let isr = 1.0 / 44100.0;
+
+        env.trigger(0.0);
+        for _ in 0..1000 {
+            env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+        }
+        env.set_gate(0.0); // still infinite
+        for _ in 0..44100 {
+            env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
+        }
+        assert!(!env.is_off(), "set_gate(0) keeps infinite sustain");
+        assert!(matches!(env.state, DahdsrState::Sustain));
     }
 }

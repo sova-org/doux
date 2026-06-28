@@ -1198,6 +1198,11 @@ impl Engine {
             // Live update: retarget only the stages the event names — no
             // drum defaults, no `init_envelope` backfill stomping the rest.
             copy_opt!(event, v.params, envdelay, attack, hold, decay, sustain, release);
+            // Gate is live: re-arm the running envelope so an explicit gate on a
+            // sourceless update can end a held voice (or extend / re-hold it).
+            if let Some(g) = event.gate {
+                v.dahdsr.set_gate(g);
+            }
         } else {
             let (att, dec, sus, rel) = if let Some((d_freq, d_att, d_dec, d_sus, d_rel)) =
                 v.params.sound.drum_defaults()
@@ -1261,6 +1266,8 @@ impl Engine {
             phasercenter
         );
         copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback, flangermode);
+        copy_opt!(event, v.params, fshift);
+        copy_opt!(event, v.params, pshift, pshiftwin);
         copy_opt!(event, v.params, wah, wahpeak, wahsens, wahmanual);
         copy_opt!(event, v.params, vinyl, vinylwow, vinylnoise, vinyltone, vinyltype);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
@@ -1948,5 +1955,44 @@ mod tests {
         // tanh slope at origin is 1; near-identity below ~0.3.
         assert!((soft_clip_sample(0.1) - 0.1).abs() < 1e-2);
         assert!((soft_clip_sample(-0.05) + 0.05).abs() < 1e-2);
+    }
+
+    // A held voice (gate 0) is ended by a later sourceless update that carries an
+    // explicit positive gate, while a gateless tweak leaves it sounding.
+    #[cfg(feature = "native")]
+    #[test]
+    fn live_gate_ends_held_voice() {
+        fn render(engine: &mut Engine, seconds: f32) {
+            let blocks = ((engine.sample_rate() * seconds) / engine.host_buffer_size() as f32)
+                .ceil() as usize;
+            for _ in 0..blocks {
+                engine.dsp();
+            }
+        }
+
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+
+        // Held voice: infinite sustain, tag 0.
+        engine.evaluate("sound/sine/voice/0/gate/0");
+        render(&mut engine, 0.2);
+        assert_eq!(engine.active_voices(), 1, "held voice should sustain");
+
+        // Sourceless tweak with no gate must NOT end it.
+        engine.evaluate("voice/0/lpf/800");
+        render(&mut engine, 0.2);
+        assert_eq!(
+            engine.active_voices(),
+            1,
+            "a gateless tweak must not end a held voice"
+        );
+
+        // Sourceless update with an explicit positive gate ends it.
+        engine.evaluate("voice/0/gate/0.05");
+        render(&mut engine, 0.2);
+        assert_eq!(
+            engine.active_voices(),
+            0,
+            "an explicit positive gate should end a held voice"
+        );
     }
 }
