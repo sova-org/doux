@@ -2,13 +2,13 @@
 
 *A software-synthesizer engine for live coding.*
 
-Doux is a real-time synthesis and sampling engine for live coding, written in Rust. It began as a port of [Dough](https://dough.strudel.cc/), the C live-coding audio engine by Felix Roos and contributors ([source](https://codeberg.org/uzu/dough)). The engine is built around a fixed voice architecture: every voice runs the same chain of oscillators, samplers, filters, and effects, and you shape the sound by setting parameters rather than by wiring modules together. Most of that DSP — the filters and effects — is written in [Faust](https://faust.grame.fr) and compiled ahead of time to Rust. All control happens over OSC, so any client that can send an OSC message can play it.
-
-The same core compiles two ways. The native build is a library and a set of command-line binaries backed by cpal, and the `wasm32` build is a module that runs in the browser through an AudioWorklet. In both cases Doux is meant to sit inside a larger audio application rather than to stand on its own. There is a documentation and a live playground are at **[doux.livecoding.fr](https://doux.livecoding.fr)**.
+Doux is a real-time synthesis and sampling engine for live coding, written in Rust. It began as a port of [Dough](https://dough.strudel.cc/), the C live-coding audio engine by Felix Roos and contributors ([source](https://codeberg.org/uzu/dough)). The engine is built around a fixed voice architecture. Every voice runs the same chain of oscillators, samplers, filters, and effects. You shape the sound by setting parameters rather than by wiring modules together. Most of that DSP (filters, effects, etc) is written in [Faust](https://faust.grame.fr) and compiled ahead of time to Rust. All control happens over OSC, so any client that can send an OSC message can play it. The same core compiles two ways. The native build is a library and a set of command-line binaries backed by `cpal`, and the `wasm32` build is a module that runs in the browser through an `AudioWorklet`. In both cases Doux is meant to sit inside a larger audio application rather than to stand on its own. There is a documentation and a live playground are at **[doux.livecoding.fr](https://doux.livecoding.fr)**.
 
 ## Quickstart
 
-You play Doux by sending it events, where each event is a path of `key/value` pairs: `s/saw/note/60`. The same event can reach the engine three ways.
+You play Doux by sending it events. Each event is a path of `key/value` pairs: `s/saw/note/60`. The same event can reach the engine three ways.
+
+### OSC Server
 
 The **OSC server** is the usual route. Start `doux`, then send it OSC messages from any client. The message address is ignored, and the arguments are read as alternating string keys and values, which the engine joins into the path described above.
 
@@ -21,6 +21,8 @@ doux # listens for OSC on UDP 57120
 # → engine path:  s/saw/note/60/gain/0.8
 ```
 
+### REPL (Read-Eval-Print-Loop)
+
 The **REPL** is the quickest way to try an idea. Run `doux-repl` and type an event at the prompt to hear it straight away. This is usually very good for testing new stuff.
 
 ```text
@@ -29,6 +31,8 @@ doux> s/saw/note/60      # sawtooth at middle C
 doux> s/kick             # kick drum
 doux> .hush              # fade everything out
 ```
+
+### Offline rendering
 
 **Offline rendering** writes directly to a WAV file and needs no audio device, which makes it useful for tests and for bouncing a phrase to disk.
 
