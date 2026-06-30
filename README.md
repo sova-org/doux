@@ -2,7 +2,7 @@
 
 *A software-synthesizer engine for live coding.*
 
-Doux is a real-time synthesis and sampling engine for live coding, written in Rust. It began as a port of [Dough](https://dough.strudel.cc/), the C live-coding audio engine by Felix Roos and contributors ([source](https://codeberg.org/uzu/dough)). The engine is built around a fixed voice architecture: every voice runs the same chain of oscillators, samplers, filters, and effects, and you shape the sound by setting parameters rather than by wiring modules together. All control happens over OSC, so any client that can send an OSC message can play it.
+Doux is a real-time synthesis and sampling engine for live coding, written in Rust. It began as a port of [Dough](https://dough.strudel.cc/), the C live-coding audio engine by Felix Roos and contributors ([source](https://codeberg.org/uzu/dough)). The engine is built around a fixed voice architecture: every voice runs the same chain of oscillators, samplers, filters, and effects, and you shape the sound by setting parameters rather than by wiring modules together. Most of that DSP — the filters and effects — is written in [Faust](https://faust.grame.fr) and compiled ahead of time to Rust. All control happens over OSC, so any client that can send an OSC message can play it.
 
 The same core compiles two ways. The native build is a library and a set of command-line binaries backed by cpal, and the `wasm32` build is a module that runs in the browser through an AudioWorklet. In both cases Doux is meant to sit inside a larger audio application rather than to stand on its own. There is a documentation and a live playground are at **[doux.livecoding.fr](https://doux.livecoding.fr)**.
 
@@ -57,6 +57,19 @@ Which binaries and capabilities you get depends on the Cargo features you enable
 | `soundfont` | no | SF2 / General MIDI playback (the `gm` source) |
 | `asio` | no | ASIO host (Windows) |
 | `profiling` | no | per-phase DSP timing on stderr |
+
+### Faust DSP
+
+Most of Doux's DSP — the filters and the per-voice and orbit effects — is written in [Faust](https://faust.grame.fr). Each Faust source in `dsp/*.dsp` is compiled ahead of time into a Rust module under `src/effects/faust_dsp/*_gen.rs`. Those generated modules are committed to the repository, so building Doux needs no Faust toolchain at all. A normal `cargo build` simply compiles the generated Rust, and the only Faust-related dependency it pulls is `faust-types`, a small pure-Rust crate that provides the runtime traits the generated code implements.
+
+The Faust compiler is needed only to regenerate that code, which concerns contributors who change the DSP. After editing a `.dsp` source, run `dsp/regen.sh` to rebuild the generated modules, then commit the result; the generated files are never edited by hand.
+
+```bash
+dsp/regen.sh           # regenerate src/effects/faust_dsp/*_gen.rs from dsp/*.dsp
+dsp/regen.sh --check   # verify the committed code is in sync with the sources
+```
+
+The script expects the pinned `faust` version (see `dsp/regen.sh`) on your `PATH`, so its output stays reproducible.
 
 ### WASM
 
