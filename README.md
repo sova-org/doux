@@ -1,78 +1,127 @@
-<h1 align="center">Doux</h1>
+# Doux
 
-<p align="center"><em>A Software Synthesizer Engine for Live Coding</em></p>
+*A software-synthesizer engine for live coding.*
 
-Written in Rust, initially ported from [Dough](https://dough.strudel.cc/) by Felix Roos and co. Online documentation and live playground are accessible through the demo website: [doux](https://doux.livecoding.fr). Doux uses a fixed architecture and provides various oscillators, filters and effects. It is both capable of synthesis and sampling. Doux is made to be integrated in other audio applications, both through its native or WASM version.
+Doux is a real-time synthesis and sampling engine for live coding, written in Rust. It began as a port of [Dough](https://dough.strudel.cc/), the C live-coding audio engine by Felix Roos and contributors ([source](https://codeberg.org/uzu/dough)). The engine is built around a fixed voice architecture: every voice runs the same chain of oscillators, samplers, filters, and effects, and you shape the sound by setting parameters rather than by wiring modules together. All control happens over OSC, so any client that can send an OSC message can play it.
 
-## CLI Flags
+The same core compiles two ways. The native build is a library and a set of command-line binaries backed by cpal, and the `wasm32` build is a module that runs in the browser through an AudioWorklet. In both cases Doux is meant to sit inside a larger audio application rather than to stand on its own. There is a documentation and a live playground are at **[doux.livecoding.fr](https://doux.livecoding.fr)**.
 
-### doux (OSC server)
+## Quickstart
 
-Doux is the engine itself, that you can test as a standalone binary.
+You play Doux by sending it events, where each event is a path of `key/value` pairs: `s/saw/note/60`. The same event can reach the engine three ways.
 
-| Flag | Short | Description | Default |
-|------|-------|-------------|---------|
-| `--samples` | `-s` | Directory containing audio samples | - |
-| `--port` | `-p` | OSC port to listen on | 57120 |
-| `--list-devices` | | List available audio devices and exit | - |
-| `--input` | `-i` | Input device (name or index) | - |
-| `--output` | `-o` | Output device (name or index) | - |
-| `--channels` | | Number of output channels | 2 |
-| `--buffer-size` | `-b` | Audio buffer size in samples | system |
-| `--max-voices` | | Maximum polyphony | 32 |
-| `--preload` | | Preload all samples at startup | false |
-| `--host` | | Audio host: pipewire, pulseaudio, jack, alsa, asio, auto | auto |
-| `--diagnose` | | Run audio diagnostics and exit | - |
-
-### doux-repl (interactive REPL)
-
-Doux-REPL is a small interpreter mostly used for debugging and testing.
-
-| Flag | Short | Description | Default |
-|------|-------|-------------|---------|
-| `--samples` | `-s` | Directory containing audio samples | - |
-| `--list-devices` | | List available audio devices and exit | - |
-| `--input` | `-i` | Input device (name or index) | - |
-| `--output` | `-o` | Output device (name or index) | - |
-| `--channels` | | Number of output channels | 2 |
-| `--buffer-size` | `-b` | Audio buffer size in samples | system |
-| `--max-voices` | | Maximum polyphony | 32 |
-| `--host` | | Audio host: pipewire, pulseaudio, jack, alsa, asio, auto | auto |
-| `--diagnose` | | Run audio diagnostics and exit | - |
-
-### doux-render (offline rendering)
-
-Doux-render renders audio synthesis to a WAV file instead of real-time playback.
-
-| Flag | Short | Description | Default |
-|------|-------|-------------|---------|
-| `--duration` | `-d` | Duration to render in seconds | required |
-| `--eval` | `-e` | Command to evaluate (can be repeated) | - |
-| `--output` | `-o` | Output WAV file path | required |
-| `--samples` | `-s` | Directory containing audio samples | - |
-| `--sample-rate` | | Sample rate in Hz | 48000 |
-| `--channels` | | Number of output channels | 2 |
-| `--max-voices` | | Maximum polyphony | 64 |
-
-## Linux Audio Setup
-
-On Linux, doux talks to PipeWire natively (default on most modern distributions) — no `pw-jack` wrapper needed. PulseAudio, JACK, and ALSA backends are also compiled in. With `--host auto` (the default), the priority is pipewire > jack > pulseaudio > alsa.
-
-### Quick Start
+The **OSC server** is the usual route. Start `doux`, then send it OSC messages from any client. The message address is ignored, and the arguments are read as alternating string keys and values, which the engine joins into the path described above.
 
 ```bash
-# Just run it — PipeWire is picked up automatically
-doux
-
-# Or run diagnostics to check your audio setup
-doux --diagnose
+doux # listens for OSC on UDP 57120
 ```
 
-Force a specific backend with `--host pipewire|pulseaudio|jack|alsa`. The PulseAudio backend is pure Rust and needs no extra packages; it also covers PipeWire systems via pipewire-pulse.
+```text
+# any OSC client → send the arguments:  "s" "saw" "note" 60 "gain" 0.8
+# → engine path:  s/saw/note/60/gain/0.8
+```
 
-### Building from Source
+The **REPL** is the quickest way to try an idea. Run `doux-repl` and type an event at the prompt to hear it straight away. This is usually very good for testing new stuff.
 
-The native PipeWire backend requires PipeWire ≥ 0.3.53 dev headers and libclang at build time:
+```text
+$ doux-repl
+doux> s/saw/note/60      # sawtooth at middle C
+doux> s/kick             # kick drum
+doux> .hush              # fade everything out
+```
+
+**Offline rendering** writes directly to a WAV file and needs no audio device, which makes it useful for tests and for bouncing a phrase to disk.
+
+```bash
+doux-render -d 2 -e "s/saw/note/60" -o out.wav
+```
+
+A handful of sources need no samples at all: the oscillators `sine`, `saw`, `tri`, `pulse`, and `pluck`, and the drum voices `kick`, `snare`, `hat`, `tom`, `rim`, `cowbell`, and `cymbal`. To play your own audio, point `--samples` at a directory and address files by folder and index, as in `s/<folder>/n/<index>`. The full list of parameters, filters, and effects lives at [doux.livecoding.fr](https://doux.livecoding.fr).
+
+## Build
+
+Doux is not published to any package registry, so you build it from source with a stable Rust toolchain.
+
+```bash
+cargo build --release                       # builds doux and doux-repl (native, default)
+cargo build --release --features render     # also builds doux-render
+cargo build --release --features soundfont  # SF2 / General MIDI support
+```
+
+Which binaries and capabilities you get depends on the Cargo features you enable.
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `native` | yes | cpal audio, OSC, sample decoding — the `doux` and `doux-repl` binaries |
+| `render` | no | the offline `doux-render` binary (WAV output) |
+| `soundfont` | no | SF2 / General MIDI playback (the `gm` source) |
+| `asio` | no | ASIO host (Windows) |
+| `profiling` | no | per-phase DSP timing on stderr |
+
+### WASM
+
+To run Doux in the browser, build the WebAssembly module.
+
+```bash
+./build-wasm.sh          # → website/static/doux.wasm
+```
+
+This compiles the `wasm32-unknown-unknown` target with `--no-default-features`, producing a module that is driven from a browser AudioWorklet (see `src/wasm.rs`).
+
+### Platform notes
+
+On macOS the CoreAudio backend works without any extra setup. On Windows, Doux uses WASAPI by default and can use ASIO when it is built with `--features asio`. On Linux there is a little more to know, which the next section covers.
+
+## CLI reference
+
+### doux — OSC server
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--samples` | `-s` | Directory of audio samples | — |
+| `--port` | `-p` | OSC port (UDP) | 57120 |
+| `--list-devices` | | List audio devices and exit | — |
+| `--input` | `-i` | Input device (name or index) | — |
+| `--output` | `-o` | Output device (name or index) | — |
+| `--channels` | | Output channels | 2 |
+| `--buffer-size` | `-b` | Device buffer in samples; ignored when the host fixes it | host default |
+| `--dsp-block-size` | | Inner DSP block in samples (1–256) | 32 |
+| `--max-voices` | | Polyphony cap | 32 |
+| `--preload` | | Decode all samples at startup | false |
+| `--host` | | Audio host backend (platform-specific; see [Linux audio](#linux-audio)) | auto |
+| `--diagnose` | | Print audio diagnostics and exit | — |
+
+### doux-repl — interactive REPL
+
+`doux-repl` is a small interpreter for testing and quick experiments. Type an event to play it, or one of the `.` commands below.
+
+```text
+.hush     fade out all voices       .voices   active voice count
+.panic    silence immediately       .stats    engine telemetry
+.reset    reset engine state        .help     list commands
+                                     .quit     exit
+```
+
+It accepts the same audio flags as `doux`, apart from `--port` and `--preload`.
+
+### doux-render — offline renderer
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--duration` | `-d` | Seconds to render | required |
+| `--output` | `-o` | Output WAV path | required |
+| `--eval` | `-e` | Pattern to evaluate (repeatable) | — |
+| `--samples` | `-s` | Directory of audio samples | — |
+| `--sample-rate` | | Sample rate (Hz) | 48000 |
+| `--channels` | | Output channels | 2 |
+| `--max-voices` | | Polyphony cap | 64 |
+| `--dsp-block-size` | | Inner DSP block in samples (1–256) | 32 |
+
+## Linux audio
+
+On Linux, Doux speaks to PipeWire natively, so there is no need to wrap it with `pw-jack`. JACK, PulseAudio, and ALSA are compiled in as well. Under the default `--host auto`, Doux selects the first backend that is actually available, trying pipewire, then jack, then pulseaudio, then alsa. Pass `--host pipewire|jack|pulseaudio|alsa` to force a particular one. The PulseAudio backend is written in pure Rust and needs no system packages, and since PipeWire ships a PulseAudio-compatible layer (pipewire-pulse), that backend covers PipeWire systems too.
+
+Building the native PipeWire backend needs its development headers and libclang, so install those before you build.
 
 ```bash
 # Debian/Ubuntu
@@ -85,29 +134,18 @@ sudo dnf install pkgconf-pkg-config clang pipewire-devel alsa-lib-devel jack-aud
 sudo pacman -S pkgconf clang pipewire alsa-lib jack2
 ```
 
-For direct ALSA access, ensure your user is in the audio group:
+To reach ALSA hardware directly, add your user to the `audio` group and then start a fresh login session.
 
 ```bash
 sudo usermod -aG audio $USER
-# Log out and back in for group change to take effect
 ```
 
-### Troubleshooting
-
-Run `doux --diagnose` to check:
-- Available audio hosts
-- User group membership (audio, pipewire)
-- JACK/PipeWire server status
-- Default device accessibility
-
-Common issues:
-- **No devices found**: Check group membership (`id -Gn` should show `audio`)
-- **Wrong device selected**: Use `--list-devices` and specify with `--output`
+When something is wrong, `doux --diagnose` is the first thing to run: it reports the available hosts, the JACK (`jack_lsp`) and PipeWire (`pw-cli`) server status, and whether the default device is reachable. If it finds no devices, confirm that you are in the `audio` group with `id -Gn`. If it selects the wrong device, list the options with `--list-devices` and choose one explicitly with `--output`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get set up. The full release history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Doux is licensed under the [GNU Affero General Public License v3.0](LICENSE).

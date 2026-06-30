@@ -573,7 +573,16 @@ impl Engine {
     fn resolve_gm(&self, event: &Event) -> Option<GmResolved> {
         let sound_str = event.sound.as_ref()?;
         let suffix = sound_str.strip_prefix("gm")?;
-        let (program, bank) = soundfont::resolve_gm_program(suffix)?;
+        // Program selector. The inline single-token form bakes the preset into
+        // the sound (`gmpiano`); the param form leaves the sound bare `gm` and
+        // carries the preset in `n` (`gm snd piano n`). Suffix wins when present,
+        // else fall back to `n`, defaulting to program 0 (piano). Allocation-free.
+        let selector = if suffix.is_empty() {
+            event.n.as_deref().unwrap_or("0")
+        } else {
+            suffix
+        };
+        let (program, bank) = soundfont::resolve_gm_program(selector)?;
 
         let note = event
             .freq
