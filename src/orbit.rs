@@ -45,6 +45,34 @@ pub enum OrbitParamId {
     CompRelease,
 }
 
+/// Per-orbit reusable block scratch. Every user fills `[..n]` before reading;
+/// contents beyond the current fill are stale and never read. Persistent so
+/// `process_block` does not splat `MAX_BLOCK`-sized stack arrays every chunk
+/// (512+ wasted stores per orbit per chunk at the default n = 32).
+struct OrbitScratch {
+    /// Per-sample comb-freq trajectory: `apply_mods` fills it when a CombFreq
+    /// chain is bound; otherwise the comb stage splats the static param.
+    ctl_freq: [f32; MAX_BLOCK],
+    /// Per-sample feedback-time trajectory (same contract, FbTime / fb stage).
+    ctl_time: [f32; MAX_BLOCK],
+    /// Mono FX-send staging (comb, per channel).
+    send_mono: [f32; MAX_BLOCK],
+    /// Stereo FX-send staging (feedback / delay / reverb, reused in sequence —
+    /// each stage fully rewrites `[..n]` from the bus before its FX runs).
+    send_stereo: [StereoFrame; MAX_BLOCK],
+}
+
+impl Default for OrbitScratch {
+    fn default() -> Self {
+        Self {
+            ctl_freq: [0.0; MAX_BLOCK],
+            ctl_time: [0.0; MAX_BLOCK],
+            send_mono: [0.0; MAX_BLOCK],
+            send_stereo: [[0.0; CHANNELS]; MAX_BLOCK],
+        }
+    }
+}
+
 // SuperDirt-style chain: voices accumulate into `bus`; each FX reads
 // `bus * send_level`, adds its wet back into `bus`, in order. Order matters —
 // later FX see the running signal including previous FX wet.
@@ -111,6 +139,7 @@ pub struct Orbit {
     seed: u32,
     silent_samples: u32,
     silence_holdoff: u32,
+    scratch: Box<OrbitScratch>,
 }
 
 impl Orbit {
@@ -150,6 +179,7 @@ impl Orbit {
             seed: lcg(index as u32 + 1),
             silent_samples: silence_holdoff + 1,
             silence_holdoff,
+            scratch: Box::new(OrbitScratch::default()),
         }
     }
 
@@ -277,26 +307,30 @@ impl Orbit {
 
     /// Advance all active param mods by `n` samples. Block-rate params write a
     /// single value (`tick_block`); the two audio-rate params (CombFreq, FbTime)
-    /// fill a per-sample buffer (`tick_into`) consumed as a Faust input, and
-    /// still sync their field to the block's final value. Runs before the
-    /// silence bypass so a modulated send level can wake the orbit and chains
-    /// keep time through silent stretches.
-    fn apply_mods(
-        &mut self,
-        n: usize,
-        freq_buf: &mut [f32; MAX_BLOCK],
-        time_buf: &mut [f32; MAX_BLOCK],
-    ) {
+    /// fill `scratch.ctl_freq` / `scratch.ctl_time` (`tick_into`) consumed as a
+    /// Faust input, and still sync their field to the block's final value. Runs
+    /// before the silence bypass so a modulated send level can wake the orbit
+    /// and chains keep time through silent stretches. Returns which of the two
+    /// control trajectories were written; the consuming FX stage splats the
+    /// static param over `[..n]` when its flag is false.
+    fn apply_mods(&mut self, n: usize) -> (bool, bool) {
         let isr = self.isr;
+        let mut freq_traj = false;
+        let mut time_traj = false;
         for i in 0..self.param_mod_count as usize {
             let id = self.param_mods[i].0;
             match id {
                 OrbitParamId::CombFreq => {
-                    self.comb_params.freq = self.param_mods[i].1.tick_into(isr, &mut freq_buf[..n]);
+                    self.comb_params.freq = self.param_mods[i]
+                        .1
+                        .tick_into(isr, &mut self.scratch.ctl_freq[..n]);
+                    freq_traj = true;
                 }
                 OrbitParamId::FbTime => {
-                    self.fb_params.time_ms =
-                        self.param_mods[i].1.tick_into(isr, &mut time_buf[..n]);
+                    self.fb_params.time_ms = self.param_mods[i]
+                        .1
+                        .tick_into(isr, &mut self.scratch.ctl_time[..n]);
+                    time_traj = true;
                 }
                 _ => {
                     let v = self.param_mods[i].1.tick_block(isr, n);
@@ -304,6 +338,7 @@ impl Orbit {
                 }
             }
         }
+        (freq_traj, time_traj)
     }
 
     #[inline]
@@ -356,16 +391,13 @@ impl Orbit {
             n <= MAX_BLOCK,
             "Orbit::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
-        // Per-sample control buffers for the two audio-rate params (comb freq,
-        // feedback time). Pre-filled with the current static value so an
-        // unmodulated effect sees a constant signal identical to its old slider;
-        // `apply_mods` overwrites the trajectory when a ModChain is bound.
-        let mut freq_buf = [self.comb_params.freq; MAX_BLOCK];
-        let mut time_buf = [self.fb_params.time_ms; MAX_BLOCK];
-
         // Param mods first: the silence bypass below reads send levels, so a
         // modulated level must be current before `has_any_fx` is consulted.
-        self.apply_mods(n, &mut freq_buf, &mut time_buf);
+        // The two audio-rate params (comb freq, feedback time) land in
+        // `scratch.ctl_freq` / `scratch.ctl_time` when a ModChain is bound;
+        // otherwise the consuming stage splats the static value over `[..n]`,
+        // a constant signal identical to its old slider.
+        let (freq_traj, time_traj) = self.apply_mods(n);
 
         // Room routing: latch on when a superpan voice sends with no pan dry; the
         // FX run on `bus + fx_send` and only the wet (recovered below) reaches the
@@ -439,9 +471,13 @@ impl Orbit {
             let prev = self.prev_comb_level;
             let step = (level - prev) / n as f32;
             let params = self.comb_params;
-            let mut send = [0.0_f32; MAX_BLOCK];
+            if !freq_traj {
+                self.scratch.ctl_freq[..n].fill(params.freq);
+            }
             for c in 0..CHANNELS {
-                for (i, (slot, frame)) in send
+                for (i, (slot, frame)) in self
+                    .scratch
+                    .send_mono
                     .iter_mut()
                     .take(n)
                     .zip(self.bus.iter().take(n))
@@ -449,8 +485,18 @@ impl Orbit {
                 {
                     *slot = frame[c] * (prev + step * (i as f32 + 1.0));
                 }
-                self.comb[c].process_block(&mut send[..n], n, &params, &freq_buf[..n]);
-                for (frame, &wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+                self.comb[c].process_block(
+                    &mut self.scratch.send_mono[..n],
+                    n,
+                    &params,
+                    &self.scratch.ctl_freq[..n],
+                );
+                for (frame, &wet) in self
+                    .bus
+                    .iter_mut()
+                    .take(n)
+                    .zip(self.scratch.send_mono.iter().take(n))
+                {
                     frame[c] += wet;
                 }
             }
@@ -466,8 +512,12 @@ impl Orbit {
             let prev = self.prev_fb_level;
             let step = (level - prev) / n as f32;
             let p = self.fb_params;
-            let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-            for (i, (slot, frame)) in send
+            if !time_traj {
+                self.scratch.ctl_time[..n].fill(p.time_ms);
+            }
+            for (i, (slot, frame)) in self
+                .scratch
+                .send_stereo
                 .iter_mut()
                 .take(n)
                 .zip(self.bus.iter().take(n))
@@ -477,9 +527,19 @@ impl Orbit {
                 slot[0] = frame[0] * lvl;
                 slot[1] = frame[1] * lvl;
             }
-            self.fb
-                .process_block(&mut send[..n], n, &p, level, &time_buf[..n]);
-            for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+            self.fb.process_block(
+                &mut self.scratch.send_stereo[..n],
+                n,
+                &p,
+                level,
+                &self.scratch.ctl_time[..n],
+            );
+            for (frame, wet) in self
+                .bus
+                .iter_mut()
+                .take(n)
+                .zip(self.scratch.send_stereo.iter().take(n))
+            {
                 frame[0] += wet[0];
                 frame[1] += wet[1];
             }
@@ -493,8 +553,9 @@ impl Orbit {
             let prev = self.prev_delay_level;
             let step = (level - prev) / n as f32;
             let p = self.delay_params;
-            let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-            for (i, (slot, frame)) in send
+            for (i, (slot, frame)) in self
+                .scratch
+                .send_stereo
                 .iter_mut()
                 .take(n)
                 .zip(self.bus.iter().take(n))
@@ -504,9 +565,15 @@ impl Orbit {
                 slot[0] = frame[0] * lvl;
                 slot[1] = frame[1] * lvl;
             }
-            self.delay.process_block(&mut send[..n], n, &p);
+            self.delay
+                .process_block(&mut self.scratch.send_stereo[..n], n, &p);
             self.prev_delay_level = level;
-            for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+            for (frame, wet) in self
+                .bus
+                .iter_mut()
+                .take(n)
+                .zip(self.scratch.send_stereo.iter().take(n))
+            {
                 frame[0] += wet[0];
                 frame[1] += wet[1];
             }
@@ -519,16 +586,27 @@ impl Orbit {
             // Both reverbs are stereo (2-in/2-out) Faust effects run fully wet:
             // build a stereo send = bus * level, run the chosen reverb, and add
             // the wet back onto the bus.
-            let mut send = [[0.0_f32; CHANNELS]; MAX_BLOCK];
-            for (slot, frame) in send.iter_mut().take(n).zip(self.bus.iter().take(n)) {
+            for (slot, frame) in self
+                .scratch
+                .send_stereo
+                .iter_mut()
+                .take(n)
+                .zip(self.bus.iter().take(n))
+            {
                 slot[0] = frame[0] * level;
                 slot[1] = frame[1] * level;
             }
+            let send = &mut self.scratch.send_stereo[..n];
             match rp.verb_type {
-                ReverbType::Cloud => self.jpverb.process_block(&mut send[..n], n, rp),
-                ReverbType::Space => self.vital.process_block(&mut send[..n], n, rp),
+                ReverbType::Cloud => self.jpverb.process_block(send, n, rp),
+                ReverbType::Space => self.vital.process_block(send, n, rp),
             }
-            for (frame, wet) in self.bus.iter_mut().take(n).zip(send.iter().take(n)) {
+            for (frame, wet) in self
+                .bus
+                .iter_mut()
+                .take(n)
+                .zip(self.scratch.send_stereo.iter().take(n))
+            {
                 frame[0] += wet[0];
                 frame[1] += wet[1];
             }

@@ -217,6 +217,10 @@ pub struct Voice {
     pub nch: usize,
     pub spread_cache_value: f32,
     pub spread_detune_ratios: [f32; 3],
+    /// Change-detect cache for `exp2f(detune / 1200)` in
+    /// [`Voice::fm_carrier_freq`]. NAN key forces the first compute.
+    detune_cache_value: f32,
+    detune_cache_ratio: f32,
     pub triggered: bool,
     pub time: f32,
     pub sr: f32,
@@ -258,10 +262,22 @@ pub struct Voice {
     pub fx: Box<VoiceFxState>,
 
     /// Per-block stage program. Built by [`Voice::build_stage_program`] at
-    /// the top of each `run_source_block`; iterated by [`Voice::finish_sample`]
-    /// once per sample. Only the first `stage_count` entries are valid.
+    /// the top of each `run_source_block`; executed stage-by-stage over the
+    /// block by [`Voice::finish_block`]. Only the first `stage_count` entries
+    /// are valid.
     pub(crate) stage_program: [Stage; MAX_STAGES],
     pub(crate) stage_count: u8,
+    /// Parallel to `stage_program`: true when the stage consumes a param
+    /// targeted by an active `ParamMod`, forcing that stage (and only that
+    /// stage) onto the per-sample dispatch path. Only meaningful while
+    /// `param_mod_count > 0` (stale otherwise, gated at the read).
+    stage_modded: [bool; MAX_STAGES],
+    /// Per-sample values of each active `ParamMod` for the current block,
+    /// captured by `apply_mods_one` during the source loop and replayed by
+    /// `restore_mods_at` for the per-sample stages. `[k][i]` = mod `k` at
+    /// sample `i`; rows past `param_mod_count` and columns past the block
+    /// length are stale.
+    mod_traj: Box<[[f32; MAX_BLOCK]; MAX_PARAM_MODS]>,
 }
 
 impl Default for Voice {
@@ -295,6 +311,8 @@ impl Default for Voice {
             nch: 1,
             spread_cache_value: f32::NAN,
             spread_detune_ratios: [1.0; 3],
+            detune_cache_value: f32::NAN,
+            detune_cache_ratio: 1.0,
             triggered: false,
             time: 0.0,
             sr,
@@ -322,6 +340,8 @@ impl Default for Voice {
             fx: Box::new(VoiceFxState::default()),
             stage_program: [Stage::PreGain; MAX_STAGES],
             stage_count: 0,
+            stage_modded: [false; MAX_STAGES],
+            mod_traj: Box::new([[0.0; MAX_BLOCK]; MAX_PARAM_MODS]),
         }
     }
 }
@@ -571,6 +591,60 @@ impl Voice {
         false
     }
 
+    /// True if any active `ParamMod` targets a param `stage` consumes. The
+    /// per-stage lists mirror the `self.params.*` reads in [`Voice::tick_stage`]
+    /// / [`Voice::tick_stage_block`]; params without a `ParamId` (wah, vinyl,
+    /// spread, velocity, enum modes) cannot be modulated and are omitted.
+    fn stage_uses_modded_param(&self, stage: Stage) -> bool {
+        use ParamId as P;
+        let ids: &[ParamId] = match stage {
+            Stage::PreGain => &[P::Gain],
+            Stage::Lpf => &[P::Lpf, P::Lpq],
+            Stage::Hpf => &[P::Hpf, P::Hpq],
+            Stage::Bpf => &[P::Bpf, P::Bpq],
+            Stage::SteepLpf => &[P::Slpf, P::Slpq],
+            Stage::SteepHpf => &[P::Shpf, P::Shpq],
+            Stage::SteepBpf => &[P::Sbpf, P::Sbpq],
+            Stage::LadderLp => &[P::Llpf, P::Llpq],
+            Stage::LadderHp => &[P::Lhpf, P::Lhpq],
+            Stage::LadderBp => &[P::Lbpf, P::Lbpq],
+            Stage::Wah | Stage::DcBlock | Stage::Vinyl | Stage::Trim => &[],
+            Stage::Coarse => &[P::Coarse],
+            Stage::Crush => &[P::Crush],
+            Stage::Fold => &[P::Fold],
+            Stage::Wrap => &[P::Wrap],
+            Stage::Distort => &[P::Distort],
+            Stage::Am => &[P::Am, P::Amdepth],
+            Stage::Rm => &[P::Rm, P::Rmdepth],
+            Stage::Phaser => &[
+                P::Phaser,
+                P::Phaserdepth,
+                P::Phasersweep,
+                P::Phasercenter,
+            ],
+            Stage::Flanger => &[P::Flanger, P::Flangerdepth, P::Flangerfeedback],
+            Stage::FreqShift => &[P::Fshift],
+            Stage::PitchShift => &[P::Pshift, P::Pshiftwin],
+            Stage::Eq => &[
+                P::Eqlo,
+                P::Eqmid,
+                P::Eqhi,
+                P::EqLoFreq,
+                P::EqMidFreq,
+                P::EqMidQ,
+                P::EqHiFreq,
+            ],
+            Stage::Tilt => &[P::Tilt],
+            Stage::Smear => &[P::Smear, P::Smearfreq, P::Smearfb],
+            Stage::Vca | Stage::MonoStereo => &[P::Postgain],
+            Stage::Chorus => &[P::Chorus, P::Chorusdepth, P::Chorusdelay],
+            Stage::Width => &[P::Width],
+            Stage::Haas => &[P::Haas],
+            Stage::Pan => &[P::Pan],
+        };
+        ids.iter().any(|&id| self.mod_targets(id))
+    }
+
     /// Build the per-block stage program: a packed list of exactly the
     /// stages this voice needs this block. Called once per block before the
     /// per-sample source loop; iterated by [`Voice::finish_sample`].
@@ -698,48 +772,56 @@ impl Voice {
         push!(Stage::Trim);
 
         self.stage_count = count;
-    }
 
-    /// Per-sample executor: iterates `self.stage_program[..stage_count]` and
-    /// dispatches each entry through [`Voice::tick_stage`].
-    ///
-    /// Early-exits when `param_mod_count == 0`; that path is handled by
-    /// [`Voice::finish_block`] after the source loop closes, which runs the
-    /// same DSP in block-rate dispatch. With no active mods the two paths
-    /// are mathematically equivalent (filter state machines are identical;
-    /// only loop order changes).
-    #[inline]
-    pub(crate) fn finish_sample(&mut self, env: f32, isr: f32, i: usize) {
-        if self.param_mod_count == 0 {
-            return;
-        }
-        let sr = self.sr;
-        for k in 0..self.stage_count as usize {
-            let stage = self.stage_program[k];
-            self.tick_stage(stage, i, env, sr, isr);
-        }
-    }
-
-    /// Block-rate executor: runs each stage in `stage_program[..stage_count]`
-    /// once over `scratch[..n]`, dispatching to per-stage `process_block`
-    /// APIs. Called from `run_source_block` after the source body has filled
-    /// `scratch[..n]`.
-    ///
-    /// Only active when `param_mod_count == 0`. Per-sample `apply_mods_one`
-    /// would mutate `params` mid-block, so when mods are active the per-sample
-    /// executor in [`Voice::finish_sample`] runs interleaved with the source
-    /// loop. With no mods `params` is stable for the block; block-rate
-    /// dispatch reads each param once at block entry, amortizes coefficient
-    /// recompute, and lets the compiler vectorize the per-stage inner loop.
-    pub(crate) fn finish_block(&mut self, env: &[f32], n: usize, isr: f32) {
+        // Per-stage dispatch flags: a stage touching a modulated param runs
+        // per-sample in `finish_block`; everything else stays block-rate.
         if self.param_mod_count > 0 {
-            return;
+            for k in 0..count as usize {
+                self.stage_modded[k] = self.stage_uses_modded_param(self.stage_program[k]);
+            }
         }
+    }
+
+    /// Rewind every active mod target to its captured value at sample `i`,
+    /// so a per-sample stage sees exactly the params `apply_mods_one` wrote
+    /// while the source loop was at sample `i`.
+    #[inline]
+    fn restore_mods_at(&mut self, i: usize) {
+        for k in 0..self.param_mod_count as usize {
+            let id = self.param_mods[k].0;
+            let val = self.mod_traj[k][i];
+            self.write_param(id, val);
+        }
+    }
+
+    /// Stage executor: runs each stage in `stage_program[..stage_count]` once
+    /// over `scratch[..n]`. Called from `run_source_block` after the source
+    /// body has filled `scratch[..n]`.
+    ///
+    /// Stages whose params are all unmodulated dispatch through the per-stage
+    /// `process_block` APIs — params read once at block entry, coefficient
+    /// recompute amortized, inner loop vectorizable. A stage flagged in
+    /// `stage_modded` replays the per-sample trajectory captured by
+    /// `apply_mods_one` and dispatches through [`Voice::tick_stage`], so
+    /// per-sample modulation is preserved exactly. Stage-by-stage over the
+    /// block is mathematically equivalent to sample-by-sample over stages:
+    /// each stage reads only `scratch[i]` and its own state (filter state
+    /// machines are identical; only loop order changes).
+    #[allow(clippy::needless_range_loop)]
+    pub(crate) fn finish_block(&mut self, env: &[f32], n: usize, isr: f32) {
         let sr = self.sr;
         let nch = self.nch;
+        let has_mods = self.param_mod_count > 0;
         for k in 0..self.stage_count as usize {
             let stage = self.stage_program[k];
-            self.tick_stage_block(stage, env, n, sr, isr, nch);
+            if has_mods && self.stage_modded[k] {
+                for i in 0..n {
+                    self.restore_mods_at(i);
+                    self.tick_stage(stage, i, env[i], sr, isr);
+                }
+            } else {
+                self.tick_stage_block(stage, env, n, sr, isr, nch);
+            }
         }
     }
 
@@ -1566,24 +1648,28 @@ impl Voice {
         }
     }
 
-    /// Sample-rate param-mod application: ticks each `ParamMod` once and writes
-    /// the result to its target. Called once per sample inside the source loop.
+    /// Sample-rate param-mod application: ticks each `ParamMod` once, writes
+    /// the result to its target, and captures it in `mod_traj[..][i]` for the
+    /// per-sample stages in `finish_block`. Called once per sample inside the
+    /// source loop; `i` is the sample index within the block.
     #[inline]
-    fn apply_mods_one(&mut self, isr: f32) {
-        for i in 0..self.param_mod_count as usize {
-            let (id, ref mut m) = self.param_mods[i];
+    fn apply_mods_one(&mut self, isr: f32, i: usize) {
+        for k in 0..self.param_mod_count as usize {
+            let (id, ref mut m) = self.param_mods[k];
             let val = m.tick(isr);
+            self.mod_traj[k][i] = val;
             self.write_param(id, val);
         }
     }
 
     /// Per-sample voice "pre-source" tick: apply param-mods, tick the FM
     /// modulator phasors at the pre-vib carrier, advance the vib LFO. Returns
-    /// the post-vib carrier freq for the source body to use.
+    /// the post-vib carrier freq for the source body to use. `i` is the
+    /// sample index within the block (for the mod-trajectory capture).
     #[inline]
-    pub(crate) fn tick_pre(&mut self, isr: f32) -> f32 {
+    pub(crate) fn tick_pre(&mut self, isr: f32, i: usize) -> f32 {
         if self.param_mod_count > 0 {
-            self.apply_mods_one(isr);
+            self.apply_mods_one(isr, i);
         }
         let pre_vib = self.fm_carrier_freq();
         self.tick_fm_pm(pre_vib, isr);
@@ -1701,10 +1787,18 @@ impl Voice {
     /// Called once per sample by the source loop after `apply_mods_one`, so
     /// any per-sample modulation of `detune` or `speed` is honored.
     #[inline]
-    pub(crate) fn fm_carrier_freq(&self) -> f32 {
+    pub(crate) fn fm_carrier_freq(&mut self) -> f32 {
         let mut f = self.params.freq;
-        if self.params.detune != 0.0 {
-            f *= exp2f(self.params.detune / 1200.0);
+        let detune = self.params.detune;
+        if detune != 0.0 {
+            // Change-detect cache (same idiom as `spread_detune_ratios`):
+            // `exp2f` runs once per detune value instead of once per sample.
+            // A pure-function cache keyed on the exact input — never stale.
+            if detune != self.detune_cache_value {
+                self.detune_cache_value = detune;
+                self.detune_cache_ratio = exp2f(detune / 1200.0);
+            }
+            f *= self.detune_cache_ratio;
         }
         f *= self.params.speed;
         f

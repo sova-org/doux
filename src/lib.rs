@@ -50,10 +50,10 @@ mod wasm;
 #[allow(clippy::large_enum_variant)]
 pub enum AudioCmd {
     /// Pre-parsed event. Held inline (not boxed) so the audio thread does not
-    /// deallocate a `Box` on receive. Note: an immediate event's interior
-    /// `String`/`Vec` fields are still freed on the audio thread when it is
-    /// dropped after dispatch; scheduled events move into the bounded schedule
-    /// and only drop when they fire.
+    /// deallocate a `Box` on receive. Spent events (after dispatch or when a
+    /// scheduled event fires) are handed to the engine's reaper channel so
+    /// their interior `String`/`Vec` fields are freed off the audio thread;
+    /// only a full reaper falls back to dropping in place.
     DispatchEvent(event::Event),
     Hush,
     Panic,
@@ -281,6 +281,11 @@ pub struct Engine {
     load_gate: bool,
     #[cfg(feature = "native")]
     engine_start_unix_micros: u64,
+    /// Spent events go here so their heap fields are freed by the reaper
+    /// thread, not the audio thread. `None` (spawn failure) or a full queue
+    /// degrades to dropping in place.
+    #[cfg(feature = "native")]
+    event_reaper: Option<crossbeam_channel::Sender<Event>>,
 }
 
 #[cfg(feature = "native")]
@@ -334,6 +339,19 @@ impl Engine {
             Arc::clone(&sample_index),
         );
 
+        // Reaper: spent events cross back over this channel so their heap
+        // fields are freed here, not in the audio callback. Sized to the
+        // schedule depth; the thread exits when the engine (sender) drops.
+        #[cfg(feature = "native")]
+        let event_reaper = {
+            let (tx, rx) = crossbeam_channel::bounded::<Event>(types::MAX_EVENTS);
+            std::thread::Builder::new()
+                .name("doux-event-reaper".into())
+                .spawn(move || while rx.recv().is_ok() {})
+                .ok()
+                .map(|_| tx)
+        };
+
         Self {
             sr: config.sample_rate,
             isr: 1.0 / config.sample_rate,
@@ -383,6 +401,31 @@ impl Engine {
             load_gate: false,
             #[cfg(feature = "native")]
             engine_start_unix_micros: now_unix_micros(),
+            #[cfg(feature = "native")]
+            event_reaper,
+        }
+    }
+
+    /// Hand a spent event to the reaper so its `String`/`Vec` fields are
+    /// freed off the audio thread. Falls back to dropping in place when the
+    /// reaper is full or absent (wasm) — the pre-reaper behavior.
+    #[inline]
+    fn retire_event(&self, event: Event) {
+        #[cfg(feature = "native")]
+        if let Some(tx) = &self.event_reaper {
+            // On Full/Disconnected the error carries the event back and it
+            // drops here.
+            let _ = tx.try_send(event);
+            return;
+        }
+        drop(event);
+    }
+
+    /// Empty the schedule through the reaper (`Schedule::clear` would free
+    /// every queued event's heap fields on the audio thread).
+    fn drain_schedule(&mut self) {
+        while let Some(ev) = self.schedule.pop_front() {
+            self.retire_event(ev);
         }
     }
 
@@ -666,17 +709,20 @@ impl Engine {
             }
             "hush" => {
                 self.hush();
+                self.retire_event(event);
                 None
             }
             "panic" => {
                 self.panic();
+                self.retire_event(event);
                 None
             }
             "reset" => {
                 self.panic();
-                self.schedule.clear();
+                self.drain_schedule();
                 self.time = 0.0;
                 self.tick = 0;
+                self.retire_event(event);
                 None
             }
             "release" => {
@@ -687,6 +733,7 @@ impl Engine {
                         }
                     }
                 }
+                self.retire_event(event);
                 None
             }
             "hush_endless" => {
@@ -695,18 +742,24 @@ impl Engine {
                         self.voices[i].force_release();
                     }
                 }
+                self.retire_event(event);
                 None
             }
             "reset_time" => {
                 self.time = 0.0;
                 self.tick = 0;
+                self.retire_event(event);
                 None
             }
             "reset_schedule" => {
-                self.schedule.clear();
+                self.drain_schedule();
+                self.retire_event(event);
                 None
             }
-            _ => None,
+            _ => {
+                self.retire_event(event);
+                None
+            }
         }
     }
 
@@ -717,10 +770,14 @@ impl Engine {
             event.delta = None;
         }
         if event.tick.is_some() {
-            self.schedule.push(event);
+            if let Some(rejected) = self.schedule.push(event) {
+                self.retire_event(rejected);
+            }
             return None;
         }
-        self.process_event(&event)
+        let voice = self.process_event(&event);
+        self.retire_event(event);
+        voice
     }
 
     /// Dispatch a `rec` event on the audio thread.
@@ -734,12 +791,11 @@ impl Engine {
     fn handle_rec(&mut self, mut event: Event) {
         if event.rec_stop.unwrap_or(false) {
             self.recorder.stop();
-            return;
-        }
-        if let Some(name) = event.sound.take() {
+        } else if let Some(name) = event.sound.take() {
             self.recorder
                 .start(name, event.overdub.unwrap_or(false), event.orbit);
         }
+        self.retire_event(event);
     }
 
     pub fn play(&mut self, params: VoiceParams) -> Option<usize> {
@@ -1408,6 +1464,7 @@ impl Engine {
                     .dropped_events
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
+            self.retire_event(event);
         }
     }
 
@@ -1851,8 +1908,10 @@ impl Engine {
                     schedule_elapsed_ns += schedule_start.elapsed().as_nanos() as u64;
                 }
                 self.tick += 1;
-                self.time = self.tick as f64 / self.sr as f64;
             }
+            // Wall-clock readout only (telemetry `time_bits` + `get_time`);
+            // never read inside the chunk, so once per chunk is equivalent.
+            self.time = self.tick as f64 / self.sr as f64;
 
             // Local block counters; `gen_block` accumulates into them so the
             // per-phase totals across all chunks land in the engine profiler.

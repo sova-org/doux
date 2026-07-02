@@ -22,6 +22,7 @@ use super::LadderMode;
 use crate::dsp::SvfMode;
 use crate::types::{DelayType, StereoFrame, MAX_BLOCK};
 use faust_types::{FaustDsp, ParamIndex, UI};
+use std::mem::MaybeUninit;
 
 /// Nominal init rate for the sample-rate-independent Faust effects (Hz).
 const NOMINAL_SR: i32 = 48_000;
@@ -239,6 +240,30 @@ mod vinyl_dsp {
     include!("vinyl_gen.rs");
 }
 
+/// Block scratch for the `run_block*` helpers: `MAX_BLOCK`-sized stack arrays
+/// initialized only over `[..n]`. A plain `[0.0; MAX_BLOCK]` local would memset
+/// the full 1 KB per array per call — an 8× over-zero at the default n = 32.
+type BlockScratch = [MaybeUninit<f32>; MAX_BLOCK];
+
+#[inline]
+fn block_scratch() -> BlockScratch {
+    [MaybeUninit::uninit(); MAX_BLOCK]
+}
+
+/// # Safety
+/// Every element of `s` must have been initialized.
+#[inline]
+unsafe fn init_slice(s: &[MaybeUninit<f32>]) -> &[f32] {
+    std::slice::from_raw_parts(s.as_ptr().cast::<f32>(), s.len())
+}
+
+/// # Safety
+/// Every element of `s` must have been initialized.
+#[inline]
+unsafe fn init_slice_mut(s: &mut [MaybeUninit<f32>]) -> &mut [f32] {
+    std::slice::from_raw_parts_mut(s.as_mut_ptr().cast::<f32>(), s.len())
+}
+
 /// Run a mono Faust DSP for one sample. Used by the per-sample dispatch path so
 /// a modulated param threads in at sample rate. Params must be set beforehand.
 #[inline]
@@ -253,12 +278,15 @@ fn run_one<D: FaustDsp<T = f32>>(dsp: &mut D, x: f32) -> f32 {
 /// Params (held for the block) must be set beforehand.
 #[inline]
 fn run_block<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [StereoFrame], n: usize, ch: usize) {
-    let mut input = [0.0f32; MAX_BLOCK];
-    let mut output = [0.0f32; MAX_BLOCK];
+    let mut input = block_scratch();
+    let mut output = block_scratch();
     for i in 0..n {
-        input[i] = buf[i][ch];
+        input[i].write(buf[i][ch]);
+        output[i].write(0.0);
     }
-    dsp.compute(n as i32, &[&input[..n]], &mut [&mut output[..n]]);
+    // SAFETY: `[..n]` of both arrays was initialized by the loop above.
+    let (input, output) = unsafe { (init_slice(&input[..n]), init_slice_mut(&mut output[..n])) };
+    dsp.compute(n as i32, &[input], &mut [&mut *output]);
     for i in 0..n {
         buf[i][ch] = output[i];
     }
@@ -271,15 +299,16 @@ fn run_block<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [StereoFrame], n: usiz
 /// DSPs that take a click-sensitive param as input 0.
 #[inline]
 fn run_block_flat_mod<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [f32], n: usize, ctrl: &[f32]) {
-    let mut input = [0.0f32; MAX_BLOCK];
-    let mut output = [0.0f32; MAX_BLOCK];
-    input[..n].copy_from_slice(&buf[..n]);
-    dsp.compute(
-        n as i32,
-        &[&ctrl[..n], &input[..n]],
-        &mut [&mut output[..n]],
-    );
-    buf[..n].copy_from_slice(&output[..n]);
+    let mut input = block_scratch();
+    let mut output = block_scratch();
+    for i in 0..n {
+        input[i].write(buf[i]);
+        output[i].write(0.0);
+    }
+    // SAFETY: `[..n]` of both arrays was initialized by the loop above.
+    let (input, output) = unsafe { (init_slice(&input[..n]), init_slice_mut(&mut output[..n])) };
+    dsp.compute(n as i32, &[&ctrl[..n], input], &mut [&mut *output]);
+    buf[..n].copy_from_slice(output);
 }
 
 /// Run a stereo (2-in/2-out audio) Faust DSP whose FIRST input is a per-sample
@@ -294,18 +323,29 @@ fn run_block_stereo_mod<D: FaustDsp<T = f32>>(
     n: usize,
     ctrl: &[f32],
 ) {
-    let mut in_l = [0.0f32; MAX_BLOCK];
-    let mut in_r = [0.0f32; MAX_BLOCK];
-    let mut out_l = [0.0f32; MAX_BLOCK];
-    let mut out_r = [0.0f32; MAX_BLOCK];
+    let mut in_l = block_scratch();
+    let mut in_r = block_scratch();
+    let mut out_l = block_scratch();
+    let mut out_r = block_scratch();
     for i in 0..n {
-        in_l[i] = buf[i][0];
-        in_r[i] = buf[i][1];
+        in_l[i].write(buf[i][0]);
+        in_r[i].write(buf[i][1]);
+        out_l[i].write(0.0);
+        out_r[i].write(0.0);
     }
+    // SAFETY: `[..n]` of all four arrays was initialized by the loop above.
+    let (in_l, in_r, out_l, out_r) = unsafe {
+        (
+            init_slice(&in_l[..n]),
+            init_slice(&in_r[..n]),
+            init_slice_mut(&mut out_l[..n]),
+            init_slice_mut(&mut out_r[..n]),
+        )
+    };
     dsp.compute(
         n as i32,
-        &[&ctrl[..n], &in_l[..n], &in_r[..n]],
-        &mut [&mut out_l[..n], &mut out_r[..n]],
+        &[&ctrl[..n], in_l, in_r],
+        &mut [&mut *out_l, &mut *out_r],
     );
     for i in 0..n {
         buf[i][0] = out_l[i];
@@ -332,19 +372,26 @@ fn run_one_stereo<D: FaustDsp<T = f32>>(dsp: &mut D, l: f32, r: f32) -> [f32; 2]
 /// Params (held for the block) set beforehand.
 #[inline]
 fn run_block_stereo<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [StereoFrame], n: usize) {
-    let mut in_l = [0.0f32; MAX_BLOCK];
-    let mut in_r = [0.0f32; MAX_BLOCK];
-    let mut out_l = [0.0f32; MAX_BLOCK];
-    let mut out_r = [0.0f32; MAX_BLOCK];
+    let mut in_l = block_scratch();
+    let mut in_r = block_scratch();
+    let mut out_l = block_scratch();
+    let mut out_r = block_scratch();
     for i in 0..n {
-        in_l[i] = buf[i][0];
-        in_r[i] = buf[i][1];
+        in_l[i].write(buf[i][0]);
+        in_r[i].write(buf[i][1]);
+        out_l[i].write(0.0);
+        out_r[i].write(0.0);
     }
-    dsp.compute(
-        n as i32,
-        &[&in_l[..n], &in_r[..n]],
-        &mut [&mut out_l[..n], &mut out_r[..n]],
-    );
+    // SAFETY: `[..n]` of all four arrays was initialized by the loop above.
+    let (in_l, in_r, out_l, out_r) = unsafe {
+        (
+            init_slice(&in_l[..n]),
+            init_slice(&in_r[..n]),
+            init_slice_mut(&mut out_l[..n]),
+            init_slice_mut(&mut out_r[..n]),
+        )
+    };
+    dsp.compute(n as i32, &[in_l, in_r], &mut [&mut *out_l, &mut *out_r]);
     for i in 0..n {
         buf[i][0] = out_l[i];
         buf[i][1] = out_r[i];
@@ -354,19 +401,38 @@ fn run_block_stereo<D: FaustDsp<T = f32>>(dsp: &mut D, buf: &mut [StereoFrame], 
 /// Allocate a Faust DSP directly on the heap, zeroed, without ever materializing
 /// it on the stack. The reverb DSPs carry multi-megabyte inline delay arrays, so
 /// by-value construction (`Box::new(D::new())`) overflows the stack in debug.
-/// Faust's own `new()` only zeroes every field; the subsequent `init()` writes
-/// the sample-rate constants and clears state — so a zeroed heap struct + `init`
-/// is equivalent.
+/// Faust's own `new()` only zeroes every field, so a zeroed heap struct is
+/// equivalent — pair with [`init_zeroed`] to finish initialization.
+///
+/// Uses `alloc_zeroed` (not `new_uninit` + memset): the allocator satisfies a
+/// large zeroed request with demand-zero pages, so the delay arrays consume no
+/// physical memory until the effect actually writes them.
 #[inline]
 fn boxed_zeroed<D>() -> Box<D> {
-    let mut b = Box::<D>::new_uninit();
-    // SAFETY: every generated Faust DSP struct is `#[repr(C)]` and holds only
-    // `i32`/`f32` scalars and arrays, for which the all-zero bit pattern is the
-    // valid initial value Faust's `new()` writes; `init()` is called next.
+    let layout = std::alloc::Layout::new::<D>();
+    assert!(layout.size() != 0, "Faust DSP structs are never zero-sized");
+    // SAFETY: `alloc_zeroed` uses the same global allocator `Box` frees with,
+    // at `D`'s layout. Every generated Faust DSP struct holds only `i32`/`f32`
+    // scalars and arrays, for which the all-zero bit pattern is the valid
+    // initial value Faust's `new()` writes.
     unsafe {
-        std::ptr::write_bytes(b.as_mut_ptr(), 0, 1);
-        b.assume_init()
+        let ptr = std::alloc::alloc_zeroed(layout).cast::<D>();
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        Box::from_raw(ptr)
     }
+}
+
+/// Finish initializing a DSP freshly allocated by [`boxed_zeroed`], skipping
+/// the `instance_clear` that a full `init()` would run: on an all-zero struct
+/// the clear only rewrites zeros, but doing so touches every page of the delay
+/// arrays and defeats the demand-zero allocation.
+#[inline]
+fn init_zeroed<D: FaustDsp<T = f32>>(dsp: &mut D, sr: i32) {
+    D::class_init(sr);
+    dsp.instance_constants(sr);
+    dsp.instance_reset_params();
 }
 
 /// Wrap a mono Faust DSP as a voice-insert effect matching the hand-written
@@ -642,7 +708,14 @@ impl Default for FaustFreqShift {
 /// (the window is ms → samples via `ma.SR`), so it lazily (re)inits when the rate
 /// arrives or changes.
 pub struct FaustPitchShift {
-    dsp: pshift_dsp::PitchShiftDsp,
+    /// Boxed: the 512 KB delay line would otherwise sit inline in every
+    /// voice's `VoiceFxState`. Allocated demand-zero (`boxed_zeroed`), so a
+    /// voice that never pitch-shifts never makes it resident.
+    dsp: Box<pshift_dsp::PitchShiftDsp>,
+    /// Sample rate the instance was initialized at. Invariant: `0.0` means
+    /// the delay line is all-zero (fresh allocation or just cleared by
+    /// `reset_in_place`), which lets `ensure_sr` skip `instance_clear` — the
+    /// clear would rewrite 512 KB of zeros and fault in every untouched page.
     sr: f32,
 }
 
@@ -653,7 +726,13 @@ impl FaustPitchShift {
     #[inline]
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
-            self.dsp.init(sr as i32);
+            if self.sr == 0.0 {
+                // State is all-zero (see the `sr` invariant): full `init()`
+                // minus the redundant page-touching clear.
+                init_zeroed(&mut *self.dsp, sr as i32);
+            } else {
+                self.dsp.init(sr as i32);
+            }
             self.sr = sr;
         }
     }
@@ -668,7 +747,7 @@ impl FaustPitchShift {
     pub fn process(&mut self, x: f32, shift: f32, window: f32, sr: f32) -> f32 {
         self.ensure_sr(sr);
         self.write_params(shift, window);
-        run_one(&mut self.dsp, x)
+        run_one(&mut *self.dsp, x)
     }
 
     #[inline]
@@ -683,16 +762,20 @@ impl FaustPitchShift {
     ) {
         self.ensure_sr(sr);
         self.write_params(shift, window);
-        run_block(&mut self.dsp, buf, n, ch);
+        run_block(&mut *self.dsp, buf, n, ch);
     }
 
     /// Clear the 512 KB delay line in place. Rebuilding via `Default` would
     /// materialize that buffer as a stack temporary — fine on the main thread,
     /// fatal on the audio thread's small stack (note-on `reset` runs there).
-    /// `sr = 0.0` forces a full re-init on the next `process`.
+    /// `sr = 0.0` forces a re-init on the next `process`. Skipped entirely
+    /// when `sr` is already `0.0`: by the field invariant the line is still
+    /// all-zero, and the memset would cost half a megabyte per note-on.
     pub fn reset_in_place(&mut self) {
-        self.dsp.instance_clear();
-        self.sr = 0.0;
+        if self.sr != 0.0 {
+            self.dsp.instance_clear();
+            self.sr = 0.0;
+        }
     }
 }
 
@@ -701,7 +784,7 @@ impl Default for FaustPitchShift {
         assert_slider_idx!(pshift_dsp::PitchShiftDsp,
             "a_shift" => Self::SHIFT.0, "b_window" => Self::WINDOW.0);
         Self {
-            dsp: pshift_dsp::PitchShiftDsp::new(),
+            dsp: boxed_zeroed::<pshift_dsp::PitchShiftDsp>(),
             sr: 0.0,
         }
     }
@@ -1568,7 +1651,7 @@ impl FaustVitalRev {
             "g_chorus" => Self::CHORUS.0, "h_chorusfreq" => Self::CHORUSFREQ.0,
             "i_predelay" => Self::PREDELAY.0, "j_time" => Self::TIME.0, "k_size" => Self::SIZE.0);
         let mut dsp = boxed_zeroed::<vital_rev_dsp::VitalRevDsp>();
-        dsp.init(sr as i32);
+        init_zeroed(&mut *dsp, sr as i32);
         Self { dsp }
     }
 
@@ -1616,7 +1699,7 @@ impl FaustJpVerb {
             "g_low" => Self::LOW.0, "h_high" => Self::HIGH.0,
             "i_lowcut" => Self::LOWCUT.0, "j_highcut" => Self::HIGHCUT.0);
         let mut dsp = boxed_zeroed::<jpverb_dsp::JpverbDsp>();
-        dsp.init(sr as i32);
+        init_zeroed(&mut *dsp, sr as i32);
         Self { dsp }
     }
 
@@ -1687,7 +1770,7 @@ impl FaustFeedback {
         assert_slider_idx!(feedback_dsp::FeedbackDsp,
             "b_damp" => Self::DAMP.0, "c_cross" => Self::CROSS.0, "g_fb" => Self::FB.0);
         let mut dsp = boxed_zeroed::<feedback_dsp::FeedbackDsp>();
-        dsp.init(sr as i32);
+        init_zeroed(&mut *dsp, sr as i32);
         Self { dsp }
     }
 
@@ -1709,11 +1792,13 @@ impl FaustFeedback {
         self.dsp.set_param(Self::DAMP, p.damp);
         self.dsp.set_param(Self::CROSS, p.cross);
         self.dsp.set_param(Self::FB, fb_amount);
-        let mut dfreq = [0.0f32; MAX_BLOCK];
+        let mut dfreq = block_scratch();
         for (d, &t) in dfreq.iter_mut().zip(time.iter()).take(n) {
-            *d = 1000.0 / t.max(0.01);
+            d.write(1000.0 / t.max(0.01));
         }
-        run_block_stereo_mod(&mut *self.dsp, buf, n, &dfreq[..n]);
+        // SAFETY: `[..n]` was initialized by the loop above (`time` is ≥ n long).
+        let dfreq = unsafe { init_slice(&dfreq[..n]) };
+        run_block_stereo_mod(&mut *self.dsp, buf, n, dfreq);
     }
 }
 
@@ -1749,10 +1834,10 @@ impl FaustDelay {
         let mut pingpong = boxed_zeroed::<delay_pingpong_dsp::DelayPingpongDsp>();
         let mut tape = boxed_zeroed::<delay_tape_dsp::DelayTapeDsp>();
         let mut multitap = boxed_zeroed::<delay_multitap_dsp::DelayMultitapDsp>();
-        standard.init(sr as i32);
-        pingpong.init(sr as i32);
-        tape.init(sr as i32);
-        multitap.init(sr as i32);
+        init_zeroed(&mut *standard, sr as i32);
+        init_zeroed(&mut *pingpong, sr as i32);
+        init_zeroed(&mut *tape, sr as i32);
+        init_zeroed(&mut *multitap, sr as i32);
         Self {
             standard,
             pingpong,

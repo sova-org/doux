@@ -45,11 +45,14 @@ impl Schedule {
 
     /// Adds an event to the schedule in sorted order.
     ///
-    /// Events at capacity are silently dropped.
+    /// At capacity the event is rejected and returned so the caller can
+    /// dispose of it off the audio thread (dropping it here would free its
+    /// heap fields on the caller's — real-time — thread).
     /// Insertion is O(N) but occurs infrequently (user actions).
-    pub fn push(&mut self, event: Event) {
+    #[must_use]
+    pub fn push(&mut self, event: Event) -> Option<Event> {
         if self.events.len() >= MAX_EVENTS {
-            return;
+            return Some(event);
         }
         let tick = event.tick.unwrap_or(u64::MAX);
         let pos = self
@@ -57,6 +60,7 @@ impl Schedule {
             .make_contiguous()
             .partition_point(|e| e.tick.unwrap_or(u64::MAX) < tick);
         self.events.insert(pos, event);
+        None
     }
 
     /// Returns the tick of the earliest event, if any.
