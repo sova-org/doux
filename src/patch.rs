@@ -23,9 +23,14 @@ use arf::ir::Program;
 use arf::vm::Vm;
 use crossbeam_queue::ArrayQueue;
 
-/// Vms pre-built per installed patch — the per-patch polyphony ceiling; an
-/// event that finds the pool dry is dropped. Provisional (to_do.md session 5).
-const POOL_VMS: usize = 8;
+/// Default Vm-pool depth when a registry is built without an explicit
+/// polyphony ([`PatchRegistry::new`], used by tests and external callers):
+/// matches doux's default voice ceiling so an arf source is never *more*
+/// polyphony-limited than a native voice. [`PatchRegistry::with_polyphony`]
+/// overrides it to track a custom `max_voices` — including a lower ceiling on
+/// constrained devices, where a big pool would waste memory. An event that
+/// finds the pool dry is still dropped.
+const DEFAULT_POOL_VMS: usize = crate::types::DEFAULT_MAX_VOICES;
 /// Per-Vm sample-memory cap in f32s (4 MiB). One default `delay` line is
 /// 2^16 f32s, so this allows 16 per patch. Provisional (to_do.md session 5).
 const MAX_BUFFER_LEN: usize = 1 << 20;
@@ -141,6 +146,10 @@ pub struct PatchRegistry {
     /// off-RT. `None` (spawn failure) degrades to dropping the Vm in place.
     #[cfg(feature = "native")]
     vm_return: Option<crossbeam_channel::Sender<Reap>>,
+    /// Vms pre-built per installed patch — the per-patch polyphony ceiling.
+    /// Sized to the engine's voice count so an arf source matches native
+    /// polyphony (see [`DEFAULT_POOL_VMS`]).
+    pool_vms: usize,
 }
 
 impl Default for PatchRegistry {
@@ -151,6 +160,13 @@ impl Default for PatchRegistry {
 
 impl PatchRegistry {
     pub fn new() -> Self {
+        Self::with_polyphony(DEFAULT_POOL_VMS)
+    }
+
+    /// Build a registry whose per-patch Vm pools hold `pool_vms` voices — pass
+    /// the engine's `max_voices` so an arf source is neither more
+    /// polyphony-limited than a native voice nor over-allocated below it.
+    pub fn with_polyphony(pool_vms: usize) -> Self {
         let next_seed = Arc::new(AtomicU32::new(1));
         #[cfg(feature = "native")]
         let vm_return = {
@@ -188,6 +204,7 @@ impl PatchRegistry {
             next_seed,
             #[cfg(feature = "native")]
             vm_return,
+            pool_vms,
         }
     }
 
@@ -280,8 +297,8 @@ impl PatchRegistry {
         }
 
         let program = Arc::new(program);
-        let pool = ArrayQueue::new(POOL_VMS);
-        for _ in 0..POOL_VMS {
+        let pool = ArrayQueue::new(self.pool_vms);
+        for _ in 0..self.pool_vms {
             let mut vm = Vm::new(&program);
             vm.reset(&program, self.next_seed.fetch_add(1, Ordering::Relaxed));
             let _ = pool.push(vm);
@@ -319,6 +336,31 @@ impl PatchRegistry {
             serde_json::from_str(graph_json).map_err(|e| format!("invalid patch graph: {e}"))?;
         let program = arf::compile::compile(&graph, sr);
         self.install(name, program)
+    }
+
+    /// Evict an installed patch by `name`, routing its entry to the reaper's
+    /// graveyard for the off-RT free — the same path a reinstall's displaced
+    /// entry takes. A voice still sounding on it keeps its own `Arc` clone and
+    /// plays out; only the map slot is dropped now, so eviction can never cut a
+    /// note. No-op if the name is absent. Control thread only (rebuilds the map
+    /// like `install`); the caller owns the eviction policy (cagire's
+    /// `PatchInstaller`, which is the single writer of the install/evict ledger
+    /// and so keeps its own dedup cache consistent with this map).
+    pub fn remove(&self, name: &str) {
+        #[cfg(feature = "native")]
+        let displaced = self.patches.load().get(name).cloned();
+        self.patches.rcu(|cur| {
+            let mut map = HashMap::clone(cur);
+            map.remove(name);
+            Arc::new(map)
+        });
+        // Native: hand the displaced entry to the reaper so the final multi-MiB
+        // pool free happens off-RT. Wasm is single-threaded and this is the
+        // control path, so the `rcu` drop above is already off-RT.
+        #[cfg(feature = "native")]
+        if let (Some(old), Some(tx)) = (displaced, &self.vm_return) {
+            let _ = tx.send(Reap::Entry(old));
+        }
     }
 
     /// Look a patch up by its bare name (no `arf:` prefix). Lock-free — RT-safe.

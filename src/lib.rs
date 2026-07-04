@@ -401,7 +401,7 @@ impl Engine {
             sample_registry,
             patch_registry: config
                 .patch_registry
-                .unwrap_or_else(|| Arc::new(PatchRegistry::new())),
+                .unwrap_or_else(|| Arc::new(PatchRegistry::with_polyphony(config.max_voices))),
             #[cfg(feature = "native")]
             sample_loader,
             #[cfg(feature = "native")]
