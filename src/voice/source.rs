@@ -369,8 +369,6 @@ impl Voice {
                 vp.control[NOTEFREQ_LANE] = freq;
                 vp.control[GATE_LANE] = gate;
                 let program = vp.entry.program();
-                // Audio channels lead `program.outputs()`; a frame slice
-                // capped at the audio width skips the observation taps.
                 let width = program.audio_channels().min(CHANNELS);
                 let mut frame = [0.0f32; CHANNELS];
                 vp.vm.tick_frame(
@@ -381,15 +379,12 @@ impl Voice {
                     &mut frame[..width],
                 );
                 vp.frame_pos += 1;
-                // arf's core is deliberately IEEE-transparent (÷0 → inf) and
-                // delegates NaN/inf scrubbing to its realtime shell — doux is
-                // that shell here. One unscrubbed non-finite sample would
-                // permanently poison the master DC-blocker downstream. Zero
-                // it. 0.7 is the same headroom
+                // One unscrubbed non-finite sample would permanently poison
+                // the master DC-blocker downstream. 0.7 is the same headroom
                 // scale as the sample sources.
-                let (s0, s1) = (frame[0], frame[1]);
-                self.scratch[i][0] = if s0.is_finite() { s0 * 0.7 } else { 0.0 };
-                self.scratch[i][1] = if s1.is_finite() { s1 * 0.7 } else { 0.0 };
+                crate::patch::scrub_non_finite(&mut frame);
+                self.scratch[i][0] = frame[0] * 0.7;
+                self.scratch[i][1] = frame[1] * 0.7;
             } else {
                 self.scratch[i] = [0.0; CHANNELS];
             }

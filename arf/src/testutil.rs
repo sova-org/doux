@@ -21,11 +21,6 @@ pub(crate) fn graph_of(build: impl FnOnce(&mut Graph) -> Vec<NodeId>) -> Graph {
     g
 }
 
-/// `v out` — a bare DC constant.
-pub(crate) fn dc(v: f32) -> Graph {
-    graph_of(|g| vec![g.constant(v)])
-}
-
 /// `freq <name> out` — a one-input oscillator on a constant frequency (`sine`, `saw`, …).
 pub(crate) fn osc(name: &str, freq: f32) -> Graph {
     graph_of(|g| {

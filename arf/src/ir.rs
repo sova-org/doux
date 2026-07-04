@@ -1,8 +1,7 @@
 //! The execution representation: a flat, topologically ordered program.
 //!
-//! A [`Program`] is what the audio thread runs. The reference [`crate::vm::Vm`]
-//! interprets it today; a Cranelift JIT backend will consume the same `Program`
-//! later. Op `i` writes register `i`, and every input references a register with a
+//! A [`Program`] is what the audio thread runs, interpreted by [`crate::vm::Vm`].
+//! Op `i` writes register `i`, and every input references a register with a
 //! lower index (guaranteed by the topological order), so a single forward pass
 //! evaluates the whole graph for one sample.
 
@@ -10,18 +9,17 @@ use crate::ugen::UGenId;
 
 /// The window the global sample clock wraps within before the pure f32 core sees it (see
 /// [`Op::Now`]). A power of two `< 2^24`, so every value in `0..NOW_WINDOW` is an *exact*
-/// integer in f32 — the windowed `now` never loses precision however long the engine runs,
-/// and the VM and JIT can compute it bit-identically (integer add+mask, then one exact
-/// `u64 -> f32` cast). The trade-off is a hard ceiling on any single `now`-relative interval:
-/// 2^23 samples ≈ 174.8 s at 48 kHz (≈ 87.4 s at 96 kHz). The canonical clock the host owns is
-/// a full `u64` frame count; only this windowed view reaches the DSP core.
+/// integer in f32 — the windowed `now` never loses precision however long the engine runs
+/// (integer add+mask, then one exact `u64 -> f32` cast). The trade-off is a hard ceiling on
+/// any single `now`-relative interval: 2^23 samples ≈ 174.8 s at 48 kHz (≈ 87.4 s at 96 kHz).
+/// The canonical clock the host owns is a full `u64` frame count; only this windowed view
+/// reaches the DSP core.
 pub const NOW_WINDOW: u64 = 1 << 23;
 
-/// Reduce a `now`-relative difference back into the window, modularly. Used by time UGens for
-/// `now - start` (which can straddle a wrap), and mirrored bit-for-bit by the JIT's `arf_wrapW`
-/// shim — the single source of truth for the wrap, like [`crate::ugen::noise_sample`] is for noise.
+/// Reduce a `now`-relative difference back into the window, modularly — the single source of
+/// truth for the wrap. Used by time UGens for `now - start`, which can straddle a wrap.
 #[inline]
-pub fn now_wrap(x: f32) -> f32 {
+pub(crate) fn now_wrap(x: f32) -> f32 {
     x.rem_euclid(NOW_WINDOW as f32)
 }
 
@@ -60,23 +58,22 @@ pub enum Op {
     /// leaf; `channel` is `< in_channels` by construction, so the read is always in range.
     Input { channel: u32 },
     /// Read control `lane` from the host's per-block control plane (a host-supplied value:
-    /// a voice's gate/notefreq/vel, or the transport tempo). A leaf, like [`Op::Input`], but frame-invariant:
-    /// the plane is latched once per block, so the value is constant across the block. `lane`
-    /// is `< control_len` by construction.
+    /// the note's gate/notefreq/vel, the transport tempo, or a named parameter). A leaf, like
+    /// [`Op::Input`], but frame-invariant: the plane is latched once per block, so the value is
+    /// constant across the block. `lane` is `< control_len` by construction.
     Control { lane: u32 },
     /// Read the global sample clock as a signal: the current frame's absolute position,
     /// reduced into [`NOW_WINDOW`] (`(block_start_pos + frame) & (NOW_WINDOW - 1)`). A leaf,
     /// like [`Op::Input`] but supplied by the *executor*, not the host — frame-strided, so it
     /// advances one per sample within a block. This is the pure-core face of time: a UGen reads
-    /// it as an input register (or ambiently via `TickCtx`/`EmitCtx`), never as a global. The
-    /// VM and JIT compute it with identical integer arithmetic, so it stays bit-exact.
+    /// it as an input register (or ambiently via `TickCtx`), never as a global.
     Now,
 }
 
 /// A feedback write-back: after each frame, store register `source` into `buses[slot]`
 /// so the matching [`Op::FbRead`] reads it next sample (the one-sample delay).
 #[derive(Clone, Copy, Debug)]
-pub struct Feedback {
+pub(crate) struct Feedback {
     pub(crate) slot: u32,
     pub(crate) source: Reg,
 }
@@ -98,11 +95,10 @@ pub struct Program {
     /// Number of persistent per-UGen state slots the program needs (oscillator phase, filter
     /// memory, …). Independent of the bus count — buses live in their own plane.
     pub(crate) state_len: usize,
-    /// Sparse fresh-init values for the state plane: `(slot, value)` pairs a backend applies over
-    /// the all-zero fill when it is built. Today only noise sources use it — the compiler seeds
-    /// each one's sample-counter slot so co-existing instances decorrelate (see
-    /// [`crate::ugen::noise_seed`]); reconcile then overrides a *carried* op's slot with its live
-    /// counter, so a running stream never reseeds across an edit. Empty when no op is seeded.
+    /// Sparse fresh-init values for the state plane: `(slot, value)` pairs applied over the
+    /// all-zero fill when a [`crate::vm::Vm`] is built or reset. Today only noise sources use
+    /// it — the compiler seeds each one's sample-counter slot so co-existing instances
+    /// decorrelate (see [`crate::ugen::noise_seed`]). Empty when no op is seeded.
     pub(crate) initial_state: Vec<(u32, f32)>,
     /// Number of feedback-bus slots the program needs, in their own arena (one per declared
     /// bus). Kept separate from `state_len` so adding/removing a bus never renumbers state.
@@ -117,18 +113,9 @@ pub struct Program {
     /// host supplies a control block this wide, latched once per block, so every `Control` is
     /// in range. Per-voice lanes and the transport lane live here (see [`crate::graph`]).
     pub(crate) control_len: usize,
-    /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
-    /// host drives this many parallel control-plane voice slots.
-    pub(crate) voice_count: usize,
-    /// The registers feeding the output channels, in channel order: the `audio_channels`
-    /// device-routed channels first, then one register per observation tap. Every valid program
-    /// has at least one audio channel (the front-end requires `out`; [`Program::silent`] has one).
+    /// The registers feeding the output channels, in channel order. Every valid program has
+    /// at least one channel (the front-end requires `out`).
     pub(crate) outputs: Vec<Reg>,
-    /// How many leading `outputs` are audio channels routed to the device (= what `out`
-    /// produced). The rest of `outputs` are tap registers the host meters but never plays.
-    pub(crate) audio_channels: usize,
-    /// Names of the tap outputs, aligned with `outputs[audio_channels..]`.
-    pub(crate) tap_names: Vec<String>,
     /// Declared named parameters `(name, default)` in declaration order; entry `i` owns control
     /// lane `PARAM_BASE + i`. Carried whether or not the graph references them, so the host can
     /// resolve names and fill defaults from the program alone.
@@ -136,7 +123,7 @@ pub struct Program {
     /// End-of-frame feedback write-backs (the source side of each one-sample delay).
     pub(crate) feedbacks: Vec<Feedback>,
     /// Sample rate the program was compiled for (Hz).
-    pub sample_rate: f32,
+    pub(crate) sample_rate: f32,
 }
 
 impl Program {
@@ -158,8 +145,8 @@ impl Program {
         self.state_len
     }
 
-    /// Sparse fresh-init for the state plane (see the field): `(slot, value)` pairs each backend
-    /// applies after zeroing its state arena, identically, so the VM and JIT stay bit-exact.
+    /// Sparse fresh-init for the state plane (see the field): `(slot, value)` pairs the VM
+    /// applies after zeroing its state arena.
     pub(crate) fn initial_state(&self) -> &[(u32, f32)] {
         &self.initial_state
     }
@@ -185,27 +172,15 @@ impl Program {
         self.control_len
     }
 
-    /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
-    /// host drives this many parallel control-plane voice slots.
-    pub fn voice_count(&self) -> usize {
-        self.voice_count
-    }
-
-    /// The registers feeding the output channels, in channel order (audio channels first, then
-    /// the tap outputs). The VM and JIT write every one of these into the render block.
+    /// The registers feeding the output channels, in channel order. The VM writes every one
+    /// of these into the render block.
     pub fn outputs(&self) -> &[Reg] {
         &self.outputs
     }
 
-    /// Audio channels routed to the device — the leading slice of [`outputs`](Self::outputs).
-    /// The trailing `outputs().len() - audio_channels()` registers are observation taps.
+    /// Audio channels routed to the device — the width of [`outputs`](Self::outputs).
     pub fn audio_channels(&self) -> usize {
-        self.audio_channels
-    }
-
-    /// Tap names, aligned with `outputs()[audio_channels()..]`.
-    pub fn tap_names(&self) -> &[String] {
-        &self.tap_names
+        self.outputs.len()
     }
 
     /// Declared named parameters `(name, default)`, in declaration (= lane) order.
@@ -224,5 +199,19 @@ impl Program {
     /// The feedback write-backs applied at the end of each frame.
     pub(crate) fn feedbacks(&self) -> &[Feedback] {
         &self.feedbacks
+    }
+
+    /// The summed per-sample cost of the program: Σ over its ops of the producing UGen's
+    /// [`cost`](crate::ugen::UGen::cost), counting each non-UGen leaf (`Const`, a
+    /// bus/input/control/clock read) as one unit. A machine-independent estimate of how much
+    /// arithmetic one frame costs — it ranks two patches identically on any CPU.
+    pub fn weight(&self) -> u32 {
+        self.ops
+            .iter()
+            .map(|op| match op {
+                Op::Ugen { ugen, .. } => crate::ugen::def(*ugen).cost as u32,
+                _ => 1,
+            })
+            .sum()
     }
 }

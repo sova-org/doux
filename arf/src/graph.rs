@@ -11,31 +11,23 @@ use serde::{Deserialize, Serialize};
 /// runaway multichannel expansion at parse time.
 pub const MAX_CHANNELS: usize = 64;
 
-/// Polyphony: the maximum voice-pool size. The control plane always reserves this many voice
-/// slots, so its layout — and the transport lane below — is the same whether or not a patch uses
-/// `voices`. Keeps every lane's index (and its reconcile signature) stable across edits that add
-/// or remove polyphony.
-pub const MAX_VOICES: usize = 8;
-/// Per-voice control lanes: gate, notefreq, vel (see the `*_LANE` offsets).
-pub const LANES_PER_VOICE: usize = 3;
-/// Lane offset (within a voice's block) of the gate signal (1.0 held, 0.0 released).
+/// Lane of the gate signal (1.0 held, 0.0 released).
 pub const GATE_LANE: usize = 0;
-/// Lane offset of the note frequency (Hz of the current note).
+/// Lane of the note frequency (Hz of the current note).
 pub const NOTEFREQ_LANE: usize = 1;
-/// Lane offset of the note velocity (0..1 of the last note-on).
+/// Lane of the note velocity (0..1 of the last note-on).
 pub const VEL_LANE: usize = 2;
-/// The transport's beats-per-second lane, just past every voice's lanes. Both frontends latch the
-/// tempo here each block (control-rate); `bps` reads it. Placed after the voice lanes so they keep
-/// their index (no reconcile shift). Carries the host's default tempo until changed.
-pub const BPS_LANE: usize = MAX_VOICES * LANES_PER_VOICE;
-/// First lane of the named-parameter block (`param name default`), just past the transport lane.
-/// A declaration's lane is `PARAM_BASE + declaration index`, stable across edits that only touch
-/// other parts of the patch.
+/// The transport's beats-per-second lane, just past the note lanes. The host latches the
+/// tempo here each block (control-rate); `bps` reads it. Seeded with the host's default
+/// tempo so a patch never reads 0 before the first block.
+pub const BPS_LANE: usize = 3;
+/// First lane of the named-parameter block (`param name default`), just past the transport
+/// lane. A declaration's lane is `PARAM_BASE + declaration index`.
 pub const PARAM_BASE: usize = BPS_LANE + 1;
-/// How many named parameters one patch may declare. Bounds the control plane so the host can keep
-/// a fixed-size per-voice control block.
+/// How many named parameters one patch may declare. Bounds the control plane so the host can
+/// keep a fixed-size per-instance control block.
 pub const MAX_PARAMS: usize = 16;
-/// Total control-plane width: every voice's lanes, the transport lane, and the named-parameter
+/// Total control-plane width: the note lanes, the transport lane, and the named-parameter
 /// block. The host allocates a control block this wide; a program reads only its prefix.
 pub const CONTROL_WIDTH: usize = PARAM_BASE + MAX_PARAMS;
 
@@ -68,9 +60,9 @@ pub enum Node {
     /// A read of audio input `channel` (the current frame's sample). A leaf: the value
     /// comes from the host's input block, not from another node.
     Input { channel: u32 },
-    /// A read of control `lane` (a host-supplied value: a voice's gate/notefreq/vel, or the
-    /// transport tempo). A leaf, like [`Node::Input`], but the value comes from the host's per-block control
-    /// plane, held constant for the whole block (control-rate).
+    /// A read of control `lane` (a host-supplied value: the note's gate/notefreq/vel, the
+    /// transport tempo, or a named parameter). A leaf, like [`Node::Input`], but the value comes
+    /// from the host's per-block control plane, held constant for the whole block (control-rate).
     Control { lane: u32 },
     /// A read of the global sample clock as a signal. A leaf, like [`Node::Input`], but supplied
     /// by the executor: the current frame's absolute position windowed into `NOW_WINDOW`. The
@@ -99,14 +91,6 @@ pub struct Graph {
     /// Nodes whose side effect (a buffer write by `record`) must run even when their value is
     /// unused — so the compiler keeps them as roots, like a written feedback bus.
     sinks: Vec<NodeId>,
-    /// Voice-pool size for `voices` replication: how many parallel voices the patch builds.
-    /// 1 (or the default 0, normalised by [`Graph::voice_count`]) is monophonic / no region.
-    /// The host drives this many parallel control-plane voice slots.
-    voice_count: usize,
-    /// Externally-observable signal taps (`scope name`): a name paired with the node whose
-    /// per-block level (peak+rms) the host reads out. Distinct from the front-end's internal
-    /// `tap` reuse-alias — these name points the host meters, not points the source reuses.
-    taps: Vec<(String, NodeId)>,
     /// Declared named parameters (`param name default`), in declaration order. Entry `i` owns
     /// lane `PARAM_BASE + i`; the default holds until the host writes the lane. `default` so
     /// graphs serialized before the field existed still load.
@@ -219,27 +203,6 @@ impl Graph {
         &self.outputs
     }
 
-    /// Set the voice-pool size (the `N` of `N voices`).
-    pub fn set_voice_count(&mut self, n: usize) {
-        self.voice_count = n;
-    }
-
-    /// The voice-pool size, normalised so the default (0) reads as 1 (monophonic).
-    pub fn voice_count(&self) -> usize {
-        self.voice_count.max(1)
-    }
-
-    /// Mark `node`'s signal as an externally-observable tap named `name` (`scope name`). The
-    /// compiler appends it as a trailing output the host meters (peak+rms) but never plays.
-    pub fn add_tap(&mut self, name: String, node: NodeId) {
-        self.taps.push((name, node));
-    }
-
-    /// The declared observation taps, in declaration order.
-    pub fn taps(&self) -> &[(String, NodeId)] {
-        &self.taps
-    }
-
     /// Declare named parameter `name` with `default`, returning its control lane. Name and
     /// count validation is the front-end's responsibility, like arity on [`Graph::ugen`].
     pub fn add_param(&mut self, name: String, default: f32) -> u32 {
@@ -253,97 +216,14 @@ impl Graph {
         &self.params
     }
 
-    /// The node behind a handle. Public so an external graph front-end (arf-forth) can read
-    /// back what it built — e.g. to fold constants or inspect a subgraph during construction.
+    /// The node behind a handle. Public so an external graph front-end (cagire's `arf-forth`)
+    /// can read back what it built — e.g. to fold constants or inspect a subgraph during
+    /// construction.
     pub fn node(&self, id: NodeId) -> Node {
         self.nodes[id.0 as usize].clone()
     }
 
     pub(crate) fn len(&self) -> usize {
         self.nodes.len()
-    }
-
-    /// Describe the graph as JSON for the web editor's read-only visualizer: one entry per
-    /// node (tagged by `kind`, UGens carrying their resolved `name`/`category`), the output
-    /// channel sinks, the source feeding each feedback bus, and the voice count. Off the
-    /// audio path — only built on a program swap.
-    ///
-    /// This shape is the source; `GraphData`/`GraphNode` in `web/src/lib/stores.ts` is a
-    /// hand-maintained TypeScript mirror of it. Emit any new field here first, then update that.
-    pub fn to_json(&self) -> String {
-        use serde_json::{Value, json};
-
-        let nodes: Vec<Value> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(id, node)| match node {
-                Node::Const(value) => json!({ "id": id, "kind": "const", "value": value }),
-                Node::Ugen { ugen, inputs, buffer } => {
-                    let def = crate::ugen::def(*ugen);
-                    let inputs: Vec<u32> = inputs.iter().map(|n| n.0).collect();
-                    json!({
-                        "id": id,
-                        "kind": "ugen",
-                        "name": def.name,
-                        "category": def.category.label(),
-                        "inputs": inputs,
-                        "buffer": buffer.map(|b| b.0),
-                    })
-                }
-                Node::FbRead { bus } => json!({ "id": id, "kind": "fbread", "bus": bus.0 }),
-                Node::Input { channel } => {
-                    json!({ "id": id, "kind": "input", "channel": channel })
-                }
-                Node::Control { lane } => json!({ "id": id, "kind": "control", "lane": lane }),
-                Node::Now => json!({ "id": id, "kind": "now" }),
-                Node::Output { source, port } => {
-                    json!({ "id": id, "kind": "output", "source": source.0, "port": port })
-                }
-            })
-            .collect();
-
-        let outputs: Vec<u32> = self.outputs.iter().map(|n| n.0).collect();
-        let bus_sources: Vec<Option<u32>> =
-            self.bus_sources.iter().map(|s| s.map(|n| n.0)).collect();
-
-        let params: Vec<Value> =
-            self.params.iter().map(|(name, default)| json!([name, default])).collect();
-
-        json!({
-            "nodes": nodes,
-            "outputs": outputs,
-            "busSources": bus_sources,
-            "voiceCount": self.voice_count(),
-            "params": params,
-        })
-        .to_string()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `440 sine out` — a const feeding a sine whose output is the single channel.
-    #[test]
-    fn to_json_describes_nodes_and_outputs() {
-        let sine = crate::ugen::lookup("sine").expect("sine exists");
-        let mut g = Graph::new();
-        let freq = g.constant(440.0);
-        let osc = g.ugen(sine, vec![freq]);
-        g.set_outputs(vec![osc]);
-
-        let v: serde_json::Value = serde_json::from_str(&g.to_json()).unwrap();
-        let nodes = v["nodes"].as_array().unwrap();
-        assert_eq!(nodes.len(), 2);
-        assert_eq!(nodes[0]["kind"], "const");
-        assert_eq!(nodes[0]["value"], 440.0);
-        assert_eq!(nodes[1]["kind"], "ugen");
-        assert_eq!(nodes[1]["name"], "sine");
-        assert_eq!(nodes[1]["category"], "Oscillator");
-        assert_eq!(nodes[1]["inputs"], serde_json::json!([0]));
-        assert_eq!(v["outputs"], serde_json::json!([1]));
-        assert_eq!(v["voiceCount"], 1);
     }
 }

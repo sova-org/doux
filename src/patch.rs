@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use arf::graph::{CONTROL_WIDTH, MAX_PARAMS, PARAM_BASE};
+use arf::graph::{BPS_LANE, CONTROL_WIDTH, MAX_PARAMS, PARAM_BASE};
 use arf::ir::Program;
 use arf::vm::Vm;
 use crossbeam_queue::ArrayQueue;
@@ -29,10 +29,13 @@ const POOL_VMS: usize = 8;
 /// Per-Vm sample-memory cap in f32s (4 MiB). One default `delay` line is
 /// 2^16 f32s, so this allows 16 per patch. Provisional (to_do.md session 5).
 const MAX_BUFFER_LEN: usize = 1 << 20;
-/// Install-time cap on [`arf::metrics::graph_weight`] (a bare sine weighs
-/// ~12) — a guard against runaway generated graphs, not a perf promise.
+/// Install-time cap on [`Program::weight`] (a bare sine weighs ~12) — a
+/// guard against runaway generated graphs, not a perf promise.
 /// Provisional (to_do.md session 5).
 const MAX_GRAPH_WEIGHT: u32 = 4096;
+/// The tempo a patch reads from its transport lane before the engine's first
+/// block write: 2 beats/s = 120 BPM, so `bps` is never silently 0.
+const DEFAULT_BPS: f32 = 2.0;
 /// Depth of the native Vm-return channel: comfortably above any burst of
 /// voice deaths in one block (mirrors the event reaper's headroom).
 #[cfg(feature = "native")]
@@ -73,9 +76,10 @@ impl PatchEntry {
 
 /// A live handle on a patch — voice source, voice insert, or orbit effect:
 /// the entry (for the program and the way home to its pool), the running
-/// [`Vm`], the local sample clock, and the control plane the source loop
-/// writes gate/notefreq/vel into (unread for effects, which install with
-/// `control_len() == 0`). Named-param lanes start at their declared defaults.
+/// [`Vm`], the local sample clock, and the control plane. The source loop
+/// writes gate/notefreq/vel; every role gets the engine tempo latched into
+/// [`BPS_LANE`] each block (effects may read nothing else). Named-param
+/// lanes start at their declared defaults.
 pub struct VoicePatch {
     pub(crate) entry: Arc<PatchEntry>,
     pub(crate) vm: Vm,
@@ -86,6 +90,7 @@ pub struct VoicePatch {
 impl VoicePatch {
     pub(crate) fn new(entry: Arc<PatchEntry>, vm: Vm) -> Self {
         let mut control = [0.0; CONTROL_WIDTH];
+        control[BPS_LANE] = DEFAULT_BPS;
         for (i, (_, default)) in entry.program().params().iter().enumerate() {
             control[PARAM_BASE + i] = *default;
         }
@@ -94,6 +99,19 @@ impl VoicePatch {
             vm,
             frame_pos: 0,
             control,
+        }
+    }
+}
+
+/// Zero any non-finite sample in a patch's output frame. arf's core is
+/// IEEE-transparent (a pathological graph can emit NaN/inf); doux scrubs at
+/// the boundary so one bad patch cannot poison downstream filter state.
+/// Shared by all three tick sites (source, insert, orbit effect).
+#[inline]
+pub(crate) fn scrub_non_finite(frame: &mut [f32]) {
+    for s in frame {
+        if !s.is_finite() {
+            *s = 0.0;
         }
     }
 }
@@ -199,13 +217,6 @@ impl PatchRegistry {
                 program.in_channels()
             ));
         }
-        if program.in_channels() > 0 && program.control_len() > 0 {
-            return Err(
-                "patch reads both audio input and control lanes (gate/notefreq/vel/param); \
-                 effect patches take no control input yet"
-                    .to_string(),
-            );
-        }
         // A lane past the plane would panic slicing the fixed per-voice control
         // array on the audio thread — reject hand-crafted graph JSON here instead.
         if program.control_len() > CONTROL_WIDTH {
@@ -222,12 +233,6 @@ impl PatchRegistry {
                 program.params().len()
             ));
         }
-        if program.voice_count() > 1 {
-            return Err(format!(
-                "patch declares {} voices; doux owns polyphony — drop `voices`, each note gets its own instance",
-                program.voice_count()
-            ));
-        }
         if program.buffer_len() > MAX_BUFFER_LEN {
             return Err(format!(
                 "patch needs {} KB of sample memory per voice (cap {} KB)",
@@ -235,30 +240,42 @@ impl PatchRegistry {
                 MAX_BUFFER_LEN * 4 / 1024
             ));
         }
-        let weight = arf::metrics::graph_weight(&program);
+        let weight = program.weight();
         if weight > MAX_GRAPH_WEIGHT {
             return Err(format!(
                 "patch weighs {weight} (cap {MAX_GRAPH_WEIGHT}); split it or thin it out"
             ));
         }
-        // arf's compiler lays the buffer arena out in u32; enough max-length
-        // named buffers can wrap the cursor so `buffer_len()` passes the cap
-        // above while an op still points past the arena the Vm allocates —
-        // an out-of-bounds slice panic on the first tick, on the audio
-        // thread. Check every op's slice against the arena it will index.
+        // Per-op checks the summary counts above can't catch. Buffers: arf's
+        // compiler lays the arena out in u32; enough max-length named buffers
+        // can wrap the cursor so `buffer_len()` passes the cap above while an
+        // op still points past the arena the Vm allocates — an out-of-bounds
+        // slice panic on the first tick, on the audio thread. Control: an
+        // effect's plane carries only the transport tempo — a per-note lane
+        // (gate/notefreq/vel) or a named param would silently read a constant,
+        // so reject it here instead.
         for op in program.ops() {
-            if let arf::ir::Op::Ugen {
-                buffer_base,
-                buffer_len,
-                ..
-            } = *op
-            {
-                if buffer_base as u64 + buffer_len as u64 > program.buffer_len() as u64 {
+            match *op {
+                arf::ir::Op::Ugen {
+                    buffer_base,
+                    buffer_len,
+                    ..
+                } if buffer_base as u64 + buffer_len as u64 > program.buffer_len() as u64 => {
                     return Err(
                         "patch buffer layout overflows its arena (u32 wrap in a buffer size sum)"
                             .to_string(),
                     );
                 }
+                arf::ir::Op::Control { lane }
+                    if program.in_channels() > 0 && lane as usize != BPS_LANE =>
+                {
+                    return Err(
+                        "effect patch reads a per-note control lane (gate/notefreq/vel/param); \
+                         effects may read only `bps`"
+                            .to_string(),
+                    );
+                }
+                _ => {}
             }
         }
 
@@ -294,8 +311,8 @@ impl PatchRegistry {
     }
 
     /// Compile a serialized arf graph at this engine's sample rate and install it under
-    /// `name`. The graph JSON is the language-agnostic patch boundary — a front-end
-    /// (`arf-forth`, or any other) builds an `arf::graph::Graph`, serializes it, and hands it
+    /// `name`. The graph JSON is the language-agnostic patch boundary — a front-end (cagire's
+    /// `arf-forth`, or any other) builds an `arf::graph::Graph`, serializes it, and hands it
     /// here. doux plays graphs; it never parses a patch language. Allocates — control thread only.
     pub fn install_graph(&self, name: &str, graph_json: &str, sr: f32) -> Result<(), String> {
         let graph: arf::graph::Graph =

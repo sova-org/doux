@@ -46,24 +46,11 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
         seed_ordinal: 0,
     };
 
-    let mut outputs: Vec<Reg> = graph
+    let outputs: Vec<Reg> = graph
         .outputs()
         .iter()
         .map(|&node| ctx.emit(node))
         .collect();
-
-    // Observation taps (`scope name`) are extra outputs appended after the audio channels: the
-    // VM/JIT already write every `outputs` register, so a tap rides out for free, and the host
-    // meters the trailing ones (peak+rms) instead of routing them to the device. A scoped node
-    // shared with an audio output is memoised (no duplicate op); a scoped mid-graph node that is
-    // otherwise unreachable becomes live so its level can be observed.
-    let audio_channels = outputs.len();
-    let mut tap_names = Vec::with_capacity(graph.taps().len());
-    for (name, node) in graph.taps() {
-        let reg = ctx.emit(*node);
-        outputs.push(reg);
-        tap_names.push(name.clone());
-    }
 
     // Each written bus is also a root: emit its source so the write-back has a register,
     // and record the store into the bus's slot (the read side is an `Op::FbRead`).
@@ -91,10 +78,7 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
         buffer_len: ctx.buffer_len as usize,
         in_channels: ctx.in_channels as usize,
         control_len: ctx.control_len as usize,
-        voice_count: graph.voice_count(),
         outputs,
-        audio_channels,
-        tap_names,
         params: graph.params().to_vec(),
         feedbacks,
         sample_rate,
@@ -139,8 +123,8 @@ impl Lowering<'_> {
     /// (thousands of nodes deep), so depth is bounded by the heap `work` stack instead. Each
     /// node is *entered* (scheduling its children, then itself for *exit*) and later *exited*
     /// (emitting its op once its children hold registers). `reg_of` memoises, so a shared node
-    /// is emitted exactly once. The emission order is identical to the old recursive walk —
-    /// children left-to-right, then the node — which the bit-exact harness pins.
+    /// is emitted exactly once. The emission order is children left-to-right, then the node —
+    /// pinned by the characterization harness (cagire's `crates/arf-forth/tests/harness.rs`).
     fn emit(&mut self, root: NodeId) -> Reg {
         enum Step {
             Enter(NodeId),
@@ -216,7 +200,7 @@ impl Lowering<'_> {
                             // Seed a noise source's counter slot so co-existing instances
                             // decorrelate (without this each starts at counter 0 and emits the
                             // identical stream). `seed_ordinal` is a running index over seeded
-                            // ops; reconcile carries a matched op's live counter over this seed.
+                            // ops so each gets a distinct seed.
                             if let Some(k) = ugen::seed_slot(ugen::def(ugen).name) {
                                 self.initial_state
                                     .push((state_base + k as u32, ugen::noise_seed(self.seed_ordinal)));
@@ -285,31 +269,6 @@ mod tests {
         // Output is the last op (the multiply).
         let out = program.outputs()[0];
         assert_eq!(out.0 as usize, program.num_registers() - 1);
-    }
-
-    #[test]
-    fn scope_appends_a_tap_output_after_the_audio_channels() {
-        // `scope osc` adds a trailing tap output; the one audio channel is unchanged, and the
-        // tap name is recorded aligned with `outputs()[audio_channels()..]`.
-        let g = graph_of(|g| {
-            let f = g.constant(440.0);
-            let s = g.ugen(u("sine"), vec![f]);
-            g.add_tap("osc".to_string(), s); // `scope osc` taps the sine, leaving it in the chain
-            let a = g.constant(0.3);
-            vec![g.ugen(u("*"), vec![s, a])]
-        });
-        let p = compile(&g, 48_000.0);
-        assert_eq!(p.audio_channels(), 1, "one audio channel");
-        assert_eq!(p.outputs().len(), 2, "audio channel + one tap");
-        assert_eq!(p.tap_names(), &["osc".to_string()]);
-    }
-
-    #[test]
-    fn a_program_without_scope_has_no_taps() {
-        let g = osc_gain("sine", 440.0, 0.3);
-        let p = compile(&g, 48_000.0);
-        assert_eq!(p.audio_channels(), p.outputs().len());
-        assert!(p.tap_names().is_empty());
     }
 
     #[test]

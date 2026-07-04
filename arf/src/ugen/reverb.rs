@@ -8,10 +8,9 @@
 //! sound at any rate and an absurd rate shortens the tail instead of corrupting a neighbor
 //! region. Each line keeps its own write head in a state slot (a head wraps `% len`, and the
 //! lengths are not powers of two — a shared counter would click on its wrap); the comb damping
-//! filters add eight more slots, 20 in all, and everything migrates across a hot-swap like any
-//! other UGen state (the buffer is donated whole).
+//! filters add eight more slots, 20 in all.
 
-use super::{signal, Arity, Category, InputDescriptor, Rate, TickCtx, UGen, Unit};
+use super::{signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
 
 /// The classic Freeverb comb tunings (sample counts at 44.1 kHz) as seconds.
 const COMB_T: [f32; 8] = [
@@ -40,13 +39,14 @@ pub(super) static UGENS: &[UGen] = &[
     UGen { name: "verb", category: Category::Delay, description: "Freeverb-style mono reverb — 8 damped feedback combs into 4 series allpasses; `mix` blends dry→wet.",
            examples: &["2 impulse 0.05 perc 440 sine * 0.3 *  0.4 0.9 0.5 verb  0.5 * out", "110 saw 0.2 *  0.3 0.7 0.5 verb  out", "4 impulse 0.02 perc noise *  0.6 0.95 0.2 verb  0.4 * out"], arity: Arity::Fixed(4),
            inputs: &[signal("in"),
-                     InputDescriptor { name: "mix", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.3, rate: Rate::Audio },
-                     InputDescriptor { name: "room", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.7, rate: Rate::Audio },
-                     InputDescriptor { name: "damp", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5, rate: Rate::Audio }],
-           outputs: 1, state_slots: 20, buffer_len: BUF_LEN, rate: Rate::Audio, cost: 80, tick: tick_verb },
+                     InputDescriptor { name: "mix", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.3 },
+                     InputDescriptor { name: "room", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.7 },
+                     InputDescriptor { name: "damp", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5 }],
+           outputs: 1, state_slots: 20, buffer_len: BUF_LEN, cost: 80, tick: tick_verb },
 ];
 
-// Not `.clamp()`: the mix/room/damp bounds mirror the JIT's NaN-suppressing max/min shims.
+// Not `.clamp()`: `.max().min()` suppresses NaN (`clamp` propagates it), so a NaN mix/room/damp
+// collapses to a bound instead of latching NaN into the tank.
 #[allow(clippy::manual_clamp, clippy::needless_range_loop)]
 fn tick_verb(ctx: &mut TickCtx, out: &mut [f32]) {
     // The Freeverb topology with its classic scalings: input gain 0.015 into 8 parallel
@@ -69,7 +69,7 @@ fn tick_verb(ctx: &mut TickCtx, out: &mut [f32]) {
         ctx.state[8 + k] = f;
         ctx.buffer[idx] = input + room * f;
         ctx.state[k] = ((head + 1) % len) as f32;
-        acc += y; // left-fold in comb order — load-bearing, `emit_verb` mirrors it
+        acc += y; // left-fold in comb order — load-bearing for f32 determinism
     }
     let mut s = acc;
     for j in 0..4 {

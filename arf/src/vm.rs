@@ -1,8 +1,4 @@
-//! The reference VM: runs a [`Program`] one sample at a time.
-//!
-//! This is the engine that makes sound today and the correctness oracle a future
-//! Cranelift JIT will be checked against (`vm(program) == jit(program)`,
-//! sample-for-sample). It is also the engine that will run under WASM.
+//! The VM: runs a [`Program`] one sample at a time, on every target (native and wasm).
 //!
 //! Registers are scratch (recomputed every sample); state persists across samples.
 
@@ -20,8 +16,7 @@ impl Vm {
     pub fn new(program: &Program) -> Self {
         let mut state = vec![0.0; program.state_len()];
         // Apply the sparse fresh-init seeds (noise counters) over the zero fill so co-existing
-        // noise sources decorrelate. The JIT and AOT backends apply the identical list, so this
-        // does not break VM⇄JIT bit-exactness — it only moves the shared starting point.
+        // noise sources decorrelate.
         for &(slot, v) in program.initial_state() {
             state[slot as usize] = v;
         }
@@ -74,7 +69,6 @@ impl Vm {
         let sr = program.sample_rate;
         // The pure-core face of time: the absolute position reduced into the precision window,
         // computed once per frame and shared by the `now` leaf and every UGen's `TickCtx.now`.
-        // The JIT mirrors this exact integer arithmetic (see `src/jit.rs`).
         let now = (frame_pos & (crate::ir::NOW_WINDOW - 1)) as f32;
         // Split the borrows: registers are read-then-written, state is persistent.
         let regs = &mut self.regs;

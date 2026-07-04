@@ -8,7 +8,6 @@ repository = "https://github.com/Bubobubobubobubo/doux"
 
 [dependencies]
 # Serialize the authoring graph: round-trippable serde derives on the graph model (the
-# language-agnostic patch boundary a host deserializes) plus the visualizer's `to_json`.
-# Off the audio path — only touched on a program swap / install.
+# language-agnostic patch boundary a host deserializes). Off the audio path — only touched
+# on a program swap / install.
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"

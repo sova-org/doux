@@ -837,9 +837,9 @@ impl Voice {
     /// `nch` once, so the insert must never change the voice's width: a
     /// stereo patch on a mono voice is downmixed, and `scratch[i][1]` (the
     /// spread side signal on mono voices) is left untouched. No 0.7
-    /// headroom: an identity `{ in out }` insert must be unity. Effect
-    /// patches install with `control_len() == 0`, so the control slice is
-    /// empty; the non-finite scrub matches `run_arf_block`.
+    /// headroom: an identity `{ in out }` insert must be unity. An effect's
+    /// control plane carries only the transport lane (patch.rs contract),
+    /// latched per chunk; the non-finite scrub matches `run_arf_block`.
     #[inline]
     fn tick_fx_patch(&mut self, i: usize) {
         let nch = self.nch;
@@ -865,8 +865,8 @@ impl Voice {
                 &mut out[..width],
             );
             p.frame_pos += 1;
-            let w0 = if out[0].is_finite() { out[0] } else { 0.0 };
-            let w1 = if out[1].is_finite() { out[1] } else { 0.0 };
+            crate::patch::scrub_non_finite(&mut out);
+            let (w0, w1) = (out[0], out[1]);
             if nch == 2 {
                 self.scratch[i][0] = w0;
                 self.scratch[i][1] = if width == 2 { w1 } else { w0 };

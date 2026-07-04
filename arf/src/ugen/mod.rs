@@ -1,15 +1,15 @@
 //! The UGen contract and the assembled vocabulary.
 //!
 //! A UGen is declared once — its name (the word a front-end builds it by), input arity,
-//! persistent state, output rate, and per-sample DSP — and graph front-ends, the compiler
+//! persistent state, and per-sample DSP — and graph front-ends, the compiler
 //! ([`crate::compile`]),
 //! and the VM ([`crate::vm`]) all read the one [`UGENS`] table. The *contract* (this struct
 //! family, [`lookup`]/[`def`], and the well-formedness tests) lives here; the generators
 //! themselves live in category submodules ([`math`], [`osc`], [`filter`], …), each owning its
-//! rows and their `tick`/`emit` bodies. [`UGENS`] concatenates those per-module slices into one
+//! rows and their `tick` bodies. [`UGENS`] concatenates those per-module slices into one
 //! canonical list, so a `UGenId` stays a flat index and nothing downstream changes.
 //!
-//! Adding a generator is adding one row (and its `tick`/`emit`) to the right category file;
+//! Adding a generator is adding one row (and its `tick`) to the right category file;
 //! adding a category is `mod foo;` plus one line in the [`UGENS`] assembly.
 
 use std::sync::LazyLock;
@@ -29,23 +29,10 @@ mod source;
 mod time;
 
 // The compiler reaches these to seed each noise source's counter slot for per-instance
-// decorrelation. Needed on every target (the browser compiles patches too), so — unlike the
-// `noise_sample` shim re-export above — they are not gated to native.
+// decorrelation. Needed on every target (the browser compiles patches too).
 pub(crate) use source::{noise_seed, seed_slot};
 
-/// The rate at which a UGen produces samples. Audio-rate (one value per sample) is the
-/// only rate today; control-rate (one value per block) is a planned addition, so the
-/// contract carries the marker now to avoid reshaping it when that lands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Rate {
-    /// One value per sample.
-    Audio,
-    /// One value per block. Reserved — declared so the contract need not reshape when
-    /// control-rate execution lands; no UGen runs at this rate yet.
-    Control,
-}
-
-/// The physical meaning of a UGen input, for display and (later) control mapping. A signal
+/// The physical meaning of a UGen input, for the front-end's dictionary and hovers. A signal
 /// input with no specific unit is [`Unit::None`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unit {
@@ -56,24 +43,11 @@ pub enum Unit {
     None,
 }
 
-impl Unit {
-    /// A short label for `--dump-json` and editor surfaces.
-    pub fn label(self) -> &'static str {
-        match self {
-            Unit::Hz => "Hz",
-            Unit::Seconds => "s",
-            Unit::Amplitude => "amp",
-            Unit::Ratio => "ratio",
-            Unit::None => "",
-        }
-    }
-}
-
-/// The classical UGen family a generator belongs to — for grouping in the generated
-/// reference, `--dump-json`, and editor surfaces. A semantic taxonomy (à la
-/// SuperCollider/Csound), deliberately independent of the `src/ugen/` module layout: the
-/// `time` module, for instance, supplies both [`Category::Trigger`] and
-/// [`Category::Envelope`]. New families are added as variants when their UGens land.
+/// The classical UGen family a generator belongs to — groups the front-end's dictionary
+/// (cagire's patch-word sidebar). A semantic taxonomy (à la SuperCollider/Csound),
+/// deliberately independent of the `src/ugen/` module layout: the `time` module, for
+/// instance, supplies both [`Category::Trigger`] and [`Category::Envelope`]. New families
+/// are added as variants when their UGens land.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
     Oscillator,
@@ -91,8 +65,7 @@ pub enum Category {
 
 impl Category {
     /// Every category, in signal-flow display order (generators → processors → control →
-    /// routing → math). The order the generated reference groups by; [`markdown`] iterates
-    /// it, and [`tests::markdown_documents_every_ugen`] relies on it covering the table.
+    /// routing → math) — the order the front-end's dictionary groups by.
     pub const ALL: [Category; 11] = [
         Category::Oscillator,
         Category::Noise,
@@ -107,7 +80,7 @@ impl Category {
         Category::Math,
     ];
 
-    /// The display name for the reference, `--dump-json`, and editor surfaces.
+    /// The display name for the front-end's dictionary.
     pub fn label(self) -> &'static str {
         match self {
             Category::Oscillator => "Oscillator",
@@ -125,23 +98,21 @@ impl Category {
     }
 }
 
-/// A self-describing declaration of one UGen input: its name, unit, sensible `range` and
-/// `default` (what control mapping and any GUI need), and the rate it expects. Declared once
-/// in the [`UGENS`] table so the parser, `--dump-json`, editors, and future control/GUI mapping
-/// all read the same source of truth.
+/// A self-describing declaration of one UGen input: its name, unit, and a sensible `range`
+/// and `default`. Declared once in the [`UGENS`] table so the parser and the front-end's
+/// dictionary read the same source of truth.
 #[derive(Clone, Copy, Debug)]
 pub struct InputDescriptor {
     pub name: &'static str,
     pub unit: Unit,
     pub range: (f32, f32),
     pub default: f32,
-    pub rate: Rate,
 }
 
 /// A signal input carrying no specific unit (e.g. the thing fed into `lpf`/`delay`/`+`).
 /// Private to the `ugen` module tree; the category submodules reach it via `super::signal`.
 const fn signal(name: &'static str) -> InputDescriptor {
-    InputDescriptor { name, unit: Unit::None, range: (-1.0, 1.0), default: 0.0, rate: Rate::Audio }
+    InputDescriptor { name, unit: Unit::None, range: (-1.0, 1.0), default: 0.0 }
 }
 
 /// A handle to a UGen definition: an index into [`UGENS`]. Only this module mints one
@@ -154,9 +125,9 @@ pub struct UGenId(pub(crate) u32);
 /// `adsr` (gate + attack/decay/sustain/release).
 pub const MAX_ARITY: usize = 5;
 
-/// The largest `outputs` any row declares. Bounds the VM's per-op output scratch (and the
-/// JIT's) so a multi-output tick needs no allocation; [`tests::table_is_well_formed`] checks
-/// the table against it. Four covers the state-variable filter's lp/bp/hp/notch taps.
+/// The largest `outputs` any row declares. Bounds the VM's per-op output scratch so a
+/// multi-output tick needs no allocation; [`tests::table_is_well_formed`] checks the table
+/// against it. Four covers the state-variable filter's lp/bp/hp/notch taps.
 pub const MAX_OUTPUTS: usize = 4;
 
 /// How a generator consumes its operands at graph-construction. `Fixed(n)` pops `n` operands
@@ -185,10 +156,9 @@ pub enum ListShape {
 }
 
 /// The per-op execution context handed to a UGen's [`UGen::tick`]: its gathered `inputs`,
-/// its persistent `state` slice, the sample rate, and the sample clock. This is the single
-/// view onto the engine's memory planes; buffers, buses, and the `now` clock all join it as
-/// those planes land, so the tick signature never has to change again. Built fresh per op
-/// by the VM — no allocation.
+/// its persistent `state` slice, its sample-memory `buffer`, the sample rate, and the sample
+/// clock — the single view onto the engine's memory planes. Built fresh per op by the VM —
+/// no allocation.
 pub struct TickCtx<'a> {
     /// The UGen's signal inputs (`arity` of them), gathered from registers.
     pub inputs: &'a [f32],
@@ -226,11 +196,11 @@ impl TickCtx<'_> {
 pub struct UGen {
     /// The Forth word that builds it.
     pub name: &'static str,
-    /// The classical family this generator belongs to — groups it in the generated
-    /// reference and editor surfaces. Independent of the module it lives in.
+    /// The classical family this generator belongs to — groups it in the front-end's
+    /// dictionary. Independent of the module it lives in.
     pub category: Category,
     /// A one-line description of what the generator does — the prose the signature can't
-    /// carry, surfaced in the reference, `--dump-json`, and editor hovers.
+    /// carry, surfaced in the front-end's dictionary and hovers.
     pub description: &'static str,
     /// 1–3 complete, runnable Forth programs demonstrating the generator — each ends in `out`.
     pub examples: &'static [&'static str],
@@ -238,8 +208,8 @@ pub struct UGen {
     /// `Variadic` consumes one channel-list (and `inputs` describes a single representative
     /// element). Checked by [`tests::table_is_well_formed`].
     pub arity: Arity,
-    /// Per-input descriptors (name, unit, range, default, rate) — the documented signature as
-    /// data, read by the parser surface, `--dump-json`, and future control mapping.
+    /// Per-input descriptors (name, unit, range, default) — the documented signature as
+    /// data, read by the parser and the front-end's dictionary.
     pub inputs: &'static [InputDescriptor],
     /// Number of output signals (≥ 1). Most generators produce one; a multi-output generator
     /// (e.g. `svf`'s lp/bp/hp/notch taps, or `pan2`'s L/R) produces several from one shared
@@ -251,15 +221,13 @@ pub struct UGen {
     /// lines and wavetables declare one; allocated when the engine is built, never on the
     /// audio thread. Power-of-two so the context can mask indices into range cheaply.
     pub buffer_len: usize,
-    /// Output rate. Audio-rate only today.
-    pub rate: Rate,
     /// Relative per-sample compute cost, in *cost units* (≈ one float op = 1 unit): the
     /// `tick`'s arithmetic counted by inspection, with transcendentals (`sin`/`exp`/`tanh`/
     /// `pow`/`log`) ≈ 10, `sqrt`/`div`/`rem` ≈ 4, a buffer `load_lerp` ≈ 3, and `+1` per state
     /// slot touched. A machine-independent estimate, never a measured time — summed over a
-    /// program's ops it yields the *graph weight* ([`crate::metrics::graph_weight`]), a
-    /// reproducible complexity figure that ranks patches identically on every OS and backend.
-    /// Metadata only: it never enters `tick`/`emit`, so it cannot perturb the bit-exact contract.
+    /// program's ops it yields the *graph weight* ([`crate::ir::Program::weight`]), a
+    /// reproducible complexity figure that ranks patches identically on any CPU. Metadata
+    /// only: it never enters `tick`, so it cannot change the sound.
     pub cost: u16,
     /// The per-sample DSP: read the context's inputs/state/sr, write `out[0..outputs]`.
     pub tick: fn(&mut TickCtx<'_>, out: &mut [f32]),
@@ -285,7 +253,7 @@ pub static UGENS: LazyLock<Vec<UGen>> = LazyLock::new(|| {
 });
 
 /// Resolve a UGen word to its id, or `None` if it names no generator. Public so any
-/// graph front-end (the arf-forth crate, or any other language) can build nodes by name.
+/// graph front-end (cagire's `arf-forth`, or any other language) can build nodes by name.
 pub fn lookup(name: &str) -> Option<UGenId> {
     UGENS
         .iter()
@@ -353,8 +321,6 @@ mod tests {
                 u.name,
                 u.outputs
             );
-            // Control-rate is reserved but not yet executed, so every row must be audio-rate.
-            assert_eq!(u.rate, Rate::Audio, "`{}` is not audio-rate", u.name);
             // Every row carries a positive cost weight — leaves alone are free; a generator
             // does at least one float op, and `graph_weight` relies on this lower bound.
             assert!(u.cost >= 1, "`{}` must declare a cost >= 1", u.name);
@@ -365,9 +331,10 @@ mod tests {
                 "`{}` description must be a single line",
                 u.name
             );
-            // Every row carries 1–3 runnable examples — the demos surfaced everywhere and
-            // eval-guarded by the harness. The `out` check is a cheap "is a full program" guard;
-            // the real runnability proof is `tests/harness.rs::ugen_examples_evaluate`.
+            // Every row carries 1–3 runnable examples — the demos the front-end's dictionary
+            // surfaces. The `out` check is a cheap "is a full program" guard; the real
+            // runnability proof is `ugen_examples_evaluate` in cagire's
+            // `crates/arf-forth/tests/harness.rs`.
             assert!(!u.examples.is_empty(), "`{}` has no examples", u.name);
             assert!(u.examples.len() <= 3, "`{}` has {} examples (max 3)", u.name, u.examples.len());
             for ex in u.examples {
@@ -379,7 +346,6 @@ mod tests {
                 );
             }
             for d in u.inputs {
-                assert_eq!(d.rate, Rate::Audio, "`{}` input `{}` is not audio-rate", u.name, d.name);
                 assert!(
                     d.range.0 <= d.range.1,
                     "`{}` input `{}` has an inverted range {:?}",

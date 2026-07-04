@@ -242,6 +242,10 @@ pub struct Engine {
     pub(crate) schedule: Schedule,
     pub(crate) time: f64,
     pub(crate) tick: u64,
+    /// Transport tempo in beats per second, latched into every live patch's
+    /// `BPS_LANE` once per chunk so arf graphs can read `bps`. Set from the
+    /// host via [`Engine::set_tempo`]; defaults to 2.0 (120 BPM).
+    tempo_bps: f32,
     pub(crate) output_channels: usize,
     pub(crate) host_buffer_size: usize,
     /// Inner DSP block size; sized scratch buffers guarantee `.get() ≤ MAX_BLOCK`.
@@ -371,6 +375,7 @@ impl Engine {
             schedule: Schedule::new(),
             time: 0.0,
             tick: 0,
+            tempo_bps: 2.0,
             output_channels: config.output_channels,
             host_buffer_size: config.host_buffer_size,
             inner_block_size: DspBlockSize::new(config.inner_block_size),
@@ -1753,6 +1758,7 @@ impl Engine {
         // native) the recorder bus concurrently. Destructure at the top so the
         // borrow checker treats each field independently.
         let isr = self.isr;
+        let bps = self.tempo_bps;
         let input_channels = self.input_channels;
         let output_channels = self.output_channels;
         let master_dc = &mut self.master_dc;
@@ -1788,6 +1794,15 @@ impl Engine {
         let mut i = 0;
         while i < *active_voices {
             let voice = &mut voices[i];
+
+            // Latch the transport tempo into the patch planes for this chunk
+            // (`Op::Control` reads are block-invariant, like the param lanes).
+            if let Some(p) = voice.patch.as_mut() {
+                p.control[arf::graph::BPS_LANE] = bps;
+            }
+            if let Some(p) = voice.fx_patch.as_mut() {
+                p.control[arf::graph::BPS_LANE] = bps;
+            }
 
             #[cfg(all(feature = "native", feature = "profiling"))]
             let written = {
@@ -1888,6 +1903,9 @@ impl Engine {
         #[cfg(all(feature = "native", feature = "profiling"))]
         let orbit_fx_start = std::time::Instant::now();
         for orbit in orbits.iter_mut() {
+            if let Some(p) = orbit.patch.as_mut() {
+                p.control[arf::graph::BPS_LANE] = bps;
+            }
             orbit.process_block(n);
         }
         #[cfg(all(feature = "native", feature = "profiling"))]
@@ -2305,6 +2323,15 @@ impl Engine {
 
     pub fn get_tick(&self) -> u64 {
         self.tick
+    }
+
+    /// Set the transport tempo arf patches read as `bps`, in beats per
+    /// second. Non-finite or non-positive values are ignored — the lane must
+    /// always carry a usable tempo.
+    pub fn set_tempo(&mut self, bps: f32) {
+        if bps.is_finite() && bps > 0.0 {
+            self.tempo_bps = bps;
+        }
     }
 
     pub fn hush(&mut self) {

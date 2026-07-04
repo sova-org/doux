@@ -2,28 +2,28 @@
 //! buffer (the line) and a write head in one state slot. `comb` and `allpass` read the line
 //! at a fractional position (`load_lerp`), so a modulated `time` glides instead of zipping.
 
-use super::{signal, Arity, Category, InputDescriptor, Rate, TickCtx, UGen, Unit};
+use super::{signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
 
 pub(super) static UGENS: &[UGen] = &[
     // delay ( in time -- sig )  state: [write head]   buffer: the line
     UGen { name: "delay", category: Category::Delay, description: "Delay line — echoes the input `time` seconds later.",
            examples: &["220 sine 0.2 * 0.3 delay out", "noise 0.02 *  e' 0.7 * +  0.25 delay  as e  out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.1, rate: Rate::Audio }],
-           outputs: 1, state_slots: 1, buffer_len: 1 << 16, rate: Rate::Audio, cost: 4, tick: tick_delay },
+           inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.1 }],
+           outputs: 1, state_slots: 1, buffer_len: 1 << 16, cost: 4, tick: tick_delay },
     // comb ( in time fb -- sig )  state: [write head]   buffer: the line
     UGen { name: "comb", category: Category::Delay, description: "Feedback comb — an interpolated delay feeding itself back by `fb`; fb 0 is a clean modulatable delay (chorus, flanger).",
            examples: &["8 impulse 0.05 0.7 comb 0.3 * out", "110 saw 0.15 *  0.3 sine 0.002 * 0.011 +  0 comb  0.5 * out"], arity: Arity::Fixed(3),
            inputs: &[signal("in"),
-                     InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.3, rate: Rate::Audio },
-                     InputDescriptor { name: "fb", unit: Unit::Ratio, range: (-0.95, 0.95), default: 0.7, rate: Rate::Audio }],
-           outputs: 1, state_slots: 1, buffer_len: 1 << 16, rate: Rate::Audio, cost: 8, tick: tick_comb },
+                     InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.3 },
+                     InputDescriptor { name: "fb", unit: Unit::Ratio, range: (-0.95, 0.95), default: 0.7 }],
+           outputs: 1, state_slots: 1, buffer_len: 1 << 16, cost: 8, tick: tick_comb },
     // allpass ( in time fb -- sig )  state: [write head]   buffer: the line
     UGen { name: "allpass", category: Category::Delay, description: "Schroeder allpass — flat magnitude, dense `time`-spaced echoes; chain a few after `comb`s for a reverb tank.",
            examples: &["8 impulse 0.03 0.5 allpass 0.3 * out", "noise 0.2 *  0.013 0.6 allpass  0.011 0.6 allpass  0.4 * out"], arity: Arity::Fixed(3),
            inputs: &[signal("in"),
-                     InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.05, rate: Rate::Audio },
-                     InputDescriptor { name: "fb", unit: Unit::Ratio, range: (0.0, 0.95), default: 0.5, rate: Rate::Audio }],
-           outputs: 1, state_slots: 1, buffer_len: 1 << 16, rate: Rate::Audio, cost: 8, tick: tick_allpass },
+                     InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.05 },
+                     InputDescriptor { name: "fb", unit: Unit::Ratio, range: (0.0, 0.95), default: 0.5 }],
+           outputs: 1, state_slots: 1, buffer_len: 1 << 16, cost: 8, tick: tick_allpass },
 ];
 
 fn tick_delay(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -38,7 +38,8 @@ fn tick_delay(ctx: &mut TickCtx, out: &mut [f32]) {
     ctx.state[0] = ((head + 1) & mask) as f32;
 }
 
-// Not `.clamp()`: the time and fb bounds mirror the JIT's NaN-suppressing max/min shims.
+// Not `.clamp()`: `.max().min()` suppresses NaN (`clamp` propagates it), so a NaN time/fb
+// collapses to the bound instead of latching into the line.
 #[allow(clippy::manual_clamp)]
 fn tick_comb(ctx: &mut TickCtx, out: &mut [f32]) {
     // Read the line `time` seconds back (interpolated, read-before-write so the tap can

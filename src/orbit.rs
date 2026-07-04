@@ -633,9 +633,9 @@ impl Orbit {
         // arf patch (user effect) — closes the chain so it hears the full mix
         // including every native send's wet. Parallel send like the rest:
         // input = bus * level (ramped per sample from the previous block's
-        // value), wet summed back onto the bus, dry always passes. Effect
-        // patches install with `control_len() == 0` (patch.rs contract), so
-        // the control slice is empty; `frame_pos` only advances while the
+        // value), wet summed back onto the bus, dry always passes. An
+        // effect's control plane carries only the transport lane (patch.rs
+        // contract), latched per chunk; `frame_pos` only advances while the
         // orbit is awake — `now` is windowed, arf/src/vm.rs:106.
         if self.patch_level > 0.0 {
             if let Some(p) = self.patch.as_mut() {
@@ -663,12 +663,11 @@ impl Orbit {
                         &mut out[..width],
                     );
                     p.frame_pos += 1;
-                    // Same scrub as run_arf_block: doux is arf's realtime
-                    // shell, one non-finite sample would poison the master
-                    // DC blocker. No 0.7 headroom — `{ 2 inputs out }` at
-                    // patchlevel 1 must be unity.
-                    let w0 = if out[0].is_finite() { out[0] } else { 0.0 };
-                    let w1 = if out[1].is_finite() { out[1] } else { 0.0 };
+                    // Same scrub as run_arf_block: one non-finite sample
+                    // would poison the master DC blocker. No 0.7 headroom —
+                    // `{ 2 inputs out }` at patchlevel 1 must be unity.
+                    crate::patch::scrub_non_finite(&mut out);
+                    let (w0, w1) = (out[0], out[1]);
                     if width == 2 {
                         frame[0] += w0;
                         frame[1] += w1;
