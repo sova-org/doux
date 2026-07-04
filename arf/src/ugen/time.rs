@@ -6,7 +6,7 @@
 //! Time and control flow through ordinary signals, patched like a modular synth:
 //! - a **trigger** is a *rising edge* — a signal crossing from `≤ 0` to `> 0`. `trig` detects one;
 //!   `impulse` and a `phasor`-wrap emit them; a scheduled event or a manual `1` does too.
-//! - a **gate** is a *level* — `> 0` means held. MIDI `gate` is one.
+//! - a **gate** is a *level* — `> 0` means held. The control plane's `gate` lane is one.
 //!
 //! A triggerable envelope (`line`, `ar`) captures its start time on a *rising edge*, so any trigger
 //! signal re-arms it — patch in an `impulse`, a clock, a manual bang. A gated envelope (`adsr`)

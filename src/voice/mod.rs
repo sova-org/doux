@@ -73,6 +73,8 @@ pub(crate) enum Stage {
     Eq,
     Tilt,
     Smear,
+    // User arf insert — last pre-VCA stage; serial, replaces `scratch`.
+    FxPatch,
     // VCA + stereo finalize — voice-core (except chorus/haas)
     Vca,
     MonoStereo,
@@ -83,9 +85,11 @@ pub(crate) enum Stage {
     Trim,
 }
 
-/// Upper bound on stages a voice can emit per block. Sized to the count of
-/// `Stage` variants with room to spare; allocated inline on `Voice`.
-pub(crate) const MAX_STAGES: usize = 32;
+/// Upper bound on stages a voice can emit per block. Must cover the maximal
+/// chain — every push in `build_stage_program` firing at once (the nine
+/// filter stages are NOT mutually exclusive), 35 stages today; allocated
+/// inline on `Voice`.
+pub(crate) const MAX_STAGES: usize = 40;
 
 /// Cold FX state — pre-allocated, heap-owned via [`Voice::fx`]. Pulling it
 /// out of [`Voice`] keeps the hot-voice working set inside L1d when scanning
@@ -249,6 +253,10 @@ pub struct Voice {
     /// Live arf patch handle (`Source::Arf`): pooled Vm + control plane.
     /// Never dropped on the audio thread — see the note in [`Voice::reset`].
     pub patch: Option<crate::patch::VoicePatch>,
+    /// Voice insert arf patch (`fx/<name>`), run serially over `scratch`
+    /// just before the VCA. Same never-drop-on-RT contract as `patch`;
+    /// cleared only by `fx/off`, New-mode reuse, or voice death.
+    pub fx_patch: Option<crate::patch::VoicePatch>,
     pub(super) drum_svf: FaustSvf,
     pub(super) drum_svf2: FaustSvf,
     /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
@@ -336,6 +344,7 @@ impl Default for Voice {
             stretch: StretchState::default(),
             web_sample: None,
             patch: None,
+            fx_patch: None,
             drum_svf: FaustSvf::default(),
             drum_svf2: FaustSvf::default(),
             pluck: Box::new(PluckState::default()),
@@ -585,6 +594,11 @@ impl Voice {
             ParamId::EqHiFreq => self.params.eqhifreq,
             ParamId::Superpan => self.params.superpan.unwrap_or(0.0),
             ParamId::Superwidth => self.params.superwidth,
+            // The current lane value: the declared default until something writes
+            // it (VoicePatch::new fills defaults), 0.0 with no source patch.
+            ParamId::PatchLane(lane) => {
+                self.patch.as_ref().map_or(0.0, |p| p.control[lane as usize])
+            }
         }
     }
 
@@ -616,7 +630,7 @@ impl Voice {
             Stage::LadderLp => &[P::Llpf, P::Llpq],
             Stage::LadderHp => &[P::Lhpf, P::Lhpq],
             Stage::LadderBp => &[P::Lbpf, P::Lbpq],
-            Stage::Wah | Stage::DcBlock | Stage::Vinyl | Stage::Trim => &[],
+            Stage::Wah | Stage::DcBlock | Stage::Vinyl | Stage::FxPatch | Stage::Trim => &[],
             Stage::Coarse => &[P::Coarse],
             Stage::Crush => &[P::Crush],
             Stage::Fold => &[P::Fold],
@@ -766,6 +780,9 @@ impl Voice {
         if self.params.smear > 0.0 || self.mod_targets(ParamId::Smear) {
             push!(Stage::Smear);
         }
+        if self.fx_patch.is_some() {
+            push!(Stage::FxPatch);
+        }
 
         push!(Stage::Vca);
         push!(Stage::MonoStereo);
@@ -815,6 +832,50 @@ impl Voice {
     /// block is mathematically equivalent to sample-by-sample over stages:
     /// each stage reads only `scratch[i]` and its own state (filter state
     /// machines are identical; only loop order changes).
+    /// One sample of the user arf insert (`fx/<name>`): serial over
+    /// `scratch[i]`, pre-VCA. Width-preserving — `finish_block` snapshots
+    /// `nch` once, so the insert must never change the voice's width: a
+    /// stereo patch on a mono voice is downmixed, and `scratch[i][1]` (the
+    /// spread side signal on mono voices) is left untouched. No 0.7
+    /// headroom: an identity `{ in out }` insert must be unity. Effect
+    /// patches install with `control_len() == 0`, so the control slice is
+    /// empty; the non-finite scrub matches `run_arf_block`.
+    #[inline]
+    fn tick_fx_patch(&mut self, i: usize) {
+        let nch = self.nch;
+        if let Some(p) = self.fx_patch.as_mut() {
+            let program = p.entry.program();
+            let in_ch = program.in_channels();
+            let width = program.audio_channels().min(CHANNELS);
+            let l = self.scratch[i][0];
+            let r = self.scratch[i][if nch == 2 { 1 } else { 0 }];
+            let input = if in_ch == 2 {
+                [l, r]
+            } else if nch == 2 {
+                [(l + r) * 0.5, 0.0]
+            } else {
+                [l, 0.0]
+            };
+            let mut out = [0.0f32; CHANNELS];
+            p.vm.tick_frame(
+                program,
+                p.frame_pos,
+                &input[..in_ch],
+                &p.control[..program.control_len()],
+                &mut out[..width],
+            );
+            p.frame_pos += 1;
+            let w0 = if out[0].is_finite() { out[0] } else { 0.0 };
+            let w1 = if out[1].is_finite() { out[1] } else { 0.0 };
+            if nch == 2 {
+                self.scratch[i][0] = w0;
+                self.scratch[i][1] = if width == 2 { w1 } else { w0 };
+            } else {
+                self.scratch[i][0] = if width == 2 { (w0 + w1) * 0.5 } else { w0 };
+            }
+        }
+    }
+
     #[allow(clippy::needless_range_loop)]
     pub(crate) fn finish_block(&mut self, env: &[f32], n: usize, isr: f32) {
         let sr = self.sr;
@@ -1216,6 +1277,11 @@ impl Voice {
                     }
                 }
             }
+            Stage::FxPatch => {
+                for i in 0..n {
+                    self.tick_fx_patch(i);
+                }
+            }
             Stage::Vca => {
                 let base = self.params.postgain * self.params.velocity;
                 for i in 0..n {
@@ -1586,6 +1652,9 @@ impl Voice {
                     }
                 }
             }
+            // Unreachable through the modded dispatch (FxPatch consumes no
+            // modulatable param), but kept real for exhaustiveness.
+            Stage::FxPatch => self.tick_fx_patch(i),
             Stage::Vca => {
                 let voice_gain = env * self.params.postgain * self.params.velocity;
                 for c in 0..nch {
@@ -1769,6 +1838,11 @@ impl Voice {
             ParamId::EqHiFreq => self.params.eqhifreq = val,
             ParamId::Superpan => self.params.superpan = Some(val),
             ParamId::Superwidth => self.params.superwidth = val,
+            ParamId::PatchLane(lane) => {
+                if let Some(p) = self.patch.as_mut() {
+                    p.control[lane as usize] = val;
+                }
+            }
         }
     }
 

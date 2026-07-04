@@ -2,6 +2,7 @@ use crate::effects::{
     CombParams, Compressor, DelayParams, FaustComb, FaustDelay, FaustFeedback, FaustJpVerb,
     FaustVitalRev, FeedbackParams, ReverbParams,
 };
+use crate::patch::VoicePatch;
 use crate::types::{ReverbType, StereoFrame, CHANNELS, MAX_BLOCK};
 use crate::voice::modulation::lcg;
 use crate::voice::{ModChain, ParamMod};
@@ -43,6 +44,7 @@ pub enum OrbitParamId {
     FbCross,
     CompAttack,
     CompRelease,
+    PatchLevel,
 }
 
 /// Per-orbit reusable block scratch. Every user fills `[..n]` before reading;
@@ -77,8 +79,10 @@ impl Default for OrbitScratch {
 // `bus * send_level`, adds its wet back into `bus`, in order. Order matters —
 // later FX see the running signal including previous FX wet.
 //
-// Chain order: comb → fb → delay → verb. Tonal/short → spatial/long.
-// Reverb last so it captures delay echoes (the load-bearing reason for chaining).
+// Chain order: comb → fb → delay → verb → patch. Tonal/short → spatial/long.
+// Reverb after delay so it captures the echoes (the load-bearing reason for
+// chaining); the user's arf patch closes the chain so it can process the
+// full mix including every native send's wet.
 //
 // Phase E: `bus` is block-rate. `clear_bus()` zeroes dirty buffers (flag-gated);
 // `add_dry(frame, ch, v)` accumulates dry voice output per frame; `process_block(n)`
@@ -125,6 +129,11 @@ pub struct Orbit {
     pub fb_level: f32,
     pub comp: Compressor,
     pub comp_orbit: usize,
+    /// User arf effect (`patch/<name>`): a persistent Vm sticky on the orbit,
+    /// swapped only by a `patch` event naming a different entry, returned to
+    /// its pool on clear (`patch/off`) or engine drop.
+    pub patch: Option<VoicePatch>,
+    pub patch_level: f32,
     pub sr: f32,
     isr: f32,
     // === Param modulation (ticked once per block in `apply_mods`) ===
@@ -136,6 +145,7 @@ pub struct Orbit {
     prev_comb_level: f32,
     prev_fb_level: f32,
     prev_delay_level: f32,
+    prev_patch_level: f32,
     seed: u32,
     silent_samples: u32,
     silence_holdoff: u32,
@@ -169,6 +179,10 @@ impl Orbit {
             fb_level: 0.0,
             comp: Compressor::default(),
             comp_orbit: 0,
+            // 1.0 so `patch/<name>` is audible without an explicit
+            // patchlevel; sticky thereafter like every orbit param.
+            patch: None,
+            patch_level: 1.0,
             sr,
             isr: 1.0 / sr,
             param_mods: [(OrbitParamId::Delay, ParamMod::default()); MAX_ORBIT_MODS],
@@ -176,6 +190,7 @@ impl Orbit {
             prev_comb_level: 0.0,
             prev_fb_level: 0.0,
             prev_delay_level: 0.0,
+            prev_patch_level: 1.0,
             seed: lcg(index as u32 + 1),
             silent_samples: silence_holdoff + 1,
             silence_holdoff,
@@ -266,6 +281,7 @@ impl Orbit {
             OrbitParamId::FbCross => self.fb_params.cross,
             OrbitParamId::CompAttack => self.comp.params.attack,
             OrbitParamId::CompRelease => self.comp.params.release,
+            OrbitParamId::PatchLevel => self.patch_level,
         }
     }
 
@@ -302,6 +318,7 @@ impl Orbit {
             OrbitParamId::FbCross => self.fb_params.cross = v,
             OrbitParamId::CompAttack => self.comp.params.attack = v,
             OrbitParamId::CompRelease => self.comp.params.release = v,
+            OrbitParamId::PatchLevel => self.patch_level = v.max(0.0),
         }
     }
 
@@ -369,6 +386,7 @@ impl Orbit {
             || self.fb_level > 0.0
             || self.delay_level > 0.0
             || self.verb_level > 0.0
+            || (self.patch_level > 0.0 && self.patch.is_some())
     }
 
     #[inline]
@@ -609,6 +627,57 @@ impl Orbit {
             {
                 frame[0] += wet[0];
                 frame[1] += wet[1];
+            }
+        }
+
+        // arf patch (user effect) — closes the chain so it hears the full mix
+        // including every native send's wet. Parallel send like the rest:
+        // input = bus * level (ramped per sample from the previous block's
+        // value), wet summed back onto the bus, dry always passes. Effect
+        // patches install with `control_len() == 0` (patch.rs contract), so
+        // the control slice is empty; `frame_pos` only advances while the
+        // orbit is awake — `now` is windowed, arf/src/vm.rs:106.
+        if self.patch_level > 0.0 {
+            if let Some(p) = self.patch.as_mut() {
+                let level = self.patch_level;
+                let prev = self.prev_patch_level;
+                let step = (level - prev) / n as f32;
+                let program = p.entry.program();
+                let in_ch = program.in_channels();
+                let width = program.audio_channels().min(CHANNELS);
+                for (i, frame) in self.bus.iter_mut().take(n).enumerate() {
+                    let lvl = prev + step * (i as f32 + 1.0);
+                    // C3 input rule: stereo patch reads the bus pair, mono
+                    // patch reads its downmix.
+                    let input = if in_ch == 2 {
+                        [frame[0] * lvl, frame[1] * lvl]
+                    } else {
+                        [(frame[0] + frame[1]) * 0.5 * lvl, 0.0]
+                    };
+                    let mut out = [0.0f32; CHANNELS];
+                    p.vm.tick_frame(
+                        program,
+                        p.frame_pos,
+                        &input[..in_ch],
+                        &p.control[..program.control_len()],
+                        &mut out[..width],
+                    );
+                    p.frame_pos += 1;
+                    // Same scrub as run_arf_block: doux is arf's realtime
+                    // shell, one non-finite sample would poison the master
+                    // DC blocker. No 0.7 headroom — `{ 2 inputs out }` at
+                    // patchlevel 1 must be unity.
+                    let w0 = if out[0].is_finite() { out[0] } else { 0.0 };
+                    let w1 = if out[1].is_finite() { out[1] } else { 0.0 };
+                    if width == 2 {
+                        frame[0] += w0;
+                        frame[1] += w1;
+                    } else {
+                        frame[0] += w0;
+                        frame[1] += w0;
+                    }
+                }
+                self.prev_patch_level = level;
             }
         }
 

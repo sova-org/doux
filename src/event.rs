@@ -8,6 +8,14 @@ use crate::types::{
 };
 use crate::voice::{ModChain, ParamId};
 
+/// A named-param value for an arf patch: a static write to its control lane,
+/// or a modulation chain riding the same per-sample machinery as fixed params.
+#[derive(Clone, Debug)]
+pub enum PatchParamValue {
+    Value(f32),
+    Chain(ModChain),
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct Event {
     pub cmd: Option<String>,
@@ -27,6 +35,10 @@ pub struct Event {
     // Params that arrived as static values; statics displace any active
     // ModChain on the same param when applied to a sounding voice.
     pub static_ids: Vec<ParamId>,
+    // Named params for the voice's arf source patch (`p:name/value` keys),
+    // still by name: only dispatch can resolve a name against the installed
+    // program's lane map. Unresolvable names are silently ignored there.
+    pub patch_params: Vec<(String, PatchParamValue)>,
     // Same pair for orbit FX params (sticky on the target orbit).
     pub orbit_mods: Vec<(OrbitParamId, ModChain)>,
     pub orbit_static_ids: Vec<OrbitParamId>,
@@ -242,6 +254,14 @@ pub struct Event {
     pub verbhighgain: Option<f32>,
     pub verbchorus: Option<f32>,
     pub verbchorusfreq: Option<f32>,
+
+    // Orbit arf patch (custom effect). `patch/off` clears; the name "off"
+    // is rejected at install so it can never be shadowed.
+    pub patch: Option<String>,
+    pub patchlevel: Option<f32>,
+    // Voice arf insert, resolved at dispatch like an `arf:` sound.
+    // `fx/off` clears the slot.
+    pub fx: Option<String>,
 
     // Recorder
     pub overdub: Option<bool>,
@@ -534,9 +554,29 @@ impl Event {
                 "verbchorusfreq" | "vchorusfreq" => {
                     parse_orbit_param!(val, verbchorusfreq, OrbitParamId::VerbChorusFreq)
                 }
+                "patch" => event.patch = Some(val.to_string()),
+                "patchlevel" | "plevel" => {
+                    parse_orbit_param!(val, patchlevel, OrbitParamId::PatchLevel)
+                }
+                "fx" => event.fx = Some(val.to_string()),
                 "overdub" | "dub" => event.overdub = Some(val == "1" || val == "true"),
                 "endrec" => event.rec_stop = Some(val == "1" || val == "true"),
                 "inchan" => event.inchan = Self::parse_usize(val),
+                // `p:name` addresses a named param declared by the voice's arf
+                // patch (`param name default`). The prefix keeps the patch-param
+                // namespace disjoint from the arms above by construction — a
+                // patch's `cutoff` never collides with doux's `cutoff`.
+                k if k.starts_with("p:") => {
+                    let name = &k[2..];
+                    if name.is_empty() {
+                        continue;
+                    }
+                    if let Some(chain) = ModChain::parse(val) {
+                        event.patch_params.push((name.to_string(), PatchParamValue::Chain(chain)));
+                    } else if let Ok(v) = val.parse() {
+                        event.patch_params.push((name.to_string(), PatchParamValue::Value(v)));
+                    }
+                }
                 // Per-source semantic names ("bright" on pluck, "drive" on
                 // kick) resolve through the source's ParamInfo table to one
                 // of the three generic slots. The flat arms above always win.
@@ -619,6 +659,25 @@ mod tests {
         let (b, end) = e.resolve_range();
         assert!((b - 0.1).abs() < 1e-6);
         assert!((end - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn patch_params_parse_static_and_chain() {
+        let e = Event::parse("s/arf:pp/p:cutoff/2000/p:res/0.5~0.9:2", SR);
+        assert_eq!(e.patch_params.len(), 2);
+        assert!(matches!(
+            &e.patch_params[0],
+            (n, PatchParamValue::Value(v)) if n == "cutoff" && *v == 2000.0
+        ));
+        assert!(matches!(&e.patch_params[1], (n, PatchParamValue::Chain(_)) if n == "res"));
+    }
+
+    #[test]
+    fn patch_params_drop_junk() {
+        // An empty name and a non-numeric value both vanish instead of erroring,
+        // like any other unparseable wire pair.
+        let e = Event::parse("p:/1/p:cutoff/loud", SR);
+        assert!(e.patch_params.is_empty());
     }
 
     #[test]

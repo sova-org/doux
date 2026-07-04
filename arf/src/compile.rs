@@ -95,6 +95,7 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
         outputs,
         audio_channels,
         tap_names,
+        params: graph.params().to_vec(),
         feedbacks,
         sample_rate,
     }

@@ -379,6 +379,10 @@ pub enum ParamId {
     SyncPhase,
     Superpan,
     Superwidth,
+    /// A named param of the voice's arf source patch, addressed by its absolute
+    /// control lane (`PARAM_BASE + declaration index`). Rides the same ParamMod
+    /// machinery as the fixed params, so chains modulate patch lanes per sample.
+    PatchLane(u8),
 }
 
 #[derive(Clone, Copy)]

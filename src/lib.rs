@@ -61,7 +61,7 @@ pub enum AudioCmd {
 }
 
 use dsp::{fast_tanh_f32, ftz, init_envelope};
-use event::Event;
+use event::{Event, PatchParamValue};
 
 use orbit::Orbit;
 
@@ -829,6 +829,9 @@ impl Engine {
         if let Some(old) = self.voices[i].patch.take() {
             self.patch_registry.retire(old);
         }
+        if let Some(old) = self.voices[i].fx_patch.take() {
+            self.patch_registry.retire(old);
+        }
         self.voices[i].reset();
         self.voices[i].seed = self.voice_seed;
         self.voice_seed = modulation::lcg(self.voice_seed);
@@ -872,6 +875,10 @@ impl Engine {
                     // cut group takes the New path, which retires the Vm and
                     // would then find the pool dry and play silence).
                     let entry = self.patch_registry.get(patch_name)?;
+                    if !entry.is_source() {
+                        // An effect patch (`in`-reading) cannot be a sound.
+                        return None;
+                    }
                     if !entry.has_vm() {
                         let retargets_holder = !event.reset.unwrap_or(false)
                             && event.cut.is_none()
@@ -900,6 +907,33 @@ impl Engine {
                         let n = event.n_as_index();
                         self.get_or_load_sample(effective_name, n)?;
                     }
+                }
+            }
+        }
+
+        // Voice insert availability gate, mirroring the `arf:` sound gate
+        // above: a registry miss, a source-role patch, or a dry Vm pool
+        // drops the event — except when it retriggers a tagged voice already
+        // holding this insert (which reuses its Vm, not the pool's).
+        if let Some(fx_name) = event.fx.as_deref().filter(|n| *n != "off") {
+            let entry = self.patch_registry.get(fx_name)?;
+            if !entry.is_effect() {
+                return None;
+            }
+            if !entry.has_vm() {
+                let retargets_holder = !event.reset.unwrap_or(false)
+                    && event.cut.is_none()
+                    && event.voice.is_some_and(|tag| {
+                        (0..self.active_voices).any(|i| {
+                            self.voices[i].tag == Some(tag)
+                                && self.voices[i]
+                                    .fx_patch
+                                    .as_ref()
+                                    .is_some_and(|p| Arc::ptr_eq(&p.entry, &entry))
+                        })
+                    });
+                if !retargets_holder {
+                    return None;
                 }
             }
         }
@@ -945,9 +979,13 @@ impl Engine {
             } else {
                 0.0
             };
-            // A reused slot may still hold an arf Vm: send it back to its
-            // pool before `reset` — dropping it here would free on RT.
+            // A reused slot may still hold arf Vms (source and/or insert):
+            // send them back to their pools before `reset` — dropping them
+            // here would free on RT.
             if let Some(old) = self.voices[voice_idx].patch.take() {
+                self.patch_registry.retire(old);
+            }
+            if let Some(old) = self.voices[voice_idx].fx_patch.take() {
                 self.patch_registry.retire(old);
             }
             self.voices[voice_idx].reset();
@@ -1011,7 +1049,14 @@ impl Engine {
             .as_deref()
             .filter(|_| !has_web_sample)
             .and_then(|s| s.strip_prefix("arf:"))
-            .and_then(|name| self.patch_registry.get(name));
+            .and_then(|name| self.patch_registry.get(name))
+            .filter(|e| e.is_source());
+        let fx_entry = event
+            .fx
+            .as_deref()
+            .filter(|n| *n != "off")
+            .and_then(|name| self.patch_registry.get(name))
+            .filter(|e| e.is_effect());
 
         #[cfg(feature = "native")]
         let (registry_sample_data, registry_sample_data_b, sample_blend) =
@@ -1122,6 +1167,36 @@ impl Engine {
             set!(compattack, orbit.comp.params.attack);
             set!(comprelease, orbit.comp.params.release);
             set!(comporbit, orbit.comp_orbit);
+            set_pos!(patchlevel, orbit.patch_level);
+            // Orbit arf patch (sticky): `patch/off` returns the Vm home; a
+            // new name swaps in a Vm from that entry's pool. Same-entry
+            // re-sends are no-ops so cagire's per-cycle param loops don't
+            // churn the pool; a dry pool keeps the current patch. Names that
+            // miss the registry or resolve to a source patch are ignored —
+            // sticky-param semantics, the orbit keeps what it has.
+            if let Some(ref name) = event.patch {
+                if name == "off" {
+                    if let Some(old) = orbit.patch.take() {
+                        self.patch_registry.retire(old);
+                    }
+                } else if let Some(entry) =
+                    self.patch_registry.get(name).filter(|e| e.is_effect())
+                {
+                    let same = orbit
+                        .patch
+                        .as_ref()
+                        .is_some_and(|p| Arc::ptr_eq(&p.entry, &entry));
+                    if !same {
+                        if let Some(vm) = entry.take_vm() {
+                            if let Some(old) =
+                                orbit.patch.replace(patch::VoicePatch::new(entry, vm))
+                            {
+                                self.patch_registry.retire(old);
+                            }
+                        }
+                    }
+                }
+            }
             // Inline mods install last (an event carrying both a static and a
             // chain on the same param keeps the chain). Envelope chains
             // trigger on install; the event gate sets their release point
@@ -1210,6 +1285,59 @@ impl Engine {
                             self.patch_registry.retire(old);
                         }
                     }
+                }
+            }
+        }
+        // Voice insert (`fx/<name>`): "off" clears; a same-entry re-send
+        // keeps the running Vm (insert state persists across retrigger,
+        // like the source rule); a different patch swaps. A dry take leaves
+        // the slot unset — the stage is simply skipped. A non-arf resound
+        // does NOT clear the insert: it is orthogonal to the source.
+        if event.fx.as_deref() == Some("off") {
+            if let Some(old) = v.fx_patch.take() {
+                self.patch_registry.retire(old);
+            }
+        } else if let Some(entry) = fx_entry {
+            let same = v
+                .fx_patch
+                .as_ref()
+                .is_some_and(|p| Arc::ptr_eq(&p.entry, &entry));
+            if !same {
+                if let Some(old) = v.fx_patch.take() {
+                    self.patch_registry.retire(old);
+                }
+                v.fx_patch = entry.take_vm().map(|vm| patch::VoicePatch::new(entry, vm));
+            }
+        }
+        // Named patch params (`p:name`). A note (new or retriggered) starts
+        // from the declared defaults — the script re-states what it wants on
+        // every event, so a deleted param-set audibly reverts. A sourceless
+        // update writes only what it names: it must never re-assert defaults
+        // on a held voice. Names the program doesn't declare are ignored,
+        // like any unknown wire key.
+        if let Some(program) = v.patch.as_ref().map(|p| Arc::clone(p.entry.program())) {
+            if mode != EventMode::Update {
+                for (i, &(_, default)) in program.params().iter().enumerate() {
+                    let lane = (arf::graph::PARAM_BASE + i) as u8;
+                    v.clear_mod(ParamId::PatchLane(lane));
+                    if let Some(p) = v.patch.as_mut() {
+                        p.control[lane as usize] = default;
+                    }
+                }
+            }
+            for (name, value) in &event.patch_params {
+                let Some(lane) = program.param_lane(name) else {
+                    continue;
+                };
+                let id = ParamId::PatchLane(lane as u8);
+                match value {
+                    PatchParamValue::Value(x) => {
+                        v.clear_mod(id);
+                        if let Some(p) = v.patch.as_mut() {
+                            p.control[lane as usize] = *x;
+                        }
+                    }
+                    PatchParamValue::Chain(chain) => v.set_mod(id, *chain),
                 }
             }
         }
@@ -1739,11 +1867,14 @@ impl Engine {
             }
 
             if written < n {
-                // Voice died mid-block; return any arf Vm to its pool, then
-                // swap last active into slot `i` and re-check the new
-                // occupant. The take keeps the invariant that slots beyond
+                // Voice died mid-block; return any arf Vms to their pools,
+                // then swap last active into slot `i` and re-check the new
+                // occupant. The takes keep the invariant that slots beyond
                 // `active_voices` never hold a patch.
                 if let Some(vp) = voices[i].patch.take() {
+                    patch_registry.retire(vp);
+                }
+                if let Some(vp) = voices[i].fx_patch.take() {
                     patch_registry.retire(vp);
                 }
                 Self::free_voice_in(voices, active_voices, i);
@@ -2189,6 +2320,9 @@ impl Engine {
             if let Some(vp) = self.voices[i].patch.take() {
                 self.patch_registry.retire(vp);
             }
+            if let Some(vp) = self.voices[i].fx_patch.take() {
+                self.patch_registry.retire(vp);
+            }
         }
         self.active_voices = 0;
     }
@@ -2202,6 +2336,16 @@ impl Drop for Engine {
         // threads (stream teardown), never inside the audio callback.
         for v in &mut self.voices {
             if let Some(vp) = v.patch.take() {
+                self.patch_registry.retire(vp);
+            }
+            if let Some(vp) = v.fx_patch.take() {
+                self.patch_registry.retire(vp);
+            }
+        }
+        // Orbit patches hold pooled Vms too. (`panic()` leaves them alone —
+        // they are sticky FX config like `verb_level`, not sounding voices.)
+        for o in self.orbits.iter_mut() {
+            if let Some(vp) = o.patch.take() {
                 self.patch_registry.retire(vp);
             }
         }
@@ -2262,5 +2406,61 @@ mod tests {
             0,
             "an explicit positive gate should end a held voice"
         );
+    }
+
+    // Named patch params: a note starts from the declared defaults, an event's
+    // `p:name` writes reach the lane, a sourceless update writes without
+    // resetting, and a chain ticks the lane per sample.
+    #[cfg(feature = "native")]
+    #[test]
+    fn patch_params_route_to_the_lane_and_reset_per_note() {
+        use arf::graph::PARAM_BASE;
+
+        fn render(engine: &mut Engine, seconds: f32) {
+            let blocks = ((engine.sample_rate() * seconds) / engine.host_buffer_size() as f32)
+                .ceil() as usize;
+            for _ in 0..blocks {
+                engine.dsp();
+            }
+        }
+        fn lane(engine: &Engine, voice: usize, lane: usize) -> f32 {
+            engine.voices[voice].patch.as_ref().expect("voice holds a patch").control[lane]
+        }
+
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+
+        // `param cutoff 400  notefreq saw cutoff lpf out`, via the graph API.
+        let mut g = arf::graph::Graph::new();
+        let cut_lane = g.add_param("cutoff".to_string(), 400.0);
+        let cut = g.control(cut_lane);
+        let nf = g.control(arf::graph::NOTEFREQ_LANE as u32);
+        let saw = g.ugen(arf::ugen::lookup("saw").unwrap(), vec![nf]);
+        let filt = g.ugen(arf::ugen::lookup("lpf").unwrap(), vec![saw, cut]);
+        g.set_outputs(vec![filt]);
+        let json = serde_json::to_string(&g).unwrap();
+        engine.patch_registry.install_graph("pp", &json, 48_000.0).unwrap();
+
+        // A note with a static write reaches the lane; an unknown name is ignored.
+        engine.evaluate("sound/arf:pp/voice/0/gate/0/p:cutoff/2000/p:nope/1");
+        render(&mut engine, 0.05);
+        assert_eq!(engine.active_voices(), 1);
+        assert_eq!(lane(&engine, 0, PARAM_BASE), 2000.0);
+
+        // A sourceless update writes the lane without ending or resetting.
+        engine.evaluate("voice/0/p:cutoff/900");
+        render(&mut engine, 0.05);
+        assert_eq!(lane(&engine, 0, PARAM_BASE), 900.0);
+
+        // A retrigger without the param re-asserts the declared default.
+        engine.evaluate("sound/arf:pp/voice/0/gate/0");
+        render(&mut engine, 0.05);
+        assert_eq!(lane(&engine, 0, PARAM_BASE), 400.0);
+
+        // A chain rides the lane per sample: after a render the lane sits
+        // inside the chain's range, not at the default.
+        engine.evaluate("sound/arf:pp/voice/0/gate/0/p:cutoff/3000~5000:2");
+        render(&mut engine, 0.05);
+        let v = lane(&engine, 0, PARAM_BASE);
+        assert!((3000.0..=5000.0).contains(&v), "chain did not tick the lane: {v}");
     }
 }

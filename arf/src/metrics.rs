@@ -121,8 +121,8 @@ impl Metrics {
 
 /// The reconciliation report for one hot-swap: how much of the running engine the edit carried
 /// forward rather than restarting. This is arf's signature metric — high reuse is *why* a live edit
-/// does not click. Computed on the control thread in [`crate::engine::Carryover::stage`], where both
-/// the old and new programs' layouts are known.
+/// does not click. Computed by a host's hot-swap reconciliation, where both the old and new
+/// programs' layouts are known.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReconcileStats {
     /// Stateful ops in the new program (oscillator phases, filter memories, envelope clocks, …).

@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 pub const MAX_CHANNELS: usize = 64;
 
 /// Polyphony: the maximum voice-pool size. The control plane always reserves this many voice
-/// slots, so its layout — and the CC base below — is the same whether or not a patch uses
-/// `voices`. Keeps a `cc` lane (and its reconcile signature) stable across edits that add or
-/// remove polyphony.
+/// slots, so its layout — and the transport lane below — is the same whether or not a patch uses
+/// `voices`. Keeps every lane's index (and its reconcile signature) stable across edits that add
+/// or remove polyphony.
 pub const MAX_VOICES: usize = 8;
 /// Per-voice control lanes: gate, notefreq, vel (see the `*_LANE` offsets).
 pub const LANES_PER_VOICE: usize = 3;
@@ -24,17 +24,20 @@ pub const GATE_LANE: usize = 0;
 pub const NOTEFREQ_LANE: usize = 1;
 /// Lane offset of the note velocity (0..1 of the last note-on).
 pub const VEL_LANE: usize = 2;
-/// The control plane's CC block starts after every voice's lanes.
-pub const CC_BASE: usize = MAX_VOICES * LANES_PER_VOICE;
-/// MIDI control-change controllers (0..=127).
-pub const NUM_CC: usize = 128;
-/// The transport's beats-per-second lane, just past the CC block. Both frontends latch the tempo
-/// here each block (control-rate); `bps` reads it. Appended after CC so existing lanes keep their
-/// index (no reconcile shift). Carries the host's default tempo until changed.
-pub const BPS_LANE: usize = CC_BASE + NUM_CC;
-/// Total control-plane width: every voice's lanes, the CC block, and the transport lane. The host
-/// allocates a control block this wide; a program reads only its prefix.
-pub const CONTROL_WIDTH: usize = BPS_LANE + 1;
+/// The transport's beats-per-second lane, just past every voice's lanes. Both frontends latch the
+/// tempo here each block (control-rate); `bps` reads it. Placed after the voice lanes so they keep
+/// their index (no reconcile shift). Carries the host's default tempo until changed.
+pub const BPS_LANE: usize = MAX_VOICES * LANES_PER_VOICE;
+/// First lane of the named-parameter block (`param name default`), just past the transport lane.
+/// A declaration's lane is `PARAM_BASE + declaration index`, stable across edits that only touch
+/// other parts of the patch.
+pub const PARAM_BASE: usize = BPS_LANE + 1;
+/// How many named parameters one patch may declare. Bounds the control plane so the host can keep
+/// a fixed-size per-voice control block.
+pub const MAX_PARAMS: usize = 16;
+/// Total control-plane width: every voice's lanes, the transport lane, and the named-parameter
+/// block. The host allocates a control block this wide; a program reads only its prefix.
+pub const CONTROL_WIDTH: usize = PARAM_BASE + MAX_PARAMS;
 
 /// A handle to a node, i.e. its index into [`Graph::nodes`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
@@ -65,8 +68,8 @@ pub enum Node {
     /// A read of audio input `channel` (the current frame's sample). A leaf: the value
     /// comes from the host's input block, not from another node.
     Input { channel: u32 },
-    /// A read of control `lane` (a MIDI-derived value: a voice's gate/notefreq/vel, or a CC).
-    /// A leaf, like [`Node::Input`], but the value comes from the host's per-block control
+    /// A read of control `lane` (a host-supplied value: a voice's gate/notefreq/vel, or the
+    /// transport tempo). A leaf, like [`Node::Input`], but the value comes from the host's per-block control
     /// plane, held constant for the whole block (control-rate).
     Control { lane: u32 },
     /// A read of the global sample clock as a signal. A leaf, like [`Node::Input`], but supplied
@@ -98,12 +101,17 @@ pub struct Graph {
     sinks: Vec<NodeId>,
     /// Voice-pool size for `voices` replication: how many parallel voices the patch builds.
     /// 1 (or the default 0, normalised by [`Graph::voice_count`]) is monophonic / no region.
-    /// The audio host spreads MIDI notes across this many control-plane voice slots.
+    /// The host drives this many parallel control-plane voice slots.
     voice_count: usize,
     /// Externally-observable signal taps (`scope name`): a name paired with the node whose
     /// per-block level (peak+rms) the host reads out. Distinct from the front-end's internal
     /// `tap` reuse-alias — these name points the host meters, not points the source reuses.
     taps: Vec<(String, NodeId)>,
+    /// Declared named parameters (`param name default`), in declaration order. Entry `i` owns
+    /// lane `PARAM_BASE + i`; the default holds until the host writes the lane. `default` so
+    /// graphs serialized before the field existed still load.
+    #[serde(default)]
+    params: Vec<(String, f32)>,
 }
 
 impl Graph {
@@ -177,7 +185,7 @@ impl Graph {
         self.push(Node::Input { channel })
     }
 
-    /// A node that reads control `lane` from the host's per-block control plane (MIDI-derived).
+    /// A node that reads control `lane` from the host's per-block control plane.
     pub fn control(&mut self, lane: u32) -> NodeId {
         self.push(Node::Control { lane })
     }
@@ -230,6 +238,19 @@ impl Graph {
     /// The declared observation taps, in declaration order.
     pub fn taps(&self) -> &[(String, NodeId)] {
         &self.taps
+    }
+
+    /// Declare named parameter `name` with `default`, returning its control lane. Name and
+    /// count validation is the front-end's responsibility, like arity on [`Graph::ugen`].
+    pub fn add_param(&mut self, name: String, default: f32) -> u32 {
+        let lane = (PARAM_BASE + self.params.len()) as u32;
+        self.params.push((name, default));
+        lane
+    }
+
+    /// The declared named parameters, in declaration (= lane) order.
+    pub fn params(&self) -> &[(String, f32)] {
+        &self.params
     }
 
     /// The node behind a handle. Public so an external graph front-end (arf-forth) can read
@@ -286,11 +307,15 @@ impl Graph {
         let bus_sources: Vec<Option<u32>> =
             self.bus_sources.iter().map(|s| s.map(|n| n.0)).collect();
 
+        let params: Vec<Value> =
+            self.params.iter().map(|(name, default)| json!([name, default])).collect();
+
         json!({
             "nodes": nodes,
             "outputs": outputs,
             "busSources": bus_sources,
             "voiceCount": self.voice_count(),
+            "params": params,
         })
         .to_string()
     }

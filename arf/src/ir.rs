@@ -59,8 +59,8 @@ pub enum Op {
     /// Read audio input `channel` (the current frame's sample), supplied by the host. A
     /// leaf; `channel` is `< in_channels` by construction, so the read is always in range.
     Input { channel: u32 },
-    /// Read control `lane` from the host's per-block control plane (a MIDI-derived value:
-    /// a voice's gate/notefreq/vel, or a CC). A leaf, like [`Op::Input`], but frame-invariant:
+    /// Read control `lane` from the host's per-block control plane (a host-supplied value:
+    /// a voice's gate/notefreq/vel, or the transport tempo). A leaf, like [`Op::Input`], but frame-invariant:
     /// the plane is latched once per block, so the value is constant across the block. `lane`
     /// is `< control_len` by construction.
     Control { lane: u32 },
@@ -115,10 +115,10 @@ pub struct Program {
     pub(crate) in_channels: usize,
     /// Control-plane width the program reads (max `Op::Control` lane + 1, or 0 if none). The
     /// host supplies a control block this wide, latched once per block, so every `Control` is
-    /// in range. Per-voice lanes and the CC block live here (see [`crate::graph`]).
+    /// in range. Per-voice lanes and the transport lane live here (see [`crate::graph`]).
     pub(crate) control_len: usize,
     /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
-    /// audio host spreads incoming MIDI notes across this many control-plane voice slots.
+    /// host drives this many parallel control-plane voice slots.
     pub(crate) voice_count: usize,
     /// The registers feeding the output channels, in channel order: the `audio_channels`
     /// device-routed channels first, then one register per observation tap. Every valid program
@@ -129,6 +129,10 @@ pub struct Program {
     pub(crate) audio_channels: usize,
     /// Names of the tap outputs, aligned with `outputs[audio_channels..]`.
     pub(crate) tap_names: Vec<String>,
+    /// Declared named parameters `(name, default)` in declaration order; entry `i` owns control
+    /// lane `PARAM_BASE + i`. Carried whether or not the graph references them, so the host can
+    /// resolve names and fill defaults from the program alone.
+    pub(crate) params: Vec<(String, f32)>,
     /// End-of-frame feedback write-backs (the source side of each one-sample delay).
     pub(crate) feedbacks: Vec<Feedback>,
     /// Sample rate the program was compiled for (Hz).
@@ -136,28 +140,6 @@ pub struct Program {
 }
 
 impl Program {
-    /// A program that emits silence — used as the initial engine state. A single
-    /// constant-zero output keeps the "every program has ≥1 channel" invariant.
-    pub fn silent(sample_rate: f32) -> Self {
-        Program {
-            ops: vec![Op::Const(0.0)],
-            register_count: 1,
-            inputs: Vec::new(),
-            state_len: 0,
-            initial_state: Vec::new(),
-            bus_len: 0,
-            buffer_len: 0,
-            in_channels: 0,
-            control_len: 0,
-            voice_count: 1,
-            outputs: vec![Reg(0)],
-            audio_channels: 1,
-            tap_names: Vec::new(),
-            feedbacks: Vec::new(),
-            sample_rate,
-        }
-    }
-
     pub fn ops(&self) -> &[Op] {
         &self.ops
     }
@@ -204,7 +186,7 @@ impl Program {
     }
 
     /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
-    /// audio host spreads MIDI notes across this many control-plane voice slots.
+    /// host drives this many parallel control-plane voice slots.
     pub fn voice_count(&self) -> usize {
         self.voice_count
     }
@@ -224,6 +206,19 @@ impl Program {
     /// Tap names, aligned with `outputs()[audio_channels()..]`.
     pub fn tap_names(&self) -> &[String] {
         &self.tap_names
+    }
+
+    /// Declared named parameters `(name, default)`, in declaration (= lane) order.
+    pub fn params(&self) -> &[(String, f32)] {
+        &self.params
+    }
+
+    /// The control lane of declared parameter `name`, if the program declares it.
+    pub fn param_lane(&self, name: &str) -> Option<u32> {
+        self.params
+            .iter()
+            .position(|(n, _)| n == name)
+            .map(|i| (crate::graph::PARAM_BASE + i) as u32)
     }
 
     /// The feedback write-backs applied at the end of each frame.

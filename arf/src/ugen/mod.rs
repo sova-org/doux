@@ -127,7 +127,7 @@ impl Category {
 
 /// A self-describing declaration of one UGen input: its name, unit, sensible `range` and
 /// `default` (what control mapping and any GUI need), and the rate it expects. Declared once
-/// in the [`UGENS`] table so the parser, `--dump-json`, editors, and future MIDI/GUI mapping
+/// in the [`UGENS`] table so the parser, `--dump-json`, editors, and future control/GUI mapping
 /// all read the same source of truth.
 #[derive(Clone, Copy, Debug)]
 pub struct InputDescriptor {

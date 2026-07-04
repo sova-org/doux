@@ -56,34 +56,6 @@ impl Vm {
         }
     }
 
-    /// The persistent per-UGen state buffer (oscillator phases, filter memory). Used by
-    /// reconciliation to carry state across a hot-swap.
-    pub fn state(&self) -> &[f32] {
-        &self.state
-    }
-
-    /// The feedback-bus buffer (one slot per declared bus). Used by reconciliation.
-    pub fn buses(&self) -> &[f32] {
-        &self.buses
-    }
-
-    /// The state and bus buffers, mutably — the adoption side of reconciliation. Returned
-    /// together so each plane's migration entries copy into the right arena in one borrow.
-    pub fn state_and_buses_mut(&mut self) -> (&mut [f32], &mut [f32]) {
-        (&mut self.state, &mut self.buses)
-    }
-
-    /// The sample-memory arena (delay lines). Used by reconciliation to decide donation.
-    pub fn buffers(&self) -> &[f32] {
-        &self.buffers
-    }
-
-    /// The sample-memory arena's backing `Vec`, for whole-arena donation across a hot-swap
-    /// (an O(1) pointer swap, not a content copy).
-    pub fn buffers_vec_mut(&mut self) -> &mut Vec<f32> {
-        &mut self.buffers
-    }
-
     /// Compute one frame, advancing internal state (phases, filter memory). `frame_pos` is the
     /// frame's absolute position in the global sample clock (the executor advances it one per
     /// frame); it surfaces to UGens as the windowed `now`. Reads one value per input channel from
@@ -197,7 +169,7 @@ pub fn render_from(program: &Program, frames: usize, start_pos: u64) -> Vec<f32>
     let in_ch = program.in_channels();
     let mut vm = Vm::new(program);
     let input = vec![0.0; frames * in_ch]; // offline render: input is silence
-    let control = vec![0.0; program.control_len()]; // offline render: no MIDI (frame-invariant)
+    let control = vec![0.0; program.control_len()]; // offline render: zeroed control plane (frame-invariant)
     let mut out = vec![0.0; frames * channels];
     for (f, frame) in out.chunks_mut(channels).enumerate() {
         let frame_pos = start_pos + f as u64;

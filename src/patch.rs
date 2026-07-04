@@ -1,4 +1,10 @@
-//! User-defined arf graphs as doux voice sources (`s/arf:<name>`).
+//! User-defined arf graphs as doux voice sources (`s/arf:<name>`), voice
+//! inserts (`fx/<name>`) and orbit effects (`patch/<name>`).
+//!
+//! One namespace serves all three roles; the role is determined by the
+//! program itself: `in_channels() == 0` is a source, `>= 1` an effect
+//! (see [`PatchEntry::is_source`] / [`PatchEntry::is_effect`]). Use-sites
+//! enforce the role — install only enforces the shared caps.
 //!
 //! Split by thread: [`PatchRegistry::install_graph`] and [`PatchRegistry::install`] run on a
 //! control thread (they deserialize, compile, validate and pre-build a [`Vm`] pool). The audio thread
@@ -12,7 +18,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use arf::graph::CONTROL_WIDTH;
+use arf::graph::{CONTROL_WIDTH, MAX_PARAMS, PARAM_BASE};
 use arf::ir::Program;
 use arf::vm::Vm;
 use crossbeam_queue::ArrayQueue;
@@ -53,11 +59,23 @@ impl PatchEntry {
     pub(crate) fn has_vm(&self) -> bool {
         !self.pool.is_empty()
     }
+
+    /// A source generates audio from nothing — playable as `s/arf:<name>`.
+    pub(crate) fn is_source(&self) -> bool {
+        self.program.in_channels() == 0
+    }
+
+    /// An effect reads audio input — usable as `fx/<name>` or `patch/<name>`.
+    pub(crate) fn is_effect(&self) -> bool {
+        self.program.in_channels() > 0
+    }
 }
 
-/// A voice's live handle on a patch: the entry (for the program and the way
-/// home to its pool), the running [`Vm`], the voice-local sample clock, and
-/// the control plane the source loop writes gate/notefreq/vel into.
+/// A live handle on a patch — voice source, voice insert, or orbit effect:
+/// the entry (for the program and the way home to its pool), the running
+/// [`Vm`], the local sample clock, and the control plane the source loop
+/// writes gate/notefreq/vel into (unread for effects, which install with
+/// `control_len() == 0`). Named-param lanes start at their declared defaults.
 pub struct VoicePatch {
     pub(crate) entry: Arc<PatchEntry>,
     pub(crate) vm: Vm,
@@ -67,11 +85,15 @@ pub struct VoicePatch {
 
 impl VoicePatch {
     pub(crate) fn new(entry: Arc<PatchEntry>, vm: Vm) -> Self {
+        let mut control = [0.0; CONTROL_WIDTH];
+        for (i, (_, default)) in entry.program().params().iter().enumerate() {
+            control[PARAM_BASE + i] = *default;
+        }
         VoicePatch {
             entry,
             vm,
             frame_pos: 0,
-            control: [0.0; CONTROL_WIDTH],
+            control,
         }
     }
 }
@@ -162,16 +184,42 @@ impl PatchRegistry {
                 "patch name {name:?} cannot be triggered: it must be non-empty, without '/' or whitespace"
             ));
         }
+        if name == "off" {
+            return Err("patch name \"off\" is reserved: `patch/off` and `fx/off` clear the slot".into());
+        }
         let channels = program.audio_channels();
         if !(1..=2).contains(&channels) {
             return Err(format!(
                 "patch has {channels} audio channels; a doux voice source is mono or stereo"
             ));
         }
-        if program.in_channels() > 0 {
+        if program.in_channels() > 2 {
             return Err(format!(
-                "patch reads {} input channels; a voice source takes no audio input (effect patches come later)",
+                "patch reads {} input channels; doux buses are stereo (max 2)",
                 program.in_channels()
+            ));
+        }
+        if program.in_channels() > 0 && program.control_len() > 0 {
+            return Err(
+                "patch reads both audio input and control lanes (gate/notefreq/vel/param); \
+                 effect patches take no control input yet"
+                    .to_string(),
+            );
+        }
+        // A lane past the plane would panic slicing the fixed per-voice control
+        // array on the audio thread — reject hand-crafted graph JSON here instead.
+        if program.control_len() > CONTROL_WIDTH {
+            return Err(format!(
+                "patch reads control lane {} (the control plane is {CONTROL_WIDTH} lanes wide)",
+                program.control_len() - 1
+            ));
+        }
+        // Same audio-thread guarantee for the name→lane map: `param_lane` yields
+        // `PARAM_BASE + index`, so the declaration count must fit the plane too.
+        if program.params().len() > MAX_PARAMS {
+            return Err(format!(
+                "patch declares {} params (cap {MAX_PARAMS})",
+                program.params().len()
             ));
         }
         if program.voice_count() > 1 {
@@ -286,5 +334,85 @@ impl PatchRegistry {
             vm.reset(&entry.program, self.next_seed.fetch_add(1, Ordering::Relaxed));
             let _ = entry.pool.push(vm);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `param cutoff 400` + `notefreq saw cutoff lpf`, built through the graph
+    /// API (the Forth front-end lives outside doux).
+    fn param_graph() -> arf::graph::Graph {
+        let mut g = arf::graph::Graph::new();
+        let lane = g.add_param("cutoff".to_string(), 400.0);
+        let cut = g.control(lane);
+        let nf = g.control(arf::graph::NOTEFREQ_LANE as u32);
+        let saw = g.ugen(arf::ugen::lookup("saw").expect("saw is a ugen"), vec![nf]);
+        let filt = g.ugen(arf::ugen::lookup("lpf").expect("lpf is a ugen"), vec![saw, cut]);
+        g.set_outputs(vec![filt]);
+        g
+    }
+
+    #[test]
+    fn params_survive_the_json_boundary_and_fill_voice_defaults() {
+        let registry = PatchRegistry::new();
+        let json = serde_json::to_string(&param_graph()).unwrap();
+        registry.install_graph("pp", &json, 48_000.0).unwrap();
+
+        let entry = registry.get("pp").unwrap();
+        assert_eq!(entry.program().params(), &[("cutoff".to_string(), 400.0)]);
+        assert_eq!(entry.program().param_lane("cutoff"), Some(PARAM_BASE as u32));
+        assert_eq!(entry.program().param_lane("nope"), None);
+
+        let vm = entry.take_vm().unwrap();
+        let vp = VoicePatch::new(entry, vm);
+        assert_eq!(vp.control[PARAM_BASE], 400.0);
+    }
+
+    #[test]
+    fn a_returned_vm_yields_a_fresh_voice_patch_at_defaults() {
+        // The pool recycles Vms, but the control plane lives in VoicePatch,
+        // built fresh per note — a written lane cannot leak across notes.
+        let registry = PatchRegistry::new();
+        let json = serde_json::to_string(&param_graph()).unwrap();
+        registry.install_graph("pp", &json, 48_000.0).unwrap();
+
+        let entry = registry.get("pp").unwrap();
+        let vm = entry.take_vm().unwrap();
+        let mut vp = VoicePatch::new(Arc::clone(&entry), vm);
+        vp.control[PARAM_BASE] = 9_999.0;
+        registry.retire(vp);
+
+        let vm = entry.take_vm().unwrap();
+        let vp = VoicePatch::new(entry, vm);
+        assert_eq!(vp.control[PARAM_BASE], 400.0);
+    }
+
+    #[test]
+    fn install_rejects_an_oversized_control_plane() {
+        // A hand-crafted graph can read past the fixed per-voice control
+        // array; unchecked, that panics on the audio thread.
+        let registry = PatchRegistry::new();
+        let mut g = arf::graph::Graph::new();
+        let lane = g.control(CONTROL_WIDTH as u32);
+        g.set_outputs(vec![lane]);
+        let json = serde_json::to_string(&g).unwrap();
+        let err = registry.install_graph("wide", &json, 48_000.0).unwrap_err();
+        assert!(err.contains("control lane"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn install_rejects_too_many_params() {
+        let registry = PatchRegistry::new();
+        let mut g = arf::graph::Graph::new();
+        for i in 0..=MAX_PARAMS {
+            g.add_param(format!("p{i}"), 0.0);
+        }
+        let out = g.constant(0.0);
+        g.set_outputs(vec![out]);
+        let json = serde_json::to_string(&g).unwrap();
+        let err = registry.install_graph("many", &json, 48_000.0).unwrap_err();
+        assert!(err.contains("params"), "unexpected error: {err}");
     }
 }
