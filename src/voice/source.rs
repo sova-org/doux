@@ -1,5 +1,7 @@
 //! Source generation - oscillators, samples, spread mode.
 
+use arf::graph::{GATE_LANE, NOTEFREQ_LANE, VEL_LANE};
+
 use crate::dsp::oscillator::{blamp_post_kink, blamp_pre_kink, blep_post_step, blep_pre_step};
 #[cfg(feature = "native")]
 use crate::dsp::{exp2f, log2f};
@@ -316,6 +318,7 @@ impl Voice {
                     self.scratch[i][1] = 0.0;
                 }
             }
+            Source::Arf => self.run_arf_block(n, isr),
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;
@@ -340,6 +343,57 @@ impl Voice {
         }
         self.finish_block(env, n, isr);
         n
+    }
+
+    /// The `Source::Arf` body, shared by the native and wasm dispatchers.
+    ///
+    /// Per sample: the `tick_pre` freq (vibrato, ModChain-on-freq, glide)
+    /// lands in the notefreq lane and the doux envelope's release state gates
+    /// the gate lane, then the Vm ticks one frame — the VM re-reads the
+    /// control plane every frame, so arf graphs get the same per-sample
+    /// modulation as native sources. Velocity is a note property, latched
+    /// once per block. No patch handle (registry miss raced an install, or a
+    /// bare `s/arf`) renders silence.
+    fn run_arf_block(&mut self, n: usize, isr: f32) {
+        self.nch = self
+            .patch
+            .as_ref()
+            .map_or(1, |vp| vp.entry.program().audio_channels());
+        if let Some(ref mut vp) = self.patch {
+            vp.control[VEL_LANE] = self.params.velocity;
+        }
+        for i in 0..n {
+            let freq = self.tick_pre(isr, i);
+            let gate = if self.dahdsr.is_releasing() { 0.0 } else { 1.0 };
+            if let Some(ref mut vp) = self.patch {
+                vp.control[NOTEFREQ_LANE] = freq;
+                vp.control[GATE_LANE] = gate;
+                let program = vp.entry.program();
+                // Audio channels lead `program.outputs()`; a frame slice
+                // capped at the audio width skips the observation taps.
+                let width = program.audio_channels().min(CHANNELS);
+                let mut frame = [0.0f32; CHANNELS];
+                vp.vm.tick_frame(
+                    program,
+                    vp.frame_pos,
+                    &[],
+                    &vp.control[..program.control_len()],
+                    &mut frame[..width],
+                );
+                vp.frame_pos += 1;
+                // arf's core is deliberately IEEE-transparent (÷0 → inf) and
+                // delegates NaN/inf scrubbing to its realtime shell — doux is
+                // that shell here. One unscrubbed non-finite sample would
+                // permanently poison the master DC-blocker downstream. Zero
+                // it, matching arf::sanitize_block. 0.7 is the same headroom
+                // scale as the sample sources.
+                let (s0, s1) = (frame[0], frame[1]);
+                self.scratch[i][0] = if s0.is_finite() { s0 * 0.7 } else { 0.0 };
+                self.scratch[i][1] = if s1.is_finite() { s1 * 0.7 } else { 0.0 };
+            } else {
+                self.scratch[i] = [0.0; CHANNELS];
+            }
+        }
     }
 
     #[cfg(not(feature = "native"))]
@@ -465,6 +519,7 @@ impl Voice {
                     self.scratch[i][1] = 0.0;
                 }
             }
+            Source::Arf => self.run_arf_block(n, isr),
             _ => {
                 self.nch = 1;
                 let spread = self.params.spread;

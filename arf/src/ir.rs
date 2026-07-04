@@ -1,0 +1,233 @@
+//! The execution representation: a flat, topologically ordered program.
+//!
+//! A [`Program`] is what the audio thread runs. The reference [`crate::vm::Vm`]
+//! interprets it today; a Cranelift JIT backend will consume the same `Program`
+//! later. Op `i` writes register `i`, and every input references a register with a
+//! lower index (guaranteed by the topological order), so a single forward pass
+//! evaluates the whole graph for one sample.
+
+use crate::ugen::UGenId;
+
+/// The window the global sample clock wraps within before the pure f32 core sees it (see
+/// [`Op::Now`]). A power of two `< 2^24`, so every value in `0..NOW_WINDOW` is an *exact*
+/// integer in f32 — the windowed `now` never loses precision however long the engine runs,
+/// and the VM and JIT can compute it bit-identically (integer add+mask, then one exact
+/// `u64 -> f32` cast). The trade-off is a hard ceiling on any single `now`-relative interval:
+/// 2^23 samples ≈ 174.8 s at 48 kHz (≈ 87.4 s at 96 kHz). The canonical clock the host owns is
+/// a full `u64` frame count; only this windowed view reaches the DSP core.
+pub const NOW_WINDOW: u64 = 1 << 23;
+
+/// Reduce a `now`-relative difference back into the window, modularly. Used by time UGens for
+/// `now - start` (which can straddle a wrap), and mirrored bit-for-bit by the JIT's `arf_wrapW`
+/// shim — the single source of truth for the wrap, like [`crate::ugen::noise_sample`] is for noise.
+#[inline]
+pub fn now_wrap(x: f32) -> f32 {
+    x.rem_euclid(NOW_WINDOW as f32)
+}
+
+/// A per-sample scratch register. `Reg(i)` is written by op `i`.
+#[derive(Clone, Copy, Debug)]
+pub struct Reg(pub(crate) u32);
+
+/// A single operation. `Const` is the only leaf carrying an immediate; every other op
+/// is a uniform UGen invocation. Its `input_count` inputs are `inputs[input_start..]` in the
+/// program's flat input arena, its `state_slots` persistent slots start at `state_base`, and
+/// its `buffer_len` sample-memory f32s start at `buffer_base` in the buffer arena. `input_count`
+/// is stored (not read from the row) because a variadic generator's arity is fixed at
+/// graph-construction, not by its [`UGenId`]; `state_slots`/`buffer_len`/`outputs` still come
+/// from the row.
+#[derive(Clone, Copy, Debug)]
+pub enum Op {
+    Const(f32),
+    Ugen {
+        ugen: UGenId,
+        input_start: u32,
+        input_count: u32,
+        state_base: u32,
+        buffer_base: u32,
+        /// This instance's sample-memory length (f32s) at `buffer_base`. Per-op (not read from
+        /// the row) so a buffer can be sized at graph-construction and shared: an anonymous
+        /// buffer (e.g. `delay`) takes the row's `buffer_len`, a named buffer takes its
+        /// declared length, and several ops can point at one named region.
+        buffer_len: u32,
+    },
+    /// Read a feedback bus: load `buses[slot]` (the value stored last sample). A leaf, so it
+    /// can sit anywhere in topological order and breaks the feedback cycle. Buses live in
+    /// their own arena (separate from per-UGen state), so `slot` is independent of UGen state
+    /// layout — adding or removing a bus never shifts a UGen's `state_base`.
+    FbRead { slot: u32 },
+    /// Read audio input `channel` (the current frame's sample), supplied by the host. A
+    /// leaf; `channel` is `< in_channels` by construction, so the read is always in range.
+    Input { channel: u32 },
+    /// Read control `lane` from the host's per-block control plane (a MIDI-derived value:
+    /// a voice's gate/notefreq/vel, or a CC). A leaf, like [`Op::Input`], but frame-invariant:
+    /// the plane is latched once per block, so the value is constant across the block. `lane`
+    /// is `< control_len` by construction.
+    Control { lane: u32 },
+    /// Read the global sample clock as a signal: the current frame's absolute position,
+    /// reduced into [`NOW_WINDOW`] (`(block_start_pos + frame) & (NOW_WINDOW - 1)`). A leaf,
+    /// like [`Op::Input`] but supplied by the *executor*, not the host — frame-strided, so it
+    /// advances one per sample within a block. This is the pure-core face of time: a UGen reads
+    /// it as an input register (or ambiently via `TickCtx`/`EmitCtx`), never as a global. The
+    /// VM and JIT compute it with identical integer arithmetic, so it stays bit-exact.
+    Now,
+}
+
+/// A feedback write-back: after each frame, store register `source` into `buses[slot]`
+/// so the matching [`Op::FbRead`] reads it next sample (the one-sample delay).
+#[derive(Clone, Copy, Debug)]
+pub struct Feedback {
+    pub(crate) slot: u32,
+    pub(crate) source: Reg,
+}
+
+/// A compiled audio graph, ready to run.
+#[derive(Debug)]
+pub struct Program {
+    /// Ops in topological order. Each op writes a contiguous block of registers (one for a
+    /// leaf, the UGen's `outputs` for a generator), assigned by the compiler in op order — so
+    /// every input still references a strictly-lower register index (the topological invariant).
+    pub(crate) ops: Vec<Op>,
+    /// Total registers the ops write — the per-sample scratch size. Equals `ops.len()` while
+    /// every op is single-output; a multi-output op writes several, decoupling the register
+    /// space from the op count.
+    pub(crate) register_count: usize,
+    /// Flat arena of op inputs. An `Op::Ugen`'s inputs are the `arity` registers at
+    /// `inputs[input_start..]`. Separated from `ops` so an op stays small and `Copy`.
+    pub(crate) inputs: Vec<Reg>,
+    /// Number of persistent per-UGen state slots the program needs (oscillator phase, filter
+    /// memory, …). Independent of the bus count — buses live in their own plane.
+    pub(crate) state_len: usize,
+    /// Sparse fresh-init values for the state plane: `(slot, value)` pairs a backend applies over
+    /// the all-zero fill when it is built. Today only noise sources use it — the compiler seeds
+    /// each one's sample-counter slot so co-existing instances decorrelate (see
+    /// [`crate::ugen::noise_seed`]); reconcile then overrides a *carried* op's slot with its live
+    /// counter, so a running stream never reseeds across an edit. Empty when no op is seeded.
+    pub(crate) initial_state: Vec<(u32, f32)>,
+    /// Number of feedback-bus slots the program needs, in their own arena (one per declared
+    /// bus). Kept separate from `state_len` so adding/removing a bus never renumbers state.
+    pub(crate) bus_len: usize,
+    /// Total sample-memory the program needs (sum of every UGen's `buffer_len`), as one
+    /// flat arena; an `Op::Ugen`'s slice starts at its `buffer_base`.
+    pub(crate) buffer_len: usize,
+    /// Audio input channels the program reads (max `Op::Input` channel + 1, or 0 if none).
+    /// The host supplies an input block this wide per frame, so every `Input` is in range.
+    pub(crate) in_channels: usize,
+    /// Control-plane width the program reads (max `Op::Control` lane + 1, or 0 if none). The
+    /// host supplies a control block this wide, latched once per block, so every `Control` is
+    /// in range. Per-voice lanes and the CC block live here (see [`crate::graph`]).
+    pub(crate) control_len: usize,
+    /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
+    /// audio host spreads incoming MIDI notes across this many control-plane voice slots.
+    pub(crate) voice_count: usize,
+    /// The registers feeding the output channels, in channel order: the `audio_channels`
+    /// device-routed channels first, then one register per observation tap. Every valid program
+    /// has at least one audio channel (the front-end requires `out`; [`Program::silent`] has one).
+    pub(crate) outputs: Vec<Reg>,
+    /// How many leading `outputs` are audio channels routed to the device (= what `out`
+    /// produced). The rest of `outputs` are tap registers the host meters but never plays.
+    pub(crate) audio_channels: usize,
+    /// Names of the tap outputs, aligned with `outputs[audio_channels..]`.
+    pub(crate) tap_names: Vec<String>,
+    /// End-of-frame feedback write-backs (the source side of each one-sample delay).
+    pub(crate) feedbacks: Vec<Feedback>,
+    /// Sample rate the program was compiled for (Hz).
+    pub sample_rate: f32,
+}
+
+impl Program {
+    /// A program that emits silence — used as the initial engine state. A single
+    /// constant-zero output keeps the "every program has ≥1 channel" invariant.
+    pub fn silent(sample_rate: f32) -> Self {
+        Program {
+            ops: vec![Op::Const(0.0)],
+            register_count: 1,
+            inputs: Vec::new(),
+            state_len: 0,
+            initial_state: Vec::new(),
+            bus_len: 0,
+            buffer_len: 0,
+            in_channels: 0,
+            control_len: 0,
+            voice_count: 1,
+            outputs: vec![Reg(0)],
+            audio_channels: 1,
+            tap_names: Vec::new(),
+            feedbacks: Vec::new(),
+            sample_rate,
+        }
+    }
+
+    pub fn ops(&self) -> &[Op] {
+        &self.ops
+    }
+
+    /// The flat input arena; an `Op::Ugen` indexes it by `input_start`.
+    pub(crate) fn inputs(&self) -> &[Reg] {
+        &self.inputs
+    }
+
+    /// Size of the per-sample register scratch (the total registers the ops write).
+    pub fn num_registers(&self) -> usize {
+        self.register_count
+    }
+
+    pub fn state_len(&self) -> usize {
+        self.state_len
+    }
+
+    /// Sparse fresh-init for the state plane (see the field): `(slot, value)` pairs each backend
+    /// applies after zeroing its state arena, identically, so the VM and JIT stay bit-exact.
+    pub(crate) fn initial_state(&self) -> &[(u32, f32)] {
+        &self.initial_state
+    }
+
+    /// Number of feedback-bus slots (the bus arena's size), separate from `state_len`.
+    pub fn bus_len(&self) -> usize {
+        self.bus_len
+    }
+
+    /// Total sample-memory the program needs, as one flat f32 arena.
+    pub fn buffer_len(&self) -> usize {
+        self.buffer_len
+    }
+
+    /// Audio input channels the program reads; the host's input block is this wide per frame.
+    pub fn in_channels(&self) -> usize {
+        self.in_channels
+    }
+
+    /// Control-plane width the program reads; the host's control block is this wide, latched
+    /// once per block.
+    pub fn control_len(&self) -> usize {
+        self.control_len
+    }
+
+    /// Voice-pool size: how many parallel voices the patch replicates (1 = monophonic). The
+    /// audio host spreads MIDI notes across this many control-plane voice slots.
+    pub fn voice_count(&self) -> usize {
+        self.voice_count
+    }
+
+    /// The registers feeding the output channels, in channel order (audio channels first, then
+    /// the tap outputs). The VM and JIT write every one of these into the render block.
+    pub fn outputs(&self) -> &[Reg] {
+        &self.outputs
+    }
+
+    /// Audio channels routed to the device — the leading slice of [`outputs`](Self::outputs).
+    /// The trailing `outputs().len() - audio_channels()` registers are observation taps.
+    pub fn audio_channels(&self) -> usize {
+        self.audio_channels
+    }
+
+    /// Tap names, aligned with `outputs()[audio_channels()..]`.
+    pub fn tap_names(&self) -> &[String] {
+        &self.tap_names
+    }
+
+    /// The feedback write-backs applied at the end of each frame.
+    pub(crate) fn feedbacks(&self) -> &[Feedback] {
+        &self.feedbacks
+    }
+}

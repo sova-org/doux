@@ -218,6 +218,7 @@ impl DouxManager {
             inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&metrics),
             sample_registry: None,
+            patch_registry: None,
         });
 
         for path in &config.sample_paths {
@@ -647,6 +648,7 @@ impl DouxManager {
             inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&self.metrics),
             sample_registry: None,
+            patch_registry: None,
         });
         for path in &self.config.sample_paths {
             let index = doux::sampling::scan_samples_dir(path);
@@ -718,6 +720,7 @@ impl DouxManager {
             inner_block_size: doux::types::DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::clone(&metrics),
             sample_registry: None,
+            patch_registry: None,
         });
 
         for path in &config.sample_paths {

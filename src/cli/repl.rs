@@ -28,6 +28,7 @@
 //! | `.panic`  |       | Immediately silence all voices       |
 //! | `.voices` |       | Show active voice count              |
 //! | `.time`   |       | Show engine time in seconds          |
+//! | `.patch`  |       | Install an arf patch (`.patch <name> <source>`) |
 //! | `.help`   | `.h`  | Show available commands              |
 //!
 //! Any other input is evaluated as a doux pattern.
@@ -157,6 +158,8 @@ fn print_help() {
     println!("  .voices      Show active voice count");
     println!("  .time        Show engine time");
     println!("  .stats, .s   Show engine telemetry (load, voices, memory)");
+    println!("  .patch <name> <arf source>");
+    println!("               Compile + install an arf patch (play it as s/arf:<name>)");
     println!("  .help, .h    Show this help");
     println!();
     println!("Any other input is evaluated as a doux pattern.");
@@ -188,6 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inner_block_size: args.common.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
+        patch_registry: None,
     });
 
     if let Some(ref dir) = args.common.samples {
@@ -201,6 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sample_index = engine.sample_index().to_vec();
     let sample_registry = Arc::clone(engine.sample_registry());
+    let patch_registry = Arc::clone(engine.patch_registry());
     #[cfg(feature = "soundfont")]
     let gm_bank = engine.gm_bank();
     let max_voices = args.common.max_voices;
@@ -245,6 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 inner_block_size: dsp_block_size,
                 metrics: Arc::new(EngineMetrics::default()),
                 sample_registry: Some(Arc::clone(&sample_registry)),
+                patch_registry: Some(Arc::clone(&patch_registry)),
             });
             engine.set_sample_index(sample_index.clone());
             #[cfg(feature = "soundfont")]
@@ -311,6 +317,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     ".help" | ".h" => {
                         print_help();
+                    }
+                    // A serialized patch graph (JSON) carries `/`, `:` and `{}`, so it can't
+                    // ride the slash protocol — the dot-command takes the payload verbatim.
+                    s if s == ".patch" || s.starts_with(".patch ") => {
+                        let rest = s.strip_prefix(".patch").unwrap_or_default().trim_start();
+                        match rest.split_once(char::is_whitespace) {
+                            Some((name, graph_json)) if !graph_json.trim().is_empty() => {
+                                match patch_registry.install_graph(name, graph_json, oc.sample_rate) {
+                                    Ok(()) => println!("installed arf:{name}"),
+                                    Err(e) => eprintln!("{RED}[patch]{RESET} {e}"),
+                                }
+                            }
+                            _ => eprintln!("usage: .patch <name> <graph json>"),
+                        }
                     }
                     s if !s.is_empty() => {
                         let event = Event::parse(s, oc.sample_rate);

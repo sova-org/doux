@@ -134,6 +134,7 @@ pub enum SourceCategory {
     Drum,
     Sample,
     Input,
+    Patch,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -179,9 +180,12 @@ pub enum Source {
     Wavetable,
     WebSample,
     LiveInput,
+    /// User-defined arf graph, resolved by the `arf:<name>` sound prefix.
+    /// The patch handle lives on the voice (`Voice::patch`), not here.
+    Arf,
 }
 
-const ALL_SOURCES: [Source; 23] = [
+const ALL_SOURCES: [Source; 24] = [
     Source::Tri,
     Source::Sine,
     Source::Saw,
@@ -205,6 +209,7 @@ const ALL_SOURCES: [Source; 23] = [
     Source::Wavetable,
     Source::WebSample,
     Source::LiveInput,
+    Source::Arf,
 ];
 
 // --- SourceInfo static data ---
@@ -829,6 +834,16 @@ const INFO_LIVEINPUT: SourceInfo = source_info!(
     13
 );
 
+const INFO_ARF: SourceInfo = source_info!(
+    "arf",
+    &[],
+    SourceCategory::Patch,
+    "User-defined arf graph patch, triggered as arf:<name>",
+    None,
+    &[],
+    15
+);
+
 impl Source {
     pub const fn all() -> &'static [Source] {
         &ALL_SOURCES
@@ -859,6 +874,7 @@ impl Source {
             Self::Wavetable => &INFO_WAVETABLE,
             Self::WebSample => &INFO_WEBSAMPLE,
             Self::LiveInput => &INFO_LIVEINPUT,
+            Self::Arf => &INFO_ARF,
         }
     }
 
@@ -891,6 +907,7 @@ impl Source {
                         SourceCategory::Drum => "Drum",
                         SourceCategory::Sample => "Sample",
                         SourceCategory::Input => "Input",
+                        SourceCategory::Patch => "Patch",
                     },
                     params,
                 }

@@ -60,6 +60,7 @@ fn main() {
         inner_block_size: args.common.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
+        patch_registry: None,
     });
 
     if let Some(ref dir) = args.common.samples {
@@ -129,6 +130,7 @@ fn main() {
             inner_block_size: args.common.dsp_block_size,
             metrics: Arc::new(EngineMetrics::default()),
             sample_registry: Some(Arc::clone(&sample_registry)),
+            patch_registry: None,
         });
         engine.set_sample_index(sample_index.clone());
         #[cfg(feature = "soundfont")]

@@ -31,6 +31,7 @@ pub mod offline;
 pub mod orbit;
 #[cfg(feature = "native")]
 pub mod osc;
+pub mod patch;
 #[cfg(feature = "native")]
 mod recorder;
 pub mod sampling;
@@ -80,8 +81,8 @@ pub use sampling::SampleLoader;
 pub use sampling::{SampleData, SampleRegistry};
 #[cfg(not(feature = "native"))]
 use sampling::{SampleInfo, SamplePool};
+use patch::PatchRegistry;
 use schedule::Schedule;
-#[cfg(feature = "native")]
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
@@ -192,6 +193,9 @@ pub struct EngineConfig {
     /// `None` constructs a fresh one.
     #[cfg(feature = "native")]
     pub sample_registry: Option<Arc<SampleRegistry>>,
+    /// Reuse an existing arf patch registry (same recovery pattern as
+    /// `sample_registry`). `None` constructs a fresh one.
+    pub patch_registry: Option<Arc<PatchRegistry>>,
 }
 
 impl EngineConfig {
@@ -207,6 +211,7 @@ impl EngineConfig {
             inner_block_size: DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::new(EngineMetrics::default()),
             sample_registry: None,
+            patch_registry: None,
         }
     }
 
@@ -219,6 +224,7 @@ impl EngineConfig {
             max_voices: DEFAULT_MAX_VOICES,
             host_buffer_size: WASM_BUFFER_SIZE,
             inner_block_size: DEFAULT_DSP_BLOCK_SIZE,
+            patch_registry: None,
         }
     }
 }
@@ -265,6 +271,9 @@ pub struct Engine {
     pub(crate) sample_index: Vec<SampleEntry>,
     #[cfg(feature = "native")]
     pub(crate) sample_registry: Arc<SampleRegistry>,
+    /// Installed arf patches (`s/arf:<name>`), published from control threads,
+    /// read lock-free at dispatch. The arf mirror of `sample_registry`.
+    pub(crate) patch_registry: Arc<PatchRegistry>,
     #[cfg(feature = "native")]
     pub(crate) sample_loader: SampleLoader,
     #[cfg(feature = "native")]
@@ -385,6 +394,9 @@ impl Engine {
             sample_index: Vec::new(),
             #[cfg(feature = "native")]
             sample_registry,
+            patch_registry: config
+                .patch_registry
+                .unwrap_or_else(|| Arc::new(PatchRegistry::new())),
             #[cfg(feature = "native")]
             sample_loader,
             #[cfg(feature = "native")]
@@ -514,6 +526,13 @@ impl Engine {
     #[cfg(feature = "native")]
     pub fn sample_registry(&self) -> &Arc<SampleRegistry> {
         &self.sample_registry
+    }
+
+    /// Shared handle to the arf patch registry. Clone it before the Engine
+    /// moves onto the audio thread; installs published through it are picked
+    /// up by the next `s/arf:<name>` event.
+    pub fn patch_registry(&self) -> &Arc<PatchRegistry> {
+        &self.patch_registry
     }
 
     /// Shared handle to the GM-bank slot, so an off-RT worker can publish a
@@ -807,6 +826,9 @@ impl Engine {
             return None;
         }
         let i = self.active_voices;
+        if let Some(old) = self.voices[i].patch.take() {
+            self.patch_registry.retire(old);
+        }
         self.voices[i].reset();
         self.voices[i].seed = self.voice_seed;
         self.voice_seed = modulation::lcg(self.voice_seed);
@@ -839,16 +861,45 @@ impl Engine {
         let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
         if let Some(ref sound_str) = event.sound {
             if !has_web_sample && sound_str.parse::<Source>().is_err() {
-                let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
-                #[cfg(feature = "native")]
-                {
-                    let n = event.n_as_index();
-                    self.get_registry_sample(effective_name, n)?;
-                }
-                #[cfg(not(feature = "native"))]
-                {
-                    let n = event.n_as_index();
-                    self.get_or_load_sample(effective_name, n)?;
+                if let Some(patch_name) = sound_str.strip_prefix("arf:") {
+                    // A registry miss or a dry Vm pool drops the event, like
+                    // the sample-miss drop below. The pool probe is reliable:
+                    // dispatch and voice death both run on this thread, so
+                    // nothing pops between here and the attach. A dry pool
+                    // still admits a retrigger of a tagged voice already
+                    // holding this patch — it reuses its Vm, not the pool's —
+                    // but only when the event keeps the voice (a reset or a
+                    // cut group takes the New path, which retires the Vm and
+                    // would then find the pool dry and play silence).
+                    let entry = self.patch_registry.get(patch_name)?;
+                    if !entry.has_vm() {
+                        let retargets_holder = !event.reset.unwrap_or(false)
+                            && event.cut.is_none()
+                            && event.voice.is_some_and(|tag| {
+                                (0..self.active_voices).any(|i| {
+                                    self.voices[i].tag == Some(tag)
+                                        && self.voices[i]
+                                            .patch
+                                            .as_ref()
+                                            .is_some_and(|p| Arc::ptr_eq(&p.entry, &entry))
+                                })
+                            });
+                        if !retargets_holder {
+                            return None;
+                        }
+                    }
+                } else {
+                    let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
+                    #[cfg(feature = "native")]
+                    {
+                        let n = event.n_as_index();
+                        self.get_registry_sample(effective_name, n)?;
+                    }
+                    #[cfg(not(feature = "native"))]
+                    {
+                        let n = event.n_as_index();
+                        self.get_or_load_sample(effective_name, n)?;
+                    }
                 }
             }
         }
@@ -894,6 +945,11 @@ impl Engine {
             } else {
                 0.0
             };
+            // A reused slot may still hold an arf Vm: send it back to its
+            // pool before `reset` — dropping it here would free on RT.
+            if let Some(old) = self.voices[voice_idx].patch.take() {
+                self.patch_registry.retire(old);
+            }
             self.voices[voice_idx].reset();
             self.voices[voice_idx].dahdsr.current_val = old_env;
             self.voices[voice_idx].seed = self.voice_seed;
@@ -943,12 +999,24 @@ impl Engine {
                 $(if let Some(val) = $src.$field { $dst.$field = Some(val); })+
             };
         }
-        // Resolve sound/sample first (before borrowing voice)
-        // If sound parses as a Source, use it; otherwise treat as sample folder name
+        // Resolve sound/sample first (before borrowing voice). An `arf:` name
+        // resolves against the patch registry; otherwise, if the sound parses
+        // as a Source use it, else treat it as a sample folder name.
+        // JS-supplied web-sample PCM wins over the sound name (same precedence
+        // as the dispatch gate) — resolving the patch anyway would check a Vm
+        // out of the pool only for the web-sample block to orphan it below.
+        let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
+        let patch_entry = event
+            .sound
+            .as_deref()
+            .filter(|_| !has_web_sample)
+            .and_then(|s| s.strip_prefix("arf:"))
+            .and_then(|name| self.patch_registry.get(name));
+
         #[cfg(feature = "native")]
         let (registry_sample_data, registry_sample_data_b, sample_blend) =
             if let Some(ref sound_str) = event.sound {
-                if sound_str.parse::<Source>().is_ok() {
+                if sound_str.parse::<Source>().is_ok() || sound_str.starts_with("arf:") {
                     (None, None, 0.0f32)
                 } else {
                     let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
@@ -983,7 +1051,7 @@ impl Engine {
 
         #[cfg(not(feature = "native"))]
         let loaded_sample = if let Some(ref sound_str) = event.sound {
-            if sound_str.parse::<Source>().is_err() {
+            if sound_str.parse::<Source>().is_err() && !sound_str.starts_with("arf:") {
                 let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
                 let n = event.n_as_index();
                 self.get_or_load_sample(effective_name, n)
@@ -1100,6 +1168,49 @@ impl Engine {
             #[cfg(feature = "soundfont")]
             {
                 v.exclusive_class = 0;
+            }
+        }
+
+        // Arf patch playback: hand the voice a pooled Vm. A retrigger of the
+        // same patch keeps its Vm — graph state persists, and the gate lane
+        // re-opens if the voice was releasing (a retrigger of a still-held
+        // voice sees no gate edge, so patch-internal envelopes don't re-fire;
+        // doux's own VCA re-articulates either way). A different patch
+        // returns the old Vm to its pool and takes a fresh one. When the
+        // dispatch gate found the pool dry it only admitted a same-patch
+        // retrigger, so an empty `take_vm` can leave `patch` unset — the
+        // source arm renders that as silence.
+        match patch_entry {
+            Some(entry) => {
+                let same = v
+                    .patch
+                    .as_ref()
+                    .is_some_and(|p| Arc::ptr_eq(&p.entry, &entry));
+                if !same {
+                    if let Some(old) = v.patch.take() {
+                        self.patch_registry.retire(old);
+                    }
+                    v.patch = entry.take_vm().map(|vm| patch::VoicePatch::new(entry, vm));
+                }
+                v.params.sound = Source::Arf;
+            }
+            None => {
+                // The event re-sounds this voice with a non-arf source:
+                // release its Vm now — waiting for voice death would strand
+                // it on a held voice and starve the patch's pool.
+                if v.patch.is_some() {
+                    #[cfg(feature = "native")]
+                    let resounded =
+                        parsed_source.is_some() || registry_sample_data.is_some() || has_web_sample;
+                    #[cfg(not(feature = "native"))]
+                    let resounded =
+                        parsed_source.is_some() || loaded_sample.is_some() || has_web_sample;
+                    if resounded {
+                        if let Some(old) = v.patch.take() {
+                            self.patch_registry.retire(old);
+                        }
+                    }
+                }
             }
         }
         copy_opt!(event, v.params, pw, spread);
@@ -1540,6 +1651,7 @@ impl Engine {
         let voices = &mut self.voices;
         let orbits = &mut self.orbits;
         let active_voices = &mut self.active_voices;
+        let patch_registry = &self.patch_registry;
         #[cfg(not(feature = "native"))]
         let pool = self.sample_pool.data.as_slice();
         #[cfg(not(feature = "native"))]
@@ -1627,8 +1739,13 @@ impl Engine {
             }
 
             if written < n {
-                // Voice died mid-block; swap last active into slot `i` and
-                // re-check the new occupant.
+                // Voice died mid-block; return any arf Vm to its pool, then
+                // swap last active into slot `i` and re-check the new
+                // occupant. The take keeps the invariant that slots beyond
+                // `active_voices` never hold a patch.
+                if let Some(vp) = voices[i].patch.take() {
+                    patch_registry.retire(vp);
+                }
                 Self::free_voice_in(voices, active_voices, i);
                 continue;
             }
@@ -2066,7 +2183,28 @@ impl Engine {
     }
 
     pub fn panic(&mut self) {
+        // Return arf Vms before the slots go inactive — a silenced slot is
+        // reused lazily, and a stranded Vm would starve its patch's pool.
+        for i in 0..self.active_voices {
+            if let Some(vp) = self.voices[i].patch.take() {
+                self.patch_registry.retire(vp);
+            }
+        }
         self.active_voices = 0;
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        // Voices dying with the engine still hold pooled Vms; send them home
+        // so a patch registry that outlives this engine (the device-loss
+        // rebuild reuses it) keeps its pools full. Engines drop on control
+        // threads (stream teardown), never inside the audio callback.
+        for v in &mut self.voices {
+            if let Some(vp) = v.patch.take() {
+                self.patch_registry.retire(vp);
+            }
+        }
     }
 }
 

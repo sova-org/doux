@@ -246,6 +246,9 @@ pub struct Voice {
     #[cfg(feature = "native")]
     pub stretch: StretchState,
     pub web_sample: Option<WebSampleSource>,
+    /// Live arf patch handle (`Source::Arf`): pooled Vm + control plane.
+    /// Never dropped on the audio thread — see the note in [`Voice::reset`].
+    pub patch: Option<crate::patch::VoicePatch>,
     pub(super) drum_svf: FaustSvf,
     pub(super) drum_svf2: FaustSvf,
     /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
@@ -332,6 +335,7 @@ impl Default for Voice {
             #[cfg(feature = "native")]
             stretch: StretchState::default(),
             web_sample: None,
+            patch: None,
             drum_svf: FaustSvf::default(),
             drum_svf2: FaustSvf::default(),
             pluck: Box::new(PluckState::default()),
@@ -386,6 +390,10 @@ impl Voice {
             self.stretch = StretchState::default();
         }
         self.web_sample = None;
+        // `patch` is deliberately untouched: dropping the arf Vm here would
+        // deallocate on the audio thread. Every engine site that ends or
+        // reuses a voice returns it to its pool (`PatchRegistry::retire`)
+        // before calling `reset`.
         // Clear all cold FX state in place — never rebuild the ~1.1 MB struct by
         // value (a stack temporary that overflows the audio thread on note-on).
         self.fx.reset();

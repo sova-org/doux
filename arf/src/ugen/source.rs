@@ -1,0 +1,223 @@
+//! Noise sources: white (`noise`), colored (`pink`, `brown`), shaped (`clipnoise`), random
+//! impulses (`dust`, `dust2`), and low-frequency modulation noise (`noiseh`, `noisei`). Every
+//! one draws its randomness from the shared [`noise_sample`] counter hash, so the VM and JIT
+//! agree bit-for-bit with no per-source state of their own — exactly like `noise`.
+
+use super::{Arity, Category, InputDescriptor, Rate, TickCtx, UGen, Unit};
+
+pub(super) static UGENS: &[UGen] = &[
+    // noise ( -- sig )   state: [sample counter]   full-scale white noise in [-1, 1)
+    UGen { name: "noise", category: Category::Noise, description: "White-noise source — full-scale, in [-1, 1).",
+           examples: &["noise 0.2 * out", "noise 2000 lpf 0.3 * out", "noise  0.5 sine 1500 * 2000 +  lpf 0.3 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
+           state_slots: 1, buffer_len: 0, rate: Rate::Audio, cost: 6, tick: tick_noise },
+    // pink ( -- sig )   state: [b0..b6, counter]   Paul Kellet "refined" pink filter on white
+    UGen { name: "pink", category: Category::Noise, description: "Pink noise — equal power per octave (−3 dB/oct).",
+           examples: &["pink 0.4 * out", "pink 0.5 sine 0.5 * 0.5 + * 0.4 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
+           state_slots: 8, buffer_len: 0, rate: Rate::Audio, cost: 18, tick: tick_pink },
+    // brown ( -- sig )   state: [z, counter]   reflected random walk, bounded in [-1, 1]
+    UGen { name: "brown", category: Category::Noise, description: "Brown noise — a bounded random walk (−6 dB/oct).",
+           examples: &["brown 0.4 * out", "brown 1200 lpf 0.4 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
+           state_slots: 2, buffer_len: 0, rate: Rate::Audio, cost: 10, tick: tick_brown },
+    // clipnoise ( -- sig )   state: [counter]   two-level white: the sign of the white sample
+    UGen { name: "clipnoise", category: Category::Noise, description: "Clipped white noise — randomly +1 or −1.",
+           examples: &["clipnoise 0.15 * out", "clipnoise 1500 lpf 0.2 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
+           state_slots: 1, buffer_len: 0, rate: Rate::Audio, cost: 7, tick: tick_clipnoise },
+    // dust ( density -- sig )   state: [counter]   unipolar random impulses
+    UGen { name: "dust", category: Category::Noise, description: "Random impulses — unipolar [0, 1), `density` events per second.",
+           examples: &["20 dust 0.3 * out", "200 dust 0.2 * out", "12 dust 0.05 perc 440 sine * 0.3 * out"], arity: Arity::Fixed(1),
+           inputs: &[InputDescriptor { name: "density", unit: Unit::Hz, range: (0.0, 5_000.0), default: 100.0, rate: Rate::Audio }],
+           outputs: 1, state_slots: 1, buffer_len: 0, rate: Rate::Audio, cost: 8, tick: tick_dust },
+    // dust2 ( density -- sig )   state: [counter]   bipolar random impulses
+    UGen { name: "dust2", category: Category::Noise, description: "Random impulses — bipolar [−1, 1), `density` events per second.",
+           examples: &["30 dust2 0.3 * out", "300 dust2 0.2 * out"], arity: Arity::Fixed(1),
+           inputs: &[InputDescriptor { name: "density", unit: Unit::Hz, range: (0.0, 5_000.0), default: 100.0, rate: Rate::Audio }],
+           outputs: 1, state_slots: 1, buffer_len: 0, rate: Rate::Audio, cost: 8, tick: tick_dust2 },
+    // noiseh ( freq -- sig )   state: [phase, value, counter]   stepped sample-and-hold noise
+    UGen { name: "noiseh", category: Category::Noise, description: "Stepped noise — holds a random value, jumping at `freq` Hz (sample-and-hold).",
+           examples: &["8 noiseh 0.3 * out", "10 noiseh 400 * 600 + sine 0.2 * out", "8000 noiseh 0.2 * out"], arity: Arity::Fixed(1),
+           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (0.0, 20_000.0), default: 8.0, rate: Rate::Audio }],
+           outputs: 1, state_slots: 3, buffer_len: 0, rate: Rate::Audio, cost: 8, tick: tick_noiseh },
+    // noisei ( freq -- sig )   state: [phase, prev, next, counter]   linearly-interpolated noise
+    UGen { name: "noisei", category: Category::Noise, description: "Ramped noise — linearly interpolates between random values at `freq` Hz.",
+           examples: &["6 noisei 0.3 * out", "5 noisei 300 * 500 + sine 0.2 * out"], arity: Arity::Fixed(1),
+           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (0.0, 20_000.0), default: 8.0, rate: Rate::Audio }],
+           outputs: 1, state_slots: 4, buffer_len: 0, rate: Rate::Audio, cost: 10, tick: tick_noisei },
+];
+
+/// Wellons' `lowbias32` integer hash — the avalanche shared by [`noise_sample`] (the white-noise
+/// mapping) and [`noise_seed`] (the per-instance seed scatter), so both derive from one mixer.
+#[inline]
+fn lowbias32(mut x: u32) -> u32 {
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^= x >> 16;
+    x
+}
+
+/// Map a sample counter to a white-noise sample in [-1, 1). A pure integer hash
+/// (Wellons' `lowbias32`), so it has no state of its own and both backends agree by
+/// calling this exact function — the VM's `tick_noise` directly, the JIT via the
+/// `arf_noise` shim. Only the top 24 bits feed the float, so the `u32 → f32` is exact
+/// (no rounding) and the result is strictly below 1.0.
+pub(crate) fn noise_sample(counter: u32) -> f32 {
+    ((lowbias32(counter) >> 8) as f32) * (2.0 / 16_777_216.0) - 1.0
+}
+
+/// A per-instance seed for a noise source's sample counter: scatter `ordinal` (the compiler's
+/// running index of seeded ops) across the counter space via the same avalanche, returned as the
+/// f32 integer to drop into the counter slot (`< 2^24`, so the slot's round-trip is lossless).
+/// Distinct ordinals land far apart, so co-existing instances read different regions of the one
+/// shared sequence — without this every `noise`/`dust`/… starts at counter 0 and emits the
+/// identical stream. The compiler assigns it as the slot's fresh init; reconcile then overrides a
+/// *carried* op's slot with its live counter (see `Engine::adopt_state_from`), so a running stream
+/// never reseeds across an edit.
+pub(crate) fn noise_seed(ordinal: u32) -> f32 {
+    (lowbias32(ordinal) & COUNTER_MASK) as f32
+}
+
+/// The state slot holding the per-instance sample counter, for the noise sources that have one
+/// (`None` for every other UGen). The compiler seeds this slot via [`noise_seed`] so co-existing
+/// instances decorrelate. Co-located with the rows above so a new noise source is registered here
+/// in the same file; each index matches that row's `state:` layout comment.
+pub(crate) fn seed_slot(name: &str) -> Option<u8> {
+    match name {
+        "noise" | "clipnoise" | "dust" | "dust2" => Some(0),
+        "brown" => Some(1),
+        "noiseh" => Some(2),
+        "noisei" => Some(3),
+        "pink" => Some(7),
+        _ => None,
+    }
+}
+
+fn tick_noise(ctx: &mut TickCtx, out: &mut [f32]) {
+    // The counter lives in the f32 state slot as an exact integer < 2^24, so the casts
+    // round-trip losslessly. It just keeps counting across a re-eval (like a phase).
+    let counter = ctx.state[0] as u32;
+    out[0] = noise_sample(counter);
+    ctx.state[0] = (counter.wrapping_add(1) & 0x00FF_FFFF) as f32;
+}
+
+/// The 24-bit wrap every noise source applies to its sample counter: kept below 2^24 so the
+/// counter's f32 round-trip in a state slot is lossless (matching `noise`).
+const COUNTER_MASK: u32 = 0x00FF_FFFF;
+
+/// Advance a noise counter one step, wrapped to 24 bits. The CLIF mirror is
+/// [`emit_advance_counter`]; both must agree so every derived noise stays bit-exact.
+fn advance_counter(c: u32) -> u32 {
+    c.wrapping_add(1) & COUNTER_MASK
+}
+
+// Paul Kellet's "refined" pink-noise filter: six leaky one-pole sections plus a feed-forward
+// term, summed and scaled. Coefficients live here as the single source both `tick_pink` and
+// `emit_pink` read, so the two backends cannot drift. The trailing `0.11` scale brings the
+// output to a comfortable level (the canonical Kellet constant) for white in [-1, 1).
+const PINK_COEFFS: [f32; 6] = [0.99886, 0.99332, 0.96900, 0.86650, 0.55000, -0.7616];
+#[allow(clippy::excessive_precision)] // Kellet's published constants, kept verbatim
+const PINK_GAINS: [f32; 6] = [0.0555179, 0.0750759, 0.1538520, 0.3104856, 0.5329522, -0.0168980];
+const PINK_B6_GAIN: f32 = 0.115926;
+const PINK_WHITE_GAIN: f32 = 0.5362;
+const PINK_SCALE: f32 = 0.11;
+
+fn tick_pink(ctx: &mut TickCtx, out: &mut [f32]) {
+    // Run the six poles (each `coeff·prev + white·gain`; the sixth folds its minus sign into a
+    // negative gain so every section shares one shape), then sum them with the held b6 and a
+    // direct white term in a fixed left-to-right order `emit_pink` mirrors fadd-for-fadd.
+    let counter = ctx.state[7] as u32;
+    let w = noise_sample(counter);
+    let mut poles = [0.0f32; 6];
+    for (i, pole) in poles.iter_mut().enumerate() {
+        *pole = PINK_COEFFS[i] * ctx.state[i] + w * PINK_GAINS[i];
+    }
+    let mut pink = poles[0];
+    for &p in &poles[1..] {
+        pink += p;
+    }
+    pink += ctx.state[6]; // held b6 from the previous sample
+    pink += w * PINK_WHITE_GAIN;
+    for (slot, &pole) in poles.iter().enumerate() {
+        ctx.state[slot] = pole;
+    }
+    ctx.state[6] = w * PINK_B6_GAIN;
+    out[0] = pink * PINK_SCALE;
+    ctx.state[7] = advance_counter(counter) as f32;
+}
+
+fn tick_brown(ctx: &mut TickCtx, out: &mut [f32]) {
+    // A random walk stepped by white/8 and reflected at the rails, so it stays bounded in
+    // [-1, 1] without the precision drift of an unbounded accumulator. The step magnitude is
+    // < 2, so one reflection per rail always lands the value back in range.
+    let counter = ctx.state[1] as u32;
+    let w = noise_sample(counter);
+    let stepped = ctx.state[0] + w * 0.125;
+    let folded_hi = if stepped > 1.0 { 2.0 - stepped } else { stepped };
+    let z = if folded_hi < -1.0 { -2.0 - folded_hi } else { folded_hi };
+    ctx.state[0] = z;
+    out[0] = z;
+    ctx.state[1] = advance_counter(counter) as f32;
+}
+
+fn tick_clipnoise(ctx: &mut TickCtx, out: &mut [f32]) {
+    let counter = ctx.state[0] as u32;
+    let w = noise_sample(counter);
+    out[0] = if w >= 0.0 { 1.0 } else { -1.0 };
+    ctx.state[0] = advance_counter(counter) as f32;
+}
+
+fn tick_dust(ctx: &mut TickCtx, out: &mut [f32]) {
+    // Fire with probability density/sr each sample; the impulse height is the uniform draw
+    // rescaled by 1/threshold, so heights spread over [0, 1) — the classic `Dust` shape.
+    let density = ctx.inputs[0].max(0.0);
+    let counter = ctx.state[0] as u32;
+    let w = noise_sample(counter);
+    let u = w * 0.5 + 0.5;
+    let thresh = density / ctx.sr;
+    out[0] = if u < thresh { u / thresh } else { 0.0 };
+    ctx.state[0] = advance_counter(counter) as f32;
+}
+
+fn tick_dust2(ctx: &mut TickCtx, out: &mut [f32]) {
+    let density = ctx.inputs[0].max(0.0);
+    let counter = ctx.state[0] as u32;
+    let w = noise_sample(counter);
+    let u = w * 0.5 + 0.5;
+    let thresh = density / ctx.sr;
+    out[0] = if u < thresh { 2.0 * (u / thresh) - 1.0 } else { 0.0 };
+    ctx.state[0] = advance_counter(counter) as f32;
+}
+
+fn tick_noiseh(ctx: &mut TickCtx, out: &mut [f32]) {
+    // Sample-and-hold: advance a phase by freq/sr; whenever it crosses 1, latch a fresh random
+    // draw and advance the counter, otherwise hold both. Starts at 0 until the first wrap.
+    let counter = ctx.state[2] as u32;
+    let next_counter = advance_counter(counter);
+    let draw = noise_sample(next_counter);
+    let phase = ctx.state[0] + ctx.inputs[0] / ctx.sr;
+    let wrapped = phase >= 1.0;
+    let value = if wrapped { draw } else { ctx.state[1] };
+    ctx.state[0] = phase.rem_euclid(1.0);
+    ctx.state[1] = value;
+    ctx.state[2] = (if wrapped { next_counter } else { counter }) as f32;
+    out[0] = value;
+}
+
+fn tick_noisei(ctx: &mut TickCtx, out: &mut [f32]) {
+    // Like `noiseh`, but linearly interpolate from the previously latched value to the next as
+    // the phase ramps 0→1: on a wrap the old `next` becomes `prev` and a fresh draw becomes
+    // `next`. Starts at 0 and ramps from there until the first wrap.
+    let counter = ctx.state[3] as u32;
+    let next_counter = advance_counter(counter);
+    let draw = noise_sample(next_counter);
+    let phase = ctx.state[0] + ctx.inputs[0] / ctx.sr;
+    let wrapped = phase >= 1.0;
+    let prev = if wrapped { ctx.state[2] } else { ctx.state[1] };
+    let next = if wrapped { draw } else { ctx.state[2] };
+    let frac = phase.rem_euclid(1.0);
+    ctx.state[0] = frac;
+    ctx.state[1] = prev;
+    ctx.state[2] = next;
+    ctx.state[3] = (if wrapped { next_counter } else { counter }) as f32;
+    out[0] = prev + frac * (next - prev);
+}
