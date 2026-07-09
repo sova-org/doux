@@ -5,7 +5,8 @@
 //! [`noise_sample`] counter hash, so it is deterministic per seed with no RNG state of its
 //! own — exactly like `noise`.
 
-use super::{signal, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use super::{signal, wrap01, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use crate::fastmath::powf;
 
 pub(super) static UGENS: &[UGen] = &[
     // noise ( -- sig )   state: [sample counter]   full-scale white noise in [-1, 1)
@@ -54,12 +55,12 @@ pub(super) static UGENS: &[UGen] = &[
     UGen { name: "exprand", category: Category::Noise, description: "Random constant, biased low — lo·(hi/lo)^u, held for the note; args must be positive.",
            examples: &["200 4000 exprand sine 0.2 * out", "110 saw 300 6000 exprand lpf 0.3 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 14, tick: tick_exprand },
+           state_slots: 4, buffer_len: 0, cost: 14, tick: tick_exprand },
     // logrand ( lo hi -- sig )   state: [counter]   per-note draw, exponential bias toward hi
     UGen { name: "logrand", category: Category::Noise, description: "Random constant, biased high — hi·(lo/hi)^u, held for the note; args must be positive.",
            examples: &["200 4000 logrand sine 0.2 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 14, tick: tick_logrand },
+           state_slots: 4, buffer_len: 0, cost: 14, tick: tick_logrand },
     // trand ( trig lo hi -- sig )   state: [held, prev, armed, counter]   uniform redraw on each
     // rising edge; draws once at the first sample so it never rests outside [lo, hi)
     UGen { name: "trand", category: Category::Noise, description: "Triggered random — holds a uniform draw in [lo, hi), redrawn on each rising trigger edge (draws at note start).",
@@ -235,7 +236,7 @@ fn tick_noiseh(ctx: &mut TickCtx, out: &mut [f32]) {
     let phase = ctx.state[0] + ctx.inputs[0] / ctx.sr;
     let wrapped = phase >= 1.0;
     let value = if wrapped { draw } else { ctx.state[1] };
-    ctx.state[0] = phase.rem_euclid(1.0);
+    ctx.state[0] = wrap01(phase);
     ctx.state[1] = value;
     ctx.state[2] = (if wrapped { next_counter } else { counter }) as f32;
     out[0] = value;
@@ -252,7 +253,7 @@ fn tick_noisei(ctx: &mut TickCtx, out: &mut [f32]) {
     let wrapped = phase >= 1.0;
     let prev = if wrapped { ctx.state[2] } else { ctx.state[1] };
     let next = if wrapped { draw } else { ctx.state[2] };
-    let frac = phase.rem_euclid(1.0);
+    let frac = wrap01(phase);
     ctx.state[0] = frac;
     ctx.state[1] = prev;
     ctx.state[2] = next;
@@ -282,18 +283,32 @@ fn tick_rand(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = ctx.inputs[0] + (ctx.inputs[1] - ctx.inputs[0]) * u;
 }
 
+// The draw is fixed for the instance's life (the counter never advances), so exprand/
+// logrand's mapped value only changes with the bounds: cache [key_lo, key_hi, value]
+// behind the counter slot. Both keys are clamped ≥ 1e-6 by `positive`, so the zero-filled
+// fresh state always misses and the first tick computes (the filters' caching convention).
 fn tick_exprand(ctx: &mut TickCtx, out: &mut [f32]) {
-    let u = unit_draw(ctx.state[0] as u32);
     let lo = positive(ctx.inputs[0]);
     let hi = positive(ctx.inputs[1]);
-    out[0] = lo * (hi / lo).powf(u);
+    if ctx.state[1] != lo || ctx.state[2] != hi {
+        let u = unit_draw(ctx.state[0] as u32);
+        ctx.state[1] = lo;
+        ctx.state[2] = hi;
+        ctx.state[3] = lo * powf(hi / lo, u);
+    }
+    out[0] = ctx.state[3];
 }
 
 fn tick_logrand(ctx: &mut TickCtx, out: &mut [f32]) {
-    let u = unit_draw(ctx.state[0] as u32);
     let lo = positive(ctx.inputs[0]);
     let hi = positive(ctx.inputs[1]);
-    out[0] = hi * (lo / hi).powf(u);
+    if ctx.state[1] != lo || ctx.state[2] != hi {
+        let u = unit_draw(ctx.state[0] as u32);
+        ctx.state[1] = lo;
+        ctx.state[2] = hi;
+        ctx.state[3] = hi * powf(lo / hi, u);
+    }
+    out[0] = ctx.state[3];
 }
 
 /// The shared triggered-random core: redraw a unit sample on each rising edge (and once at
@@ -321,7 +336,7 @@ fn tick_trand(ctx: &mut TickCtx, out: &mut [f32]) {
 }
 
 fn tick_texprand(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = trand_core(ctx, |lo, hi, u| positive(lo) * (positive(hi) / positive(lo)).powf(u));
+    out[0] = trand_core(ctx, |lo, hi, u| positive(lo) * powf(positive(hi) / positive(lo), u));
 }
 
 fn tick_coin(ctx: &mut TickCtx, out: &mut [f32]) {

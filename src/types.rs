@@ -7,7 +7,7 @@ pub const WASM_BUFFER_SIZE: usize = 128;
 /// Default cpal device buffer size on native builds (samples per callback).
 pub const DEFAULT_BUFFER_SIZE: usize = 512;
 pub const CHANNELS: usize = 2;
-pub const DEFAULT_MAX_VOICES: usize = 32;
+pub const DEFAULT_MAX_VOICES: usize = 64;
 pub const MAX_EVENTS: usize = 256;
 pub const MAX_ORBITS: usize = 8;
 /// Hard ceiling on the frames `process_block` may receive in one callback.
@@ -180,7 +180,7 @@ pub enum Source {
     Wavetable,
     WebSample,
     LiveInput,
-    /// User-defined arf graph, resolved by the `arf:<name>` sound prefix.
+    /// User-defined arf graph, resolved by its bare `<name>` as a sound.
     /// The patch handle lives on the voice (`Voice::patch`), not here.
     Arf,
 }
@@ -838,7 +838,7 @@ const INFO_ARF: SourceInfo = source_info!(
     "arf",
     &[],
     SourceCategory::Patch,
-    "User-defined arf graph patch, triggered as arf:<name>",
+    "User-defined arf graph patch, triggered by its bare name",
     None,
     &[],
     15

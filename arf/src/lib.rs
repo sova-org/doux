@@ -18,6 +18,7 @@
 //! engine; doux compiles and runs the graphs, it never parses a patch language.
 
 pub mod compile;
+pub mod fastmath;
 pub mod graph;
 pub mod ir;
 pub mod ugen;

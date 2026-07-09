@@ -275,7 +275,7 @@ pub struct Engine {
     pub(crate) sample_index: Vec<SampleEntry>,
     #[cfg(feature = "native")]
     pub(crate) sample_registry: Arc<SampleRegistry>,
-    /// Installed arf patches (`s/arf:<name>`), published from control threads,
+    /// Installed arf patches (`s/<name>`), published from control threads,
     /// read lock-free at dispatch. The arf mirror of `sample_registry`.
     pub(crate) patch_registry: Arc<PatchRegistry>,
     #[cfg(feature = "native")]
@@ -535,7 +535,7 @@ impl Engine {
 
     /// Shared handle to the arf patch registry. Clone it before the Engine
     /// moves onto the audio thread; installs published through it are picked
-    /// up by the next `s/arf:<name>` event.
+    /// up by the next `s/<name>` event.
     pub fn patch_registry(&self) -> &Arc<PatchRegistry> {
         &self.patch_registry
     }
@@ -869,21 +869,21 @@ impl Engine {
         let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
         if let Some(ref sound_str) = event.sound {
             if !has_web_sample && sound_str.parse::<Source>().is_err() {
-                if let Some(patch_name) = sound_str.strip_prefix("arf:") {
-                    // A registry miss or a dry Vm pool drops the event, like
-                    // the sample-miss drop below. The pool probe is reliable:
-                    // dispatch and voice death both run on this thread, so
-                    // nothing pops between here and the attach. A dry pool
-                    // still admits a retrigger of a tagged voice already
-                    // holding this patch — it reuses its Vm, not the pool's —
-                    // but only when the event keeps the voice (a reset or a
-                    // cut group takes the New path, which retires the Vm and
-                    // would then find the pool dry and play silence).
-                    let entry = self.patch_registry.get(patch_name)?;
-                    if !entry.is_source() {
-                        // An effect patch (`in`-reading) cannot be a sound.
-                        return None;
-                    }
+                if let Some(entry) =
+                    self.patch_registry.get(sound_str).filter(|e| e.is_source())
+                {
+                    // A bare name resolves to a source patch first, then falls
+                    // to a sample folder below (the `else`). An effect-role
+                    // patch of this name is filtered out here and falls through
+                    // too. A dry Vm pool drops the event, like the sample-miss
+                    // drop below. The pool probe is reliable: dispatch and voice
+                    // death both run on this thread, so nothing pops between
+                    // here and the attach. A dry pool still admits a retrigger
+                    // of a tagged voice already holding this patch — it reuses
+                    // its Vm, not the pool's — but only when the event keeps the
+                    // voice (a reset or a cut group takes the New path, which
+                    // retires the Vm and would then find the pool dry and play
+                    // silence).
                     if !entry.has_vm() {
                         let retargets_holder = !event.reset.unwrap_or(false)
                             && event.cut.is_none()
@@ -916,7 +916,7 @@ impl Engine {
             }
         }
 
-        // Voice insert availability gate, mirroring the `arf:` sound gate
+        // Voice insert availability gate, mirroring the source-patch sound gate
         // above: a registry miss, a source-role patch, or a dry Vm pool
         // drops the event — except when it retriggers a tagged voice already
         // holding this insert (which reuses its Vm, not the pool's).
@@ -1042,9 +1042,10 @@ impl Engine {
                 $(if let Some(val) = $src.$field { $dst.$field = Some(val); })+
             };
         }
-        // Resolve sound/sample first (before borrowing voice). An `arf:` name
-        // resolves against the patch registry; otherwise, if the sound parses
-        // as a Source use it, else treat it as a sample folder name.
+        // Resolve sound/sample first (before borrowing voice). A bare name
+        // resolves against the patch registry (a source-role patch) when it is
+        // neither a builtin Source nor web-sample PCM; a builtin Source wins
+        // over a same-named patch, and a miss falls back to a sample folder.
         // JS-supplied web-sample PCM wins over the sound name (same precedence
         // as the dispatch gate) — resolving the patch anyway would check a Vm
         // out of the pool only for the web-sample block to orphan it below.
@@ -1053,7 +1054,7 @@ impl Engine {
             .sound
             .as_deref()
             .filter(|_| !has_web_sample)
-            .and_then(|s| s.strip_prefix("arf:"))
+            .filter(|s| s.parse::<Source>().is_err()) // a builtin source wins over a same-named patch
             .and_then(|name| self.patch_registry.get(name))
             .filter(|e| e.is_source());
         let fx_entry = event
@@ -1066,7 +1067,7 @@ impl Engine {
         #[cfg(feature = "native")]
         let (registry_sample_data, registry_sample_data_b, sample_blend) =
             if let Some(ref sound_str) = event.sound {
-                if sound_str.parse::<Source>().is_ok() || sound_str.starts_with("arf:") {
+                if sound_str.parse::<Source>().is_ok() || patch_entry.is_some() {
                     (None, None, 0.0f32)
                 } else {
                     let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
@@ -1101,7 +1102,7 @@ impl Engine {
 
         #[cfg(not(feature = "native"))]
         let loaded_sample = if let Some(ref sound_str) = event.sound {
-            if sound_str.parse::<Source>().is_err() && !sound_str.starts_with("arf:") {
+            if sound_str.parse::<Source>().is_err() && patch_entry.is_none() {
                 let effective_name = event.effective_name.as_deref().unwrap_or(sound_str);
                 let n = event.n_as_index();
                 self.get_or_load_sample(effective_name, n)
@@ -1623,7 +1624,7 @@ impl Engine {
 
         // --- Modulation ---
         copy_opt!(event, v.params, vib, vibmod, vibshape);
-        copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmpivot, fmfb);
+        copy_opt!(event, v.params, fm, fmh, fmshape, fm2, fm2h, fmpivot, fmfb, fmloop);
         copy_opt!(event, v.params, am, amdepth, amshape);
         copy_opt!(event, v.params, rm, rmdepth, rmshape);
 
@@ -2435,6 +2436,28 @@ mod tests {
         );
     }
 
+    // Closed-loop FM at max drive (fmfb + fmloop both 1, high indices) must
+    // stay finite and audible: the loop is delay-averaged, not clamped.
+    #[cfg(feature = "native")]
+    #[test]
+    fn fm_loop_at_max_drive_stays_finite() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.evaluate("sound/sine/note/36/fm/10/fmh/1/fm2/10/fm2h/7/fmfb/1/fmloop/1/gate/2");
+
+        let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
+        let blocks =
+            (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+        let mut peak = 0.0_f32;
+        for _ in 0..blocks {
+            engine.process_block(&mut out, &[], &[]);
+            for &s in &out {
+                assert!(s.is_finite(), "closed-loop FM produced a non-finite sample");
+                peak = peak.max(s.abs());
+            }
+        }
+        assert!(peak > 0.0, "voice should be audible");
+    }
+
     // Named patch params: a note starts from the declared defaults, an event's
     // `p:name` writes reach the lane, a sourceless update writes without
     // resetting, and a chain ticks the lane per sample.
@@ -2468,7 +2491,7 @@ mod tests {
         engine.patch_registry.install_graph("pp", &json, 48_000.0).unwrap();
 
         // A note with a static write reaches the lane; an unknown name is ignored.
-        engine.evaluate("sound/arf:pp/voice/0/gate/0/p:cutoff/2000/p:nope/1");
+        engine.evaluate("sound/pp/voice/0/gate/0/p:cutoff/2000/p:nope/1");
         render(&mut engine, 0.05);
         assert_eq!(engine.active_voices(), 1);
         assert_eq!(lane(&engine, 0, PARAM_BASE), 2000.0);
@@ -2479,13 +2502,13 @@ mod tests {
         assert_eq!(lane(&engine, 0, PARAM_BASE), 900.0);
 
         // A retrigger without the param re-asserts the declared default.
-        engine.evaluate("sound/arf:pp/voice/0/gate/0");
+        engine.evaluate("sound/pp/voice/0/gate/0");
         render(&mut engine, 0.05);
         assert_eq!(lane(&engine, 0, PARAM_BASE), 400.0);
 
         // A chain rides the lane per sample: after a render the lane sits
         // inside the chain's range, not at the default.
-        engine.evaluate("sound/arf:pp/voice/0/gate/0/p:cutoff/3000~5000:2");
+        engine.evaluate("sound/pp/voice/0/gate/0/p:cutoff/3000~5000:2");
         render(&mut engine, 0.05);
         let v = lane(&engine, 0, PARAM_BASE);
         assert!((3000.0..=5000.0).contains(&v), "chain did not tick the lane: {v}");

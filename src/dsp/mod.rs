@@ -2,10 +2,13 @@
 
 pub mod delay_line;
 pub mod envelope;
-pub mod fastmath;
 pub mod fft;
 pub mod noise;
 pub mod oscillator;
+
+/// Fast transcendental approximations — the single source of truth lives in the arf crate
+/// (its UGens run the same math); re-exported so doux call sites keep their path.
+pub use arf::fastmath;
 
 pub use delay_line::DelayLine;
 pub use envelope::{init_envelope, Dahdsr, DahdsrState, EnvelopeParams};

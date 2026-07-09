@@ -2,7 +2,7 @@
 //! buffer (the line) and a write head in one state slot. `comb` and `allpass` read the line
 //! at a fractional position (`load_lerp`), so a modulated `time` glides instead of zipping.
 
-use super::{signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{flush, signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
 
 pub(super) static UGENS: &[UGen] = &[
     // delay ( in time -- sig )  state: [write head]   buffer: the line
@@ -25,6 +25,22 @@ pub(super) static UGENS: &[UGen] = &[
                      InputDescriptor { name: "fb", unit: Unit::Ratio, range: (0.0, 0.95), default: 0.5 }],
            outputs: 1, state_slots: 1, buffer_len: 1 << 16, cost: 8, tick: tick_allpass },
 ];
+
+/// Compile-time length (f32s, a power of two so the ticks can mask) for a delay-family
+/// line at `sr`: sized to the `time` input when it is a literal, else to the input's
+/// declared range max. The rows' fixed `buffer_len` never applies — this hook (reached via
+/// [`super::sized_buffer_len`]) covers every anonymous instance, so a 10 ms literal comb
+/// costs 1 KiB instead of the worst-case line, and the worst case itself tracks the actual
+/// sample rate instead of assuming 48 kHz.
+pub(super) fn line_len(sr: f32, consts: &[Option<f32>]) -> usize {
+    // `time`'s declared range max (the rows agree); a modulated line gets the full range.
+    const MAX_SECONDS: f32 = 1.0;
+    // NaN-suppressing max/min, as the ticks clamp: a NaN literal collapses to 0.
+    #[allow(clippy::manual_clamp)]
+    let t = consts.get(1).copied().flatten().unwrap_or(MAX_SECONDS).max(0.0).min(MAX_SECONDS);
+    // +2: one for the write head, one so the interpolated read never wraps onto the head.
+    (((t * sr).ceil() as usize) + 2).next_power_of_two()
+}
 
 fn tick_delay(ctx: &mut TickCtx, out: &mut [f32]) {
     // A masked ring line: write the input at the head, read `time` seconds earlier
@@ -52,7 +68,7 @@ fn tick_comb(ctx: &mut TickCtx, out: &mut [f32]) {
     let pos = head as f32 + ctx.buffer.len() as f32 - d;
     let y = ctx.load_lerp(pos);
     let g = ctx.inputs[2].max(-0.999).min(0.999);
-    ctx.buffer[head] = ctx.inputs[0] + g * y;
+    ctx.buffer[head] = flush(ctx.inputs[0] + g * y);
     ctx.state[0] = ((head + 1) & mask) as f32;
     out[0] = y;
 }
@@ -69,7 +85,7 @@ fn tick_allpass(ctx: &mut TickCtx, out: &mut [f32]) {
     let r = ctx.load_lerp(pos);
     let g = ctx.inputs[2].max(0.0).min(0.999);
     let w = ctx.inputs[0] + g * r;
-    ctx.buffer[head] = w;
+    ctx.buffer[head] = flush(w);
     ctx.state[0] = ((head + 1) & mask) as f32;
     out[0] = r - g * w;
 }

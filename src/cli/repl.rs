@@ -159,7 +159,7 @@ fn print_help() {
     println!("  .time        Show engine time");
     println!("  .stats, .s   Show engine telemetry (load, voices, memory)");
     println!("  .patch <name> <arf source>");
-    println!("               Compile + install an arf patch (play it as s/arf:<name>)");
+    println!("               Compile + install an arf patch (play it as s/<name>)");
     println!("  .help, .h    Show this help");
     println!();
     println!("Any other input is evaluated as a doux pattern.");
@@ -325,7 +325,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         match rest.split_once(char::is_whitespace) {
                             Some((name, graph_json)) if !graph_json.trim().is_empty() => {
                                 match patch_registry.install_graph(name, graph_json, oc.sample_rate) {
-                                    Ok(()) => println!("installed arf:{name}"),
+                                    Ok(()) => println!("installed {name}"),
                                     Err(e) => eprintln!("{RED}[patch]{RESET} {e}"),
                                 }
                             }

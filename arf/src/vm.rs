@@ -113,8 +113,20 @@ impl Vm {
                     regs[reg_cursor] = now;
                     reg_cursor += 1;
                 }
-                Op::Ugen { ugen, input_start, input_count, state_base, buffer_base, buffer_len } => {
-                    let def = ugen::def(ugen);
+                // Inlined glue arithmetic — the most numerous op kind in a patch; matched
+                // here so it pays none of the UGen call apparatus below.
+                Op::Bin { kind, a, b } => {
+                    let x = regs[a.0 as usize];
+                    let y = regs[b.0 as usize];
+                    regs[reg_cursor] = match kind {
+                        crate::ir::BinKind::Add => x + y,
+                        crate::ir::BinKind::Sub => x - y,
+                        crate::ir::BinKind::Mul => x * y,
+                        crate::ir::BinKind::Div => x / y,
+                    };
+                    reg_cursor += 1;
+                }
+                Op::Ugen { def, input_start, input_count, state_base, buffer_base, buffer_len } => {
                     let start = input_start as usize;
                     let n_in = input_count as usize;
                     for (k, slot) in scratch[..n_in].iter_mut().enumerate() {

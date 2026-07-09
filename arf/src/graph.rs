@@ -218,9 +218,10 @@ impl Graph {
 
     /// The node behind a handle. Public so an external graph front-end (cagire's `arf-forth`)
     /// can read back what it built — e.g. to fold constants or inspect a subgraph during
-    /// construction.
-    pub fn node(&self, id: NodeId) -> Node {
-        self.nodes[id.0 as usize].clone()
+    /// construction. Borrowed: the compiler's walk visits every node twice, and cloning a
+    /// `Node` heap-clones its input list.
+    pub fn node(&self, id: NodeId) -> &Node {
+        &self.nodes[id.0 as usize]
     }
 
     pub(crate) fn len(&self) -> usize {

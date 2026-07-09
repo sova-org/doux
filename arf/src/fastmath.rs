@@ -21,7 +21,7 @@
 //! extracting and manipulating exponent/mantissa fields directly. Trigonometric
 //! functions use minimax polynomial approximations.
 
-use std::f32::consts::{LN_2, LOG2_10, PI};
+use std::f32::consts::{LN_2, LOG2_10, LOG2_E, PI};
 
 /// Bit position of the exponent field in IEEE 754 single precision.
 const F32_EXP_SHIFT: i32 = 23;
@@ -86,6 +86,15 @@ pub fn powf(x: f32, y: f32) -> f32 {
         return 1.0;
     }
     exp2f(y * log2f(x))
+}
+
+/// Fast natural exponential: `e^x` as `2^(x·log₂e)`.
+///
+/// Same accuracy and range behavior as [`exp2f`] (underflows to `0.0`,
+/// overflows to `INFINITY`).
+#[inline]
+pub fn expf(x: f32) -> f32 {
+    exp2f(x * LOG2_E)
 }
 
 /// Computes `0.5^x` (equivalently `2^(-x)`).

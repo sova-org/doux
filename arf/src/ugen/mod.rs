@@ -115,6 +115,45 @@ const fn signal(name: &'static str) -> InputDescriptor {
     InputDescriptor { name, unit: Unit::None, range: (-1.0, 1.0), default: 0.0 }
 }
 
+/// Wrap a phase into `[0, 1)`: `x − ⌊x⌋`. Matches `rem_euclid(1.0)` bit-for-bit over the
+/// oscillators' phase range but costs one `floor` instead of a libm `fmodf`.
+pub(super) fn wrap01(x: f32) -> f32 {
+    x - x.floor()
+}
+
+/// Flush a decaying feedback value to zero on targets without hardware FTZ (wasm32): once a
+/// tail decays into the denormal range, every further IIR iteration runs on denormals, which
+/// cost 10-100× on exactly the low-end targets wasm serves. Native hosts enable hardware
+/// FTZ/DAZ at callback entry ([`crate::fastmath::enable_flush_to_zero`]), so there this is
+/// the identity and costs nothing. The threshold is far below audibility (−400 dB) but far
+/// above the f32 denormal range.
+#[inline]
+#[allow(unused_variables)] // `x` is consumed by exactly one of the cfg arms
+pub(super) fn flush(x: f32) -> f32 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::fastmath::ftz(x, 1e-20)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        x
+    }
+}
+
+/// Compile-time sample-memory size for a generator whose anonymous buffer is sized to the
+/// program, not to the row's fixed worst case: the delay family sizes its line to a literal
+/// `time` input (else the input's declared range max) at `sr`, and `verb` sizes its tank to
+/// `sr` alone. `consts[i]` is `Some` iff the op's input `i` is a literal. `None` falls back
+/// to the row's fixed [`UGen::buffer_len`] — the same name-keyed side-table pattern as
+/// [`seed_slot`].
+pub(crate) fn sized_buffer_len(name: &str, sr: f32, consts: &[Option<f32>]) -> Option<usize> {
+    match name {
+        "delay" | "comb" | "allpass" => Some(buffer::line_len(sr, consts)),
+        "verb" => Some(reverb::tank_len(sr)),
+        _ => None,
+    }
+}
+
 /// A handle to a UGen definition: an index into [`UGENS`]. Only this module mints one
 /// (via [`lookup`]), so a `UGenId` always refers to a real row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -231,6 +270,14 @@ pub struct UGen {
     pub cost: u16,
     /// The per-sample DSP: read the context's inputs/state/sr, write `out[0..outputs]`.
     pub tick: fn(&mut TickCtx<'_>, out: &mut [f32]),
+}
+
+// Name-only: the row's tables and fn pointer aren't useful in a dump, and this keeps
+// `#[derive(Debug)]` available to the IR, whose ops carry `&'static UGen`.
+impl std::fmt::Debug for UGen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UGen").field("name", &self.name).finish_non_exhaustive()
+    }
 }
 
 /// The whole UGen vocabulary, assembled from the category modules. The order here is the

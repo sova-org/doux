@@ -337,6 +337,7 @@ pub enum ParamId {
     Fm2h,
     Fmpivot,
     Fmfb,
+    Fmloop,
     Am,
     Amdepth,
     Rm,

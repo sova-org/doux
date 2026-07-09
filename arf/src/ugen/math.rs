@@ -5,7 +5,10 @@
 //! `>=` `==` `!=`). Stateless; each `tick` is one IEEE expression (NaN-suppressing min/max,
 //! never raw comparisons that would let NaN through where the table suppresses it).
 
+use core::f32::consts::{LN_2, LOG10_2};
+
 use super::{signal, Arity, Category, ListShape, TickCtx, UGen};
+use crate::fastmath::{atan2f, cosf, exp2f, expf, fast_tan, log2f, pow10, powf, sinf};
 
 pub(super) static UGENS: &[UGen] = &[
     // + ( a b -- a+b )
@@ -319,23 +322,23 @@ fn tick_trunc(ctx: &mut TickCtx, out: &mut [f32]) {
 }
 
 fn tick_exp(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].exp();
+    out[0] = expf(ctx.inputs[0]);
 }
 
 fn tick_sin(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].sin();
+    out[0] = sinf(ctx.inputs[0]);
 }
 
 fn tick_cos(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].cos();
+    out[0] = cosf(ctx.inputs[0]);
 }
 
 fn tick_tan(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].tan();
+    out[0] = fast_tan(ctx.inputs[0]);
 }
 
 fn tick_atan(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].atan();
+    out[0] = atan2f(ctx.inputs[0], 1.0);
 }
 
 fn tick_linlin(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -357,8 +360,8 @@ fn tick_xfade(ctx: &mut TickCtx, out: &mut [f32]) {
     // Both legs through sin — cos(t·π/2) written as sin((1-t)·π/2) — one function, one
     // rounding behavior for both legs.
     let [a, b, t] = [ctx.inputs[0], ctx.inputs[1], ctx.inputs[2]];
-    out[0] = a * ((1.0 - t) * std::f32::consts::FRAC_PI_2).sin()
-        + b * (t * std::f32::consts::FRAC_PI_2).sin();
+    out[0] = a * sinf((1.0 - t) * std::f32::consts::FRAC_PI_2)
+        + b * sinf(t * std::f32::consts::FRAC_PI_2);
 }
 
 fn tick_curve(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -369,7 +372,7 @@ fn tick_curve(ctx: &mut TickCtx, out: &mut [f32]) {
     #[allow(clippy::manual_clamp)]
     let k = ctx.inputs[1].max(-30.0).min(30.0);
     let x = ctx.inputs[0];
-    out[0] = if k.abs() < 1e-3 { x } else { ((k * x).exp() - 1.0) / (k.exp() - 1.0) };
+    out[0] = if k.abs() < 1e-3 { x } else { (expf(k * x) - 1.0) / (expf(k) - 1.0) };
 }
 
 fn tick_uni(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -380,20 +383,27 @@ fn tick_bi(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = ctx.inputs[0] * 2.0 - 1.0;
 }
 
+// `powf`'s fast path defines x < 0 as NaN for every exponent (std carves out an
+// integer-exponent exception); musically the negative-base case was already noise.
 fn tick_pow(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].powf(ctx.inputs[1]);
+    out[0] = powf(ctx.inputs[0], ctx.inputs[1]);
 }
 
+// The log words take the fast path for x > 0 and fall back to std off-domain, so
+// log(0) = −inf and log(<0) = NaN stay exact instead of the bit-hack's garbage.
 fn tick_log(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].ln();
+    let x = ctx.inputs[0];
+    out[0] = if x > 0.0 { log2f(x) * LN_2 } else { x.ln() };
 }
 
 fn tick_log2(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].log2();
+    let x = ctx.inputs[0];
+    out[0] = if x > 0.0 { log2f(x) } else { x.log2() };
 }
 
 fn tick_log10(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = ctx.inputs[0].log10();
+    let x = ctx.inputs[0];
+    out[0] = if x > 0.0 { log2f(x) * LOG10_2 } else { x.log10() };
 }
 
 fn tick_mod(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -417,23 +427,26 @@ fn tick_fold(ctx: &mut TickCtx, out: &mut [f32]) {
 
 fn tick_linexp(ctx: &mut TickCtx, out: &mut [f32]) {
     let [x, ilo, ihi, olo, ohi] = [ctx.inputs[0], ctx.inputs[1], ctx.inputs[2], ctx.inputs[3], ctx.inputs[4]];
-    out[0] = (ohi / olo).powf((x - ilo) / (ihi - ilo)) * olo;
+    out[0] = powf(ohi / olo, (x - ilo) / (ihi - ilo)) * olo;
 }
 
 fn tick_mtof(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = 440.0 * 2f32.powf((ctx.inputs[0] - 69.0) / 12.0);
+    out[0] = 440.0 * exp2f((ctx.inputs[0] - 69.0) / 12.0);
 }
 
+// Stays on std log2: `log2f`'s ~0.1% error is ~1 cent of pitch, too coarse for a
+// note-number conversion (mtof's exp2f at <0.01% is well under a cent).
 fn tick_ftom(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = 69.0 + 12.0 * (ctx.inputs[0] / 440.0).log2();
 }
 
 fn tick_dbamp(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = 10f32.powf(ctx.inputs[0] / 20.0);
+    out[0] = pow10(ctx.inputs[0] / 20.0);
 }
 
 fn tick_ampdb(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = 20.0 * ctx.inputs[0].log10();
+    let x = ctx.inputs[0];
+    out[0] = if x > 0.0 { 20.0 * (log2f(x) * LOG10_2) } else { 20.0 * x.log10() };
 }
 
 // Ordered compares (NaN ⇒ 0.0); `!=` is unordered (NaN ⇒ 1.0), like Rust's `!=`.

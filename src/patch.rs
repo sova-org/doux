@@ -1,4 +1,4 @@
-//! User-defined arf graphs as doux voice sources (`s/arf:<name>`), voice
+//! User-defined arf graphs as doux voice sources (`s/<name>`), voice
 //! inserts (`fx/<name>`) and orbit effects (`patch/<name>`).
 //!
 //! One namespace serves all three roles; the role is determined by the
@@ -68,7 +68,7 @@ impl PatchEntry {
         !self.pool.is_empty()
     }
 
-    /// A source generates audio from nothing — playable as `s/arf:<name>`.
+    /// A source generates audio from nothing — playable as `s/<name>`.
     pub(crate) fn is_source(&self) -> bool {
         self.program.in_channels() == 0
     }
@@ -363,7 +363,7 @@ impl PatchRegistry {
         }
     }
 
-    /// Look a patch up by its bare name (no `arf:` prefix). Lock-free — RT-safe.
+    /// Look a patch up by its bare name. Lock-free — RT-safe.
     #[inline]
     pub fn get(&self, name: &str) -> Option<Arc<PatchEntry>> {
         self.patches.load().get(name).cloned()

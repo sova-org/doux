@@ -6,7 +6,8 @@
 
 use core::f32::consts::{PI, TAU};
 
-use super::{Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{wrap01, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use crate::fastmath::sinf;
 
 pub(super) static UGENS: &[UGen] = &[
     // sine ( freq -- sig )   state: [phase 0..1]
@@ -80,8 +81,8 @@ fn poly_blamp(t: f32, dt: f32) -> f32 {
 
 fn tick_sine(ctx: &mut TickCtx, out: &mut [f32]) {
     let p = ctx.state[0];
-    out[0] = (p * TAU).sin();
-    ctx.state[0] = (p + ctx.inputs[0] / ctx.sr).rem_euclid(1.0);
+    out[0] = sinf(p * TAU);
+    ctx.state[0] = wrap01(p + ctx.inputs[0] / ctx.sr);
 }
 
 fn tick_saw(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -89,7 +90,7 @@ fn tick_saw(ctx: &mut TickCtx, out: &mut [f32]) {
     let inc = ctx.inputs[0] / ctx.sr;
     let dt = inc.abs();
     out[0] = (2.0 * p - 1.0) - poly_blep(p, dt); // naive ramp minus the wrap-step residual
-    ctx.state[0] = (p + inc).rem_euclid(1.0);
+    ctx.state[0] = wrap01(p + inc);
 }
 
 // Not `.clamp()`: `.max().min()` suppresses a NaN width to a bound (`clamp` propagates it).
@@ -102,9 +103,9 @@ fn tick_pulse(ctx: &mut TickCtx, out: &mut [f32]) {
     let inc = ctx.inputs[0] / ctx.sr;
     let dt = inc.abs();
     let naive = if p < w { 1.0 } else { -1.0 };
-    let edge = (p - w).rem_euclid(1.0); // the falling edge, mapped onto the wrap
+    let edge = wrap01(p - w); // the falling edge, mapped onto the wrap
     out[0] = naive + poly_blep(p, dt) - poly_blep(edge, dt);
-    ctx.state[0] = (p + inc).rem_euclid(1.0);
+    ctx.state[0] = wrap01(p + inc);
 }
 
 fn tick_tri(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -112,9 +113,9 @@ fn tick_tri(ctx: &mut TickCtx, out: &mut [f32]) {
     let inc = ctx.inputs[0] / ctx.sr;
     let dt = inc.abs();
     let naive = if p < 0.5 { 4.0 * p - 1.0 } else { 3.0 - 4.0 * p }; // trough −1@0, peak +1@0.5
-    let corr = 4.0 * dt * (poly_blamp(p, dt) - poly_blamp((p + 0.5).rem_euclid(1.0), dt));
+    let corr = 4.0 * dt * (poly_blamp(p, dt) - poly_blamp(wrap01(p + 0.5), dt));
     out[0] = naive + corr;
-    ctx.state[0] = (p + inc).rem_euclid(1.0);
+    ctx.state[0] = wrap01(p + inc);
 }
 
 // Not `.clamp()`: `.max().min()` suppresses a NaN width to a bound (`clamp` propagates it).
@@ -127,9 +128,9 @@ fn tick_varsaw(ctx: &mut TickCtx, out: &mut [f32]) {
     // naive var-triangle: trough −1@0, peak +1@w
     let naive = if p < w { 2.0 * p / w - 1.0 } else { 1.0 - 2.0 * (p - w) / (1.0 - w) };
     let s = 1.0 / w + 1.0 / (1.0 - w); // summed corner slope magnitude
-    let corr = dt * s * (poly_blamp(p, dt) - poly_blamp((p - w).rem_euclid(1.0), dt));
+    let corr = dt * s * (poly_blamp(p, dt) - poly_blamp(wrap01(p - w), dt));
     out[0] = naive + corr;
-    ctx.state[0] = (p + inc).rem_euclid(1.0);
+    ctx.state[0] = wrap01(p + inc);
 }
 
 /// The singularity guard for `blip`'s Dirichlet quotient: below this |sin(πφ)| the closed
@@ -150,12 +151,12 @@ fn tick_blip(ctx: &mut TickCtx, out: &mut [f32]) {
     let maxh = (ctx.sr / (2.0 * freq.abs())).floor(); // harmonics that fit under Nyquist
     let n = ctx.inputs[1].floor().min(maxh).max(1.0); // at least the fundamental
     let theta = p * PI;
-    let denom = theta.sin();
-    let num = ((2.0 * n + 1.0) * theta).sin();
+    let denom = sinf(theta);
+    let num = sinf((2.0 * n + 1.0) * theta);
     out[0] = if denom.abs() < BLIP_EPS {
         1.0
     } else {
         (num / denom - 1.0) / (2.0 * n)
     };
-    ctx.state[0] = (p + freq / ctx.sr).rem_euclid(1.0);
+    ctx.state[0] = wrap01(p + freq / ctx.sr);
 }

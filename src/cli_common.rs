@@ -47,7 +47,7 @@ pub struct CommonAudioArgs {
     pub buffer_size: Option<u32>,
 
     /// Maximum polyphony (number of simultaneous voices).
-    #[arg(long, default_value = "32")]
+    #[arg(long, default_value = "64")]
     pub max_voices: usize,
 
     /// DSP inner block size in samples (clamped to [1, MAX_BLOCK=256]).

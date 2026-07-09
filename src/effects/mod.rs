@@ -410,6 +410,14 @@ const INFO_FM: ModuleInfo = ModuleInfo {
             max: 1.0,
         },
         ParamInfo {
+            name: "fmloop",
+            aliases: &[],
+            description: "op1 to op2 feedback return, closes the two-op loop (needs fm2)",
+            default: "0.0",
+            min: 0.0,
+            max: 1.0,
+        },
+        ParamInfo {
             name: "fmshape",
             aliases: &[],
             description: "modulator waveform (sine, tri, saw, square, sh)",

@@ -1,8 +1,8 @@
 //! Players/recorders over named buffers: `play`, `record`. Each holds its own head (one state
 //! slot) and reads/writes a shared, named, variable-length buffer region — so a `record`/`play`
 //! pair on one buffer is a looper, and several `play`s tap one recording. The buffer length is
-//! non-power-of-two in general (sized to the request), so the head wraps with `%`,
-//! keeping every index in range without a power-of-two mask.
+//! non-power-of-two in general (sized to the request), so instead of a mask the head is
+//! clamped into range with a `min` and re-wrapped by compare on advance — no `%` division.
 
 use super::{signal, Arity, Category, TickCtx, UGen};
 
@@ -25,18 +25,22 @@ fn tick_play(ctx: &mut TickCtx, out: &mut [f32]) {
         out[0] = 0.0;
         return;
     }
-    let head = (ctx.state[0] as usize) % len;
+    // Heads stay < len by construction (the advance re-wraps); `min` keeps a corrupt slot
+    // from panicking the audio thread without paying `%`'s division.
+    let head = (ctx.state[0] as usize).min(len - 1);
     out[0] = ctx.buffer[head];
-    ctx.state[0] = ((head + 1) % len) as f32;
+    let next = head + 1;
+    ctx.state[0] = (if next >= len { 0 } else { next }) as f32;
 }
 
 fn tick_record(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
     let len = ctx.buffer.len();
     if len != 0 {
-        let head = (ctx.state[0] as usize) % len;
+        let head = (ctx.state[0] as usize).min(len - 1);
         ctx.buffer[head] = x;
-        ctx.state[0] = ((head + 1) % len) as f32;
+        let next = head + 1;
+        ctx.state[0] = (if next >= len { 0 } else { next }) as f32;
     }
     out[0] = x; // passthrough
 }

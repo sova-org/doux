@@ -5,7 +5,7 @@
 //! lower index (guaranteed by the topological order), so a single forward pass
 //! evaluates the whole graph for one sample.
 
-use crate::ugen::UGenId;
+use crate::ugen::UGen;
 
 /// The window the global sample clock wraps within before the pure f32 core sees it (see
 /// [`Op::Now`]). A power of two `< 2^24`, so every value in `0..NOW_WINDOW` is an *exact*
@@ -27,18 +27,56 @@ pub(crate) fn now_wrap(x: f32) -> f32 {
 #[derive(Clone, Copy, Debug)]
 pub struct Reg(pub(crate) u32);
 
+/// The binary arithmetic words the compiler lowers to [`Op::Bin`] instead of a UGen call:
+/// glue arithmetic is the most numerous node kind in a patch, and matching it inline in the
+/// interpreter loop skips the whole per-op call apparatus (input gather through the arena,
+/// `TickCtx` slicing, the indirect `tick` call) for a single IEEE expression. Each kind is
+/// bit-identical to its row's tick.
+#[derive(Clone, Copy, Debug)]
+pub enum BinKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+impl BinKind {
+    /// The kind lowering `name`, if it is one of the inlined words.
+    pub(crate) fn of(name: &str) -> Option<BinKind> {
+        match name {
+            "+" => Some(BinKind::Add),
+            "-" => Some(BinKind::Sub),
+            "*" => Some(BinKind::Mul),
+            "/" => Some(BinKind::Div),
+            _ => None,
+        }
+    }
+
+    /// The row cost the inlined op replaces (see [`Program::weight`]): 1 unit for
+    /// add/sub/mul, 4 for the division.
+    fn cost(self) -> u32 {
+        match self {
+            BinKind::Div => 4,
+            _ => 1,
+        }
+    }
+}
+
 /// A single operation. `Const` is the only leaf carrying an immediate; every other op
 /// is a uniform UGen invocation. Its `input_count` inputs are `inputs[input_start..]` in the
 /// program's flat input arena, its `state_slots` persistent slots start at `state_base`, and
 /// its `buffer_len` sample-memory f32s start at `buffer_base` in the buffer arena. `input_count`
 /// is stored (not read from the row) because a variadic generator's arity is fixed at
-/// graph-construction, not by its [`UGenId`]; `state_slots`/`buffer_len`/`outputs` still come
-/// from the row.
+/// graph-construction, not by its row; `state_slots`/`outputs` still come from the row.
 #[derive(Clone, Copy, Debug)]
 pub enum Op {
     Const(f32),
     Ugen {
-        ugen: UGenId,
+        /// The generator's row, resolved once at compile time: the hot loop reads
+        /// `tick`/`outputs`/`state_slots` straight off this reference instead of going
+        /// through the global `UGENS` table, whose `LazyLock` costs an atomic load per
+        /// access — per op, per sample, on the audio thread.
+        def: &'static UGen,
         input_start: u32,
         input_count: u32,
         state_base: u32,
@@ -49,6 +87,9 @@ pub enum Op {
         /// declared length, and several ops can point at one named region.
         buffer_len: u32,
     },
+    /// An inlined binary arithmetic word (see [`BinKind`]): `regs[a] op regs[b]`, straight
+    /// in the interpreter loop — no input arena, no state, no tick call.
+    Bin { kind: BinKind, a: Reg, b: Reg },
     /// Read a feedback bus: load `buses[slot]` (the value stored last sample). A leaf, so it
     /// can sit anywhere in topological order and breaks the feedback cycle. Buses live in
     /// their own arena (separate from per-UGen state), so `slot` is independent of UGen state
@@ -209,7 +250,8 @@ impl Program {
         self.ops
             .iter()
             .map(|op| match op {
-                Op::Ugen { ugen, .. } => crate::ugen::def(*ugen).cost as u32,
+                Op::Ugen { def, .. } => def.cost as u32,
+                Op::Bin { kind, .. } => kind.cost(),
                 _ => 1,
             })
             .sum()

@@ -209,6 +209,10 @@ pub struct Voice {
     pub fm2_phasor: Phasor,
     pub fm_fb_prev: f32,
     pub fm_fb_prev2: f32,
+    // op1 output history for the fmloop return; averaged like fm_fb_prev* to
+    // tame the one-sample loop delay.
+    pub fm_loop_prev: f32,
+    pub fm_loop_prev2: f32,
     /// Phase-modulation offset applied to the carrier read, in turns.
     /// Computed once per sample by `tick_fm_pm`; read by `generate_main_osc`.
     pub fm_phase_mod: f32,
@@ -312,6 +316,8 @@ impl Default for Voice {
             fm2_phasor: Phasor::default(),
             fm_fb_prev: 0.0,
             fm_fb_prev2: 0.0,
+            fm_loop_prev: 0.0,
+            fm_loop_prev2: 0.0,
             fm_phase_mod: 0.0,
             am_lfo: Phasor::default(),
             rm_lfo: Phasor::default(),
@@ -378,6 +384,8 @@ impl Voice {
         self.fm2_phasor = Phasor::default();
         self.fm_fb_prev = 0.0;
         self.fm_fb_prev2 = 0.0;
+        self.fm_loop_prev = 0.0;
+        self.fm_loop_prev2 = 0.0;
         self.fm_phase_mod = 0.0;
         self.am_lfo = Phasor::default();
         self.rm_lfo = Phasor::default();
@@ -555,6 +563,7 @@ impl Voice {
             ParamId::Fm2h => self.params.fm2h,
             ParamId::Fmpivot => self.params.fmpivot,
             ParamId::Fmfb => self.params.fmfb,
+            ParamId::Fmloop => self.params.fmloop,
             ParamId::Am => self.params.am,
             ParamId::Amdepth => self.params.amdepth,
             ParamId::Rm => self.params.rm,
@@ -1799,6 +1808,7 @@ impl Voice {
             ParamId::Fm2h => self.params.fm2h = val,
             ParamId::Fmpivot => self.params.fmpivot = val,
             ParamId::Fmfb => self.params.fmfb = val,
+            ParamId::Fmloop => self.params.fmloop = val,
             ParamId::Am => self.params.am = val,
             ParamId::Amdepth => self.params.amdepth = val,
             ParamId::Rm => self.params.rm = val,
@@ -1895,6 +1905,9 @@ impl Voice {
     /// (op2→op1, op2→carrier) plane: 0 = cascade, 0.125 = branch,
     /// 0.25 = parallel, 0.5 = inverted cascade, etc. Total op2 modulation
     /// magnitude `√(a²+b²) = fm2` is constant; only the destination rotates.
+    ///
+    /// `fmloop` adds the return leg op1 → op2, closing the two-op pair into a
+    /// feedback loop; only active when fm2 > 0.
     #[inline]
     pub(crate) fn tick_fm_pm(&mut self, freq_pre_vib: f32, isr: f32) {
         let mut pm = 0.0_f32;
@@ -1909,8 +1922,14 @@ impl Voice {
                 let a = fm2 * cosf(theta); // op2 → op1
                 let b = fm2 * sinf(theta); // op2 → carrier
 
+                // op1 → op2 return, closing the loop; averaged like fb_turns.
+                let loop_turns =
+                    (self.fm_loop_prev + self.fm_loop_prev2) * 0.5 * self.params.fmloop * INV_TAU;
+
                 let mod2_freq = freq_pre_vib * self.params.fm2h;
-                let mod2 = self.fm2_phasor.lfo_pm(shape, mod2_freq, isr, fb_turns);
+                let mod2 = self
+                    .fm2_phasor
+                    .lfo_pm(shape, mod2_freq, isr, fb_turns + loop_turns);
                 self.fm_fb_prev2 = self.fm_fb_prev;
                 self.fm_fb_prev = mod2;
 
@@ -1918,6 +1937,8 @@ impl Voice {
                 let mod1 = self
                     .fm_phasor
                     .lfo_pm(shape, mod1_freq, isr, a * mod2 * INV_TAU);
+                self.fm_loop_prev2 = self.fm_loop_prev;
+                self.fm_loop_prev = mod1;
 
                 pm += fm1 * mod1 * INV_TAU;
                 pm += b * mod2 * INV_TAU;

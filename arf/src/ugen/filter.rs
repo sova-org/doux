@@ -2,61 +2,72 @@
 //! behind, `hpf = in − lpf(in)`, so they share the same coefficient and z1 memory), and
 //! the resonant second-order family `lpf2`/`hpf2`/`bpf`/`notch` — one shared TPT/Zavalishin
 //! state-variable core ([`svf_taps`]) tapped four ways.
+//!
+//! # Coefficient caching
+//!
+//! Every filter whose coefficients cost a transcendental caches them in extra state slots,
+//! recomputing only on the sample where a parameter input actually changes (change-detect,
+//! never block-latched — audio-rate modulation recomputes every sample exactly as before).
+//! The first cache key is stored *biased*: `clamped_param + 1.0`. The clamp keeps the param
+//! ≥ 0, so the stored key is ≥ 1.0 and the zero-filled fresh state ([`crate::vm::Vm::reset`])
+//! can never alias a valid key — the first tick always computes. Secondary keys are stored
+//! raw; the biased key forces the recompute that initializes them.
 
 use core::f32::consts::{PI, SQRT_2, TAU};
 
-use super::{signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{flush, signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use crate::fastmath::{cosf, expf, fast_tan, fast_tanh_f32, pow10, powf, sinf};
 
 pub(super) static UGENS: &[UGen] = &[
-    // lpf  ( in cutoff -- sig )  state: [z1]
+    // lpf  ( in cutoff -- sig )  state: [z1, key, a]
     UGen { name: "lpf", category: Category::Filter, description: "One-pole low-pass — attenuates above the cutoff.",
            examples: &["110 saw 800 lpf 0.3 * out", "noise 1200 lpf 0.3 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_lpf },
-    // hpf  ( in cutoff -- sig )  state: [z1]   one-pole high-pass = in − lpf(in)
+           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_lpf },
+    // hpf  ( in cutoff -- sig )  state: [z1, key, a]   one-pole high-pass = in − lpf(in)
     UGen { name: "hpf", category: Category::Filter, description: "One-pole high-pass — the residual of the low-pass; attenuates below the cutoff.",
            examples: &["110 saw 1500 hpf 0.3 * out", "noise 4000 hpf 0.3 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_hpf },
-    // lpf2  ( in cutoff res -- sig )  state: [ic1 ic2]   resonant SVF low-pass tap
+           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_hpf },
+    // lpf2  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF low-pass tap
     UGen { name: "lpf2", category: Category::Filter, description: "Resonant two-pole low-pass (state-variable).",
            examples: &["110 saw 600 0.8 lpf2 0.3 * out", "110 saw  2 sine 200 2000 range  0.8 lpf2 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 16, tick: tick_lpf2 },
-    // hpf2  ( in cutoff res -- sig )  state: [ic1 ic2]   resonant SVF high-pass tap
+           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_lpf2 },
+    // hpf2  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF high-pass tap
     UGen { name: "hpf2", category: Category::Filter, description: "Resonant two-pole high-pass (state-variable).",
            examples: &["noise 1200 0.8 hpf2 0.3 * out", "110 saw 1500 0.7 hpf2 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 16, tick: tick_hpf2 },
-    // bpf  ( in cutoff res -- sig )  state: [ic1 ic2]   resonant SVF band-pass tap
+           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_hpf2 },
+    // bpf  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF band-pass tap
     UGen { name: "bpf", category: Category::Filter, description: "Resonant two-pole band-pass (state-variable).",
            examples: &["noise 1000 0.8 bpf 0.4 * out", "110 saw  1 sine 300 1800 range  0.8 bpf 0.4 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 16, tick: tick_bpf },
-    // notch  ( in cutoff res -- sig )  state: [ic1 ic2]   resonant SVF notch (low + high)
+           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_bpf },
+    // notch  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF notch (low + high)
     UGen { name: "notch", category: Category::Filter, description: "Resonant two-pole band-reject / notch (state-variable).",
            examples: &["noise 1000 0.7 notch 0.3 * out", "110 saw 800 0.8 notch 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 16, tick: tick_notch },
+           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_notch },
     // svf  ( in cutoff res -- lp bp hp notch )   the shared core tapped four ways at once: one
     // instance, one pair of integrators, four correlated outputs (vs four separate filters).
     UGen { name: "svf", category: Category::Filter, description: "State-variable filter core — low-, band-, high-pass and notch taps at once.",
            examples: &["[ 110 saw 800 0.7 svf ] 0 nth 0.3 * out", "[ noise 1500 0.8 svf ] 2 nth 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 4,
-           state_slots: 2, buffer_len: 0, cost: 16, tick: tick_svf },
+           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_svf },
     // lag  ( in time -- sig )  state: [z1]   one-pole slew limiter; `time` is the smoothing
     // time constant in seconds (0 ⇒ pass-through). Smooths control signals (portamento).
     UGen { name: "lag", category: Category::Filter, description: "One-pole slew — eases a signal toward its target over `time` seconds (portamento; 0 = passthrough).",
            examples: &["noise 0.002 lag 300 * 400 +  sine 0.2 * out", "2 impulse 0.1 lag 440 sine * 0.3 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.1 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_lag },
+           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_lag },
     // apf  ( in cutoff -- sig )  state: [w1]   first-order allpass: unity magnitude, frequency-
     // dependent phase. Diffuses transients and builds phasers when summed with the dry signal.
     UGen { name: "apf", category: Category::Filter, description: "First-order allpass — flat magnitude, frequency-dependent phase (phasers, diffusion).",
            examples: &["110 saw 0.3 *  dup 600 apf  +  0.5 * out", "2 impulse  ( 700 apf ) 8 times  0.4 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_apf },
-    // moog  ( in cutoff res -- sig )  state: [y1 y2 y3 y4]   four cascaded one-poles with
+           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_apf },
+    // moog  ( in cutoff res -- sig )  state: [y1 y2 y3 y4, key, a]   four cascaded one-poles with
     // tanh-bounded feedback from the last stage — the classic ladder slope, self-oscillating
     // toward res 1, unconditionally stable.
     UGen { name: "moog", category: Category::Filter, description: "Moog-style ladder low-pass — four cascaded poles with resonant feedback; self-oscillates as `res` nears 1.",
            examples: &["110 saw 800 0.6 moog 0.3 * out", "110 saw  0.3 sine 2000 * 2500 +  0.7 moog 0.2 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 24, tick: tick_moog },
+           state_slots: 6, buffer_len: 0, cost: 24, tick: tick_moog },
     // ringz  ( in freq decay -- sig )  state: [y1 y2]   two-pole ringing resonator: every
     // input sample strikes a damped sinusoid at `freq` ringing 60 dB down over `decay` seconds.
     UGen { name: "ringz", category: Category::Filter, description: "Ringing resonator — strikes a damped sinusoid at `freq`, ringing out over `decay` seconds (mallets, modal bodies).",
@@ -64,7 +75,7 @@ pub(super) static UGENS: &[UGen] = &[
            inputs: &[signal("in"),
                      InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 440.0 },
                      InputDescriptor { name: "decay", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.3 }],
-           outputs: 1, state_slots: 2, buffer_len: 0, cost: 20, tick: tick_ringz },
+           outputs: 1, state_slots: 6, buffer_len: 0, cost: 20, tick: tick_ringz },
     // slew  ( in up down -- sig )  state: [y1]   rate limiter: the output chases the input,
     // rising at most `up` and falling at most `down` units per second (lag's linear cousin).
     UGen { name: "slew", category: Category::Filter, description: "Slew limiter — the output chases the input, bounded to `up`/`down` units per second.",
@@ -78,26 +89,26 @@ pub(super) static UGENS: &[UGen] = &[
     UGen { name: "dcblock", category: Category::Filter, description: "DC blocker — removes the constant offset, leaving the audio band untouched.",
            examples: &["110 saw 0.5 * 0.3 + dcblock 0.3 * out", "noise abs dcblock 0.5 * out"], arity: Arity::Fixed(1), inputs: &[signal("in")], outputs: 1,
            state_slots: 2, buffer_len: 0, cost: 4, tick: tick_dcblock },
-    // peak ( in freq gain q -- sig )  state: [z1 z2]   RBJ peaking EQ — boost/cut a band
+    // peak ( in freq gain q -- sig )  state: [z1 z2, keys f/gain/q, b0 neg2cw b2 a2]
     UGen { name: "peak", category: Category::Filter, description: "Peaking EQ — boosts or cuts a band by `gain` dB at `freq`, width set by `q` (RBJ biquad).",
            examples: &["noise 0.3 *  1200 6 2 peak  0.5 * out", "440 sine 0.3 *  600 -12 3 peak  out"], arity: Arity::Fixed(4),
            inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT, Q_INPUT], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 28, tick: tick_peak },
-    // lowshelf ( in freq gain -- sig )  state: [z1 z2]   RBJ low shelf — lift/dip below `freq`
+           state_slots: 9, buffer_len: 0, cost: 28, tick: tick_peak },
+    // lowshelf ( in freq gain -- sig )  state: [z1 z2, keys f/gain, b0 b1 b2 a1 a2]
     UGen { name: "lowshelf", category: Category::Filter, description: "Low shelf — lifts or dips everything below `freq` by `gain` dB (RBJ biquad, fixed slope).",
            examples: &["110 saw 0.3 *  200 9 lowshelf  out", "noise 0.2 *  400 -12 lowshelf  0.5 * out"], arity: Arity::Fixed(3),
            inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 30, tick: tick_lowshelf },
-    // highshelf ( in freq gain -- sig )  state: [z1 z2]   RBJ high shelf — lift/dip above `freq`
+           state_slots: 9, buffer_len: 0, cost: 30, tick: tick_lowshelf },
+    // highshelf ( in freq gain -- sig )  state: [z1 z2, keys f/gain, b0 b1 b2 a1 a2]
     UGen { name: "highshelf", category: Category::Filter, description: "High shelf — lifts or dips everything above `freq` by `gain` dB (RBJ biquad, fixed slope).",
            examples: &["110 saw 0.3 *  3000 9 highshelf  out", "noise 0.2 *  5000 -18 highshelf  out"], arity: Arity::Fixed(3),
            inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 30, tick: tick_highshelf },
-    // reson ( in freq q -- sig )  state: [z1 z2]   RBJ band-pass (constant 0 dB peak), Q-set
+           state_slots: 9, buffer_len: 0, cost: 30, tick: tick_highshelf },
+    // reson ( in freq q -- sig )  state: [z1 z2, keys f/q, b0 a1 a2]   RBJ band-pass, Q-set
     UGen { name: "reson", category: Category::Filter, description: "Resonant band-pass — a constant 0 dB peak at `freq`, sharpness set by `q` (RBJ biquad).",
            examples: &["noise  1500 12 reson  0.3 * out", "110 saw  800 20 reson  0.4 * out"], arity: Arity::Fixed(3),
            inputs: &[signal("in"), FREQ_INPUT, Q_INPUT], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 26, tick: tick_reson },
+           state_slots: 7, buffer_len: 0, cost: 26, tick: tick_reson },
 ];
 
 /// Shared signature for the resonant SVF family: a signal in, a cutoff in Hz, and
@@ -116,6 +127,8 @@ const G_MAX: f32 = 16.0;
 /// res 1 → `K_MIN` (sharp, Q ≈ 10). `K_SPAN` is precomputed as a named f32 constant.
 const K_MIN: f32 = 0.1;
 const K_SPAN: f32 = SQRT_2 - K_MIN;
+/// SVF family state layout: [ic1, ic2, key_fc, key_res, a1, a2, a3, k].
+const SVF_SLOTS: usize = 8;
 
 /// Shared `freq` input for the RBJ biquads (`peak`/`lowshelf`/`highshelf`/`reson`).
 const FREQ_INPUT: InputDescriptor =
@@ -135,12 +148,21 @@ const NYQ_FRAC: f32 = 0.49;
 /// constant.
 const SHELF_ALPHA_K: f32 = SQRT_2 / 2.0;
 
+/// The cached one-pole low-pass coefficient a = 1 - e^{-2π·fc/sr}, clamped to a stable
+/// range. `state` is the [key, a] cache pair (see the module's coefficient-caching note).
+fn onepole_a(state: &mut [f32], fc: f32, sr: f32) -> f32 {
+    if state[0] != fc + 1.0 {
+        state[0] = fc + 1.0;
+        state[1] = (1.0 - expf(-TAU * fc / sr)).clamp(0.0, 1.0);
+    }
+    state[1]
+}
+
 fn tick_lpf(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
     let fc = ctx.inputs[1].max(0.0);
-    // One-pole low-pass coefficient a = 1 - e^{-2π·fc/sr}, clamped to a stable range.
-    let a = (1.0 - (-TAU * fc / ctx.sr).exp()).clamp(0.0, 1.0);
-    let y = ctx.state[0] + a * (x - ctx.state[0]);
+    let a = onepole_a(&mut ctx.state[1..], fc, ctx.sr);
+    let y = flush(ctx.state[0] + a * (x - ctx.state[0]));
     ctx.state[0] = y;
     out[0] = y;
 }
@@ -150,8 +172,8 @@ fn tick_hpf(ctx: &mut TickCtx, out: &mut [f32]) {
     let fc = ctx.inputs[1].max(0.0);
     // Same one-pole low-pass coefficient and memory as `lpf`; the high-pass is the
     // residual the low-pass leaves behind: y = x - lowpass.
-    let a = (1.0 - (-TAU * fc / ctx.sr).exp()).clamp(0.0, 1.0);
-    ctx.state[0] = ctx.state[0] + a * (x - ctx.state[0]);
+    let a = onepole_a(&mut ctx.state[1..], fc, ctx.sr);
+    ctx.state[0] = flush(ctx.state[0] + a * (x - ctx.state[0]));
     out[0] = x - ctx.state[0];
 }
 
@@ -166,19 +188,30 @@ fn tick_hpf(ctx: &mut TickCtx, out: &mut [f32]) {
 #[allow(clippy::manual_clamp)]
 fn svf_taps(ctx: &mut TickCtx) -> (f32, f32, f32) {
     let x = ctx.inputs[0];
-    let g = (PI * ctx.inputs[1] / ctx.sr).tan().max(0.0).min(G_MAX);
+    // Cache [key_fc, key_res, a1, a2, a3, k] behind the two integrator slots. Keying on the
+    // pre-clamped `fc.max(0.0)` is exact: tan(0) = 0 is what the g-clamp yields for any
+    // negative cutoff, and `.max` also collapses a NaN cutoff to 0 like the g-clamp did.
+    let fc = ctx.inputs[1].max(0.0);
     let r = ctx.inputs[2].max(0.0).min(1.0);
-    let k = SQRT_2 - K_SPAN * r;
+    if ctx.state[2] != fc + 1.0 || ctx.state[3] != r {
+        let g = fast_tan(PI * fc / ctx.sr).max(0.0).min(G_MAX);
+        let k = SQRT_2 - K_SPAN * r;
+        let a1 = 1.0 / (1.0 + g * (g + k));
+        ctx.state[2] = fc + 1.0;
+        ctx.state[3] = r;
+        ctx.state[4] = a1;
+        ctx.state[5] = g * a1;
+        ctx.state[6] = g * (g * a1);
+        ctx.state[7] = k;
+    }
+    let (a1, a2, a3, k) = (ctx.state[4], ctx.state[5], ctx.state[6], ctx.state[7]);
     let ic1 = ctx.state[0];
     let ic2 = ctx.state[1];
-    let a1 = 1.0 / (1.0 + g * (g + k));
-    let a2 = g * a1;
-    let a3 = g * a2;
     let v3 = x - ic2;
     let v1 = a1 * ic1 + a2 * v3;
     let v2 = ic2 + a2 * ic1 + a3 * v3;
-    ctx.state[0] = 2.0 * v1 - ic1;
-    ctx.state[1] = 2.0 * v2 - ic2;
+    ctx.state[0] = flush(2.0 * v1 - ic1);
+    ctx.state[1] = flush(2.0 * v2 - ic2);
     let low = v2;
     let band = v1;
     let high = x - k * v1 - v2;
@@ -216,8 +249,13 @@ fn tick_lag(ctx: &mut TickCtx, out: &mut [f32]) {
     let t = ctx.inputs[1].max(0.0);
     // One-pole smoother coefficient from a time constant in seconds: a = 1 - e^{-1/(t·sr)}
     // (t = 0 ⇒ a = 1, instant). Same NaN-free clamp story as `lpf` (the `.max(0)` de-NaNs t).
-    let a = (1.0 - (-1.0 / (t * ctx.sr)).exp()).clamp(0.0, 1.0);
-    let y = ctx.state[0] + a * (x - ctx.state[0]);
+    // Cached in [key, a] behind z1.
+    if ctx.state[1] != t + 1.0 {
+        ctx.state[1] = t + 1.0;
+        ctx.state[2] = (1.0 - expf(-1.0 / (t * ctx.sr))).clamp(0.0, 1.0);
+    }
+    let a = ctx.state[2];
+    let y = flush(ctx.state[0] + a * (x - ctx.state[0]));
     ctx.state[0] = y;
     out[0] = y;
 }
@@ -232,11 +270,16 @@ fn tick_apf(ctx: &mut TickCtx, out: &mut [f32]) {
     // Cap `tan` the same way the SVF caps `g` (`.max(0).min(G_MAX)`): above Nyquist `tan`
     // goes negative or blows toward ±∞, which drives the coefficient past the unit circle and
     // sends the allpass to a sticky NaN. Clamped, `t ∈ [0, G_MAX]` keeps `c` in (−1, 1].
-    let t = (PI * fc / ctx.sr).tan().max(0.0).min(G_MAX);
-    let c = (t - 1.0) / (t + 1.0);
+    // Cached in [key, c] behind w₁.
+    if ctx.state[1] != fc + 1.0 {
+        let t = fast_tan(PI * fc / ctx.sr).max(0.0).min(G_MAX);
+        ctx.state[1] = fc + 1.0;
+        ctx.state[2] = (t - 1.0) / (t + 1.0);
+    }
+    let c = ctx.state[2];
     let w = x - c * ctx.state[0];
     out[0] = c * w + ctx.state[0];
-    ctx.state[0] = w;
+    ctx.state[0] = flush(w);
 }
 
 // Not `.clamp()` on res: `.max().min()` suppresses NaN (see `svf_taps`).
@@ -244,39 +287,49 @@ fn tick_apf(ctx: &mut TickCtx, out: &mut [f32]) {
 fn tick_moog(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
     let fc = ctx.inputs[1].max(0.0);
-    // The exact `lpf` one-pole coefficient, shared by all four stages.
-    let a = (1.0 - (-TAU * fc / ctx.sr).exp()).clamp(0.0, 1.0);
+    // The exact `lpf` one-pole coefficient, shared by all four stages; cached in [key, a]
+    // behind the four stage slots.
+    let a = onepole_a(&mut ctx.state[4..], fc, ctx.sr);
     // res 0..1 maps to feedback 0..4; at k = 4 the linear ladder is marginally stable and the
     // tanh on the input bounds it into self-oscillation instead of runaway.
     let k = 4.0 * ctx.inputs[2].max(0.0).min(1.0);
-    let drive = (x - k * ctx.state[3]).tanh();
+    let drive = fast_tanh_f32(x - k * ctx.state[3]);
     let y1 = ctx.state[0] + a * (drive - ctx.state[0]);
     let y2 = ctx.state[1] + a * (y1 - ctx.state[1]);
     let y3 = ctx.state[2] + a * (y2 - ctx.state[2]);
     let y4 = ctx.state[3] + a * (y3 - ctx.state[3]);
-    ctx.state[0] = y1;
-    ctx.state[1] = y2;
-    ctx.state[2] = y3;
-    ctx.state[3] = y4;
+    ctx.state[0] = flush(y1);
+    ctx.state[1] = flush(y2);
+    ctx.state[2] = flush(y3);
+    ctx.state[3] = flush(y4);
     out[0] = y4;
 }
 
 fn tick_ringz(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
-    let theta = TAU * ctx.inputs[1] / ctx.sr;
     // Pole radius for a 60 dB ring over `decay` seconds: r = 0.001^{1/(decay·sr)}.
     // decay 0 ⇒ exponent +∞ ⇒ r = 0 (a dead filter, NaN-free); the `.max(0)` de-NaNs decay.
+    // Cache [key_freq, key_decay, b1, b2] behind the two memories; `decay` carries the bias
+    // (it is the clamped-non-negative key — `freq` may legitimately be negative, cos is even).
+    let freq = ctx.inputs[1];
     let decay = ctx.inputs[2].max(0.0);
-    let r = 0.001f32.powf(1.0 / (decay * ctx.sr));
-    let b1 = 2.0 * r * theta.cos();
-    let b2 = -(r * r);
+    if ctx.state[2] != freq || ctx.state[3] != decay + 1.0 {
+        let theta = TAU * freq / ctx.sr;
+        let r = powf(0.001, 1.0 / (decay * ctx.sr));
+        ctx.state[2] = freq;
+        ctx.state[3] = decay + 1.0;
+        ctx.state[4] = 2.0 * r * cosf(theta);
+        ctx.state[5] = -(r * r);
+    }
+    let b1 = ctx.state[4];
+    let b2 = ctx.state[5];
     let y1 = ctx.state[0];
     let y2 = ctx.state[1];
     let y0 = x + b1 * y1 + b2 * y2;
     // The (1 − z⁻²)/2 numerator centers the passband gain independent of `freq`.
     out[0] = 0.5 * (y0 - y2);
     ctx.state[1] = y1;
-    ctx.state[0] = y0;
+    ctx.state[0] = flush(y0);
 }
 
 // Not `.clamp()`: `.max().min()` suppresses a NaN step bound (see `svf_taps`).
@@ -302,7 +355,7 @@ fn tick_dcblock(ctx: &mut TickCtx, out: &mut [f32]) {
     let r = 1.0 - TAU * DC_FC / ctx.sr;
     let y = x - ctx.state[0] + r * ctx.state[1];
     ctx.state[0] = x;
-    ctx.state[1] = y;
+    ctx.state[1] = flush(y);
     out[0] = y;
 }
 
@@ -316,8 +369,8 @@ fn biquad_step(ctx: &mut TickCtx, b0: f32, b1: f32, b2: f32, a1: f32, a2: f32) -
     let z1 = ctx.state[0];
     let z2 = ctx.state[1];
     let y = b0 * x + z1;
-    ctx.state[0] = b1 * x - a1 * y + z2;
-    ctx.state[1] = b2 * x - a2 * y;
+    ctx.state[0] = flush(b1 * x - a1 * y + z2);
+    ctx.state[1] = flush(b2 * x - a2 * y);
     y
 }
 
@@ -326,62 +379,81 @@ fn biquad_step(ctx: &mut TickCtx, b0: f32, b1: f32, b2: f32, a1: f32, a2: f32) -
 fn tick_peak(ctx: &mut TickCtx, out: &mut [f32]) {
     let sr = ctx.sr;
     let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * sr);
-    let a = 10.0f32.powf(ctx.inputs[2] / 40.0); // A = 10^(gain/40)
+    let gain = ctx.inputs[2];
     let q = ctx.inputs[3].max(Q_MIN);
-    let w0 = TAU * f / sr;
-    let cw = w0.cos();
-    let alpha = w0.sin() / (2.0 * q);
-    let alpha_a = alpha * a; // α·A
-    let alpha_div_a = alpha / a; // α/A
-    let a0 = 1.0 + alpha_div_a;
-    let neg2cw = (-2.0 * cw) / a0; // shared by b1 and a1
-    let b0 = (1.0 + alpha_a) / a0;
-    let b2 = (1.0 - alpha_a) / a0;
-    let a2 = (1.0 - alpha_div_a) / a0;
+    // Cache [key_f, key_gain, key_q, b0, neg2cw, b2, a2] behind [z1, z2].
+    if ctx.state[2] != f + 1.0 || ctx.state[3] != gain || ctx.state[4] != q {
+        let a = pow10(gain / 40.0); // A = 10^(gain/40)
+        let w0 = TAU * f / sr;
+        let cw = cosf(w0);
+        let alpha = sinf(w0) / (2.0 * q);
+        let alpha_a = alpha * a; // α·A
+        let alpha_div_a = alpha / a; // α/A
+        let a0 = 1.0 + alpha_div_a;
+        ctx.state[2] = f + 1.0;
+        ctx.state[3] = gain;
+        ctx.state[4] = q;
+        ctx.state[5] = (1.0 + alpha_a) / a0;
+        ctx.state[6] = (-2.0 * cw) / a0; // shared by b1 and a1
+        ctx.state[7] = (1.0 - alpha_a) / a0;
+        ctx.state[8] = (1.0 - alpha_div_a) / a0;
+    }
+    let (b0, neg2cw, b2, a2) = (ctx.state[5], ctx.state[6], ctx.state[7], ctx.state[8]);
     out[0] = biquad_step(ctx, b0, neg2cw, b2, neg2cw, a2);
+}
+
+/// Shelf orientation: the low and high shelf share one coefficient recipe with a handful of
+/// sign flips; the enum names which one a tick is computing.
+#[derive(Clone, Copy, PartialEq)]
+enum Shelf {
+    Low,
+    High,
+}
+
+/// The cached RBJ shelf coefficients (fixed slope S = 1). `state` is the whole slot block
+/// [z1, z2, key_f, key_gain, b0, b1, b2, a1, a2]; the caller passes clamped `f` and raw `gain`.
+fn shelf_coeffs(state: &mut [f32], shelf: Shelf, f: f32, gain: f32, sr: f32) {
+    if state[2] == f + 1.0 && state[3] == gain {
+        return;
+    }
+    let a = pow10(gain / 40.0);
+    let w0 = TAU * f / sr;
+    let cw = cosf(w0);
+    let alpha = sinf(w0) * SHELF_ALPHA_K;
+    let am1 = a - 1.0;
+    let ap1 = a + 1.0;
+    let beta = 2.0 * a.sqrt() * alpha; // 2·√A·α
+    // The two shelves differ only in where `±am1·cw`/`±ap1·cw` flip sign.
+    let s = if shelf == Shelf::Low { 1.0 } else { -1.0 };
+    let am1_cw = s * (am1 * cw);
+    let ap1_cw = s * (ap1 * cw);
+    let a0 = ap1 + am1_cw + beta;
+    state[2] = f + 1.0;
+    state[3] = gain;
+    state[4] = (a * (ap1 - am1_cw + beta)) / a0;
+    state[5] = (s * 2.0 * a * (am1 - ap1_cw)) / a0;
+    state[6] = (a * (ap1 - am1_cw - beta)) / a0;
+    state[7] = (s * -2.0 * (am1 + ap1_cw)) / a0;
+    state[8] = (ap1 + am1_cw - beta) / a0;
 }
 
 #[allow(clippy::manual_clamp)]
 fn tick_lowshelf(ctx: &mut TickCtx, out: &mut [f32]) {
-    let sr = ctx.sr;
-    let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * sr);
-    let a = 10.0f32.powf(ctx.inputs[2] / 40.0);
-    let w0 = TAU * f / sr;
-    let cw = w0.cos();
-    let alpha = w0.sin() * SHELF_ALPHA_K; // S = 1 fixed slope
-    let am1 = a - 1.0;
-    let ap1 = a + 1.0;
-    let beta = 2.0 * a.sqrt() * alpha; // 2·√A·α
-    let am1_cw = am1 * cw;
-    let ap1_cw = ap1 * cw;
-    let a0 = ap1 + am1_cw + beta;
-    let b0 = (a * (ap1 - am1_cw + beta)) / a0;
-    let b1 = (2.0 * a * (am1 - ap1_cw)) / a0;
-    let b2 = (a * (ap1 - am1_cw - beta)) / a0;
-    let a1 = (-2.0 * (am1 + ap1_cw)) / a0;
-    let a2 = (ap1 + am1_cw - beta) / a0;
+    let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * ctx.sr);
+    let gain = ctx.inputs[2];
+    shelf_coeffs(ctx.state, Shelf::Low, f, gain, ctx.sr);
+    let (b0, b1, b2, a1, a2) =
+        (ctx.state[4], ctx.state[5], ctx.state[6], ctx.state[7], ctx.state[8]);
     out[0] = biquad_step(ctx, b0, b1, b2, a1, a2);
 }
 
 #[allow(clippy::manual_clamp)]
 fn tick_highshelf(ctx: &mut TickCtx, out: &mut [f32]) {
-    let sr = ctx.sr;
-    let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * sr);
-    let a = 10.0f32.powf(ctx.inputs[2] / 40.0);
-    let w0 = TAU * f / sr;
-    let cw = w0.cos();
-    let alpha = w0.sin() * SHELF_ALPHA_K;
-    let am1 = a - 1.0;
-    let ap1 = a + 1.0;
-    let beta = 2.0 * a.sqrt() * alpha;
-    let am1_cw = am1 * cw;
-    let ap1_cw = ap1 * cw;
-    let a0 = ap1 - am1_cw + beta;
-    let b0 = (a * (ap1 + am1_cw + beta)) / a0;
-    let b1 = (-2.0 * a * (am1 + ap1_cw)) / a0;
-    let b2 = (a * (ap1 + am1_cw - beta)) / a0;
-    let a1 = (2.0 * (am1 - ap1_cw)) / a0;
-    let a2 = (ap1 - am1_cw - beta) / a0;
+    let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * ctx.sr);
+    let gain = ctx.inputs[2];
+    shelf_coeffs(ctx.state, Shelf::High, f, gain, ctx.sr);
+    let (b0, b1, b2, a1, a2) =
+        (ctx.state[4], ctx.state[5], ctx.state[6], ctx.state[7], ctx.state[8]);
     out[0] = biquad_step(ctx, b0, b1, b2, a1, a2);
 }
 
@@ -390,14 +462,19 @@ fn tick_reson(ctx: &mut TickCtx, out: &mut [f32]) {
     let sr = ctx.sr;
     let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * sr);
     let q = ctx.inputs[2].max(Q_MIN);
-    let w0 = TAU * f / sr;
-    let cw = w0.cos();
-    let alpha = w0.sin() / (2.0 * q);
-    let a0 = 1.0 + alpha;
-    // RBJ band-pass (constant 0 dB peak gain), normalized by a0; b1 is 0.
-    let b0 = alpha / a0;
-    let b2 = -alpha / a0;
-    let a1 = (-2.0 * cw) / a0;
-    let a2 = (1.0 - alpha) / a0;
-    out[0] = biquad_step(ctx, b0, 0.0, b2, a1, a2);
+    // Cache [key_f, key_q, b0, a1, a2] behind [z1, z2]; b1 is 0 and b2 = -b0.
+    if ctx.state[2] != f + 1.0 || ctx.state[3] != q {
+        let w0 = TAU * f / sr;
+        let cw = cosf(w0);
+        let alpha = sinf(w0) / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        // RBJ band-pass (constant 0 dB peak gain), normalized by a0.
+        ctx.state[2] = f + 1.0;
+        ctx.state[3] = q;
+        ctx.state[4] = alpha / a0;
+        ctx.state[5] = (-2.0 * cw) / a0;
+        ctx.state[6] = (1.0 - alpha) / a0;
+    }
+    let (b0, a1, a2) = (ctx.state[4], ctx.state[5], ctx.state[6]);
+    out[0] = biquad_step(ctx, b0, 0.0, -b0, a1, a2);
 }

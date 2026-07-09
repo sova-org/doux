@@ -20,7 +20,8 @@
 //! envelopes continue; a fresh instance starts from fresh state. Musical retriggering is done
 //! with trigger *signals* (above), not by re-evaluating the text.
 
-use super::{signal, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use super::{flush, signal, wrap01, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use crate::fastmath::powf;
 
 pub(super) static UGENS: &[UGen] = &[
     // impulse ( rate -- trig )   state: [phase]   one-sample 1 at each period end, else 0
@@ -93,7 +94,7 @@ pub(super) static UGENS: &[UGen] = &[
     UGen { name: "decay", category: Category::Envelope, description: "Exponential decay — each input impulse rings down 60 dB over `time` seconds; overlapping hits sum (SC Decay).",
            examples: &["4 impulse 0.3 decay 440 sine * 0.3 * out", "8 impulse 0.1 decay noise * 0.3 * out"], arity: Arity::Fixed(2),
            inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.3 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_decay },
+           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_decay },
     // linseg ( trig [l0 t1 l1 t2 l2 …] -- y )   state: [start, prev, armed]   variadic breakpoint
     // envelope, built by a front-end's `VariadicLed` arm: input 0 is the trigger, inputs 1..
     // the flattened level/time list (start level l0, then (time, level) pairs). Clock-relative.
@@ -114,7 +115,7 @@ fn tick_impulse(ctx: &mut TickCtx, out: &mut [f32]) {
     let inc = ctx.inputs[0] / ctx.sr;
     let p = ctx.state[0] + inc;
     out[0] = if p >= 1.0 { 1.0 } else { 0.0 }; // fire when the phase crosses a period
-    ctx.state[0] = p.rem_euclid(1.0);
+    ctx.state[0] = wrap01(p);
 }
 
 fn tick_trig(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -181,7 +182,7 @@ fn tick_xline(ctx: &mut TickCtx, out: &mut [f32]) {
     let end = ctx.inputs[2];
     let denom = if start == 0.0 { 1e-6 } else { start };
     let ratio = (end / denom).abs().max(1e-12);
-    out[0] = start * ratio.powf(t);
+    out[0] = start * powf(ratio, t);
 }
 
 fn tick_phasor(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -192,7 +193,7 @@ fn tick_phasor(ctx: &mut TickCtx, out: &mut [f32]) {
     let phase = ctx.state[0];
     out[0] = phase;
     let inc = ctx.inputs[0] / ctx.sr;
-    ctx.state[0] = (phase + inc).rem_euclid(1.0);
+    ctx.state[0] = wrap01(phase + inc);
 }
 
 fn tick_clock(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -309,8 +310,13 @@ fn tick_decay(ctx: &mut TickCtx, out: &mut [f32]) {
     // SC Decay: a leaky integrator whose pole gives a 60 dB decay over `time` seconds, exactly
     // `ringz`'s pole-radius idiom. r = 0.001^{1/(time·sr)} (time 0 ⇒ exponent +∞ ⇒ r = 0, a
     // NaN-free passthrough of the impulse); y = in + r·y₁ rings the input down and sums hits.
-    let r = 0.001f32.powf(1.0 / (ctx.inputs[1].max(0.0) * ctx.sr));
-    let y = ctx.inputs[0] + r * ctx.state[0];
+    // Pole cached in [key, r] behind y₁ (the filters' caching convention).
+    let t = ctx.inputs[1].max(0.0);
+    if ctx.state[1] != t + 1.0 {
+        ctx.state[1] = t + 1.0;
+        ctx.state[2] = powf(0.001, 1.0 / (t * ctx.sr));
+    }
+    let y = flush(ctx.inputs[0] + ctx.state[2] * ctx.state[0]);
     ctx.state[0] = y;
     out[0] = y;
 }
@@ -330,16 +336,15 @@ fn tick_linseg(ctx: &mut TickCtx, out: &mut [f32]) {
     let mut acc = 0.0; // current segment's start time, in samples
     let mut prev = ctx.inputs[1]; // l0
     let mut level = ctx.inputs[ctx.inputs.len() - 1]; // default: hold the last level
-    let mut found = false;
     for i in 0..n {
         // At least one sample per segment (like `line`'s denom): a non-positive time is an
         // instant jump, never a divide by zero.
         let dur = (ctx.inputs[2 + 2 * i].max(0.0) * ctx.sr).max(1.0);
         let target = ctx.inputs[3 + 2 * i];
         let end = acc + dur;
-        if !found && e < end {
+        if e < end {
             level = prev + (e - acc) / dur * (target - prev); // lerp prev→target
-            found = true;
+            break; // segments past the active one can't matter — stop scanning
         }
         acc = end;
         prev = target;

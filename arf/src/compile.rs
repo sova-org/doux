@@ -32,6 +32,7 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
 
     let mut ctx = Lowering {
         graph,
+        sample_rate,
         ops: Vec::new(),
         inputs: Vec::new(),
         reg_of: vec![None; graph.len()],
@@ -87,6 +88,7 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
 
 struct Lowering<'g> {
     graph: &'g Graph,
+    sample_rate: f32,
     ops: Vec<Op>,
     inputs: Vec<Reg>,
     reg_of: Vec<Option<Reg>>,
@@ -143,7 +145,7 @@ impl Lowering<'_> {
                     match self.graph.node(id) {
                         Node::Output { source, .. } => {
                             work.push(Step::Exit(id));
-                            work.push(Step::Enter(source));
+                            work.push(Step::Enter(*source));
                         }
                         Node::Ugen { inputs, .. } => {
                             work.push(Step::Exit(id));
@@ -170,55 +172,81 @@ impl Lowering<'_> {
                             let src = self.reg_of[source.0 as usize].expect("source emitted first");
                             Reg(src.0 + port)
                         }
-                        Node::Const(v) => self.push_op(Op::Const(v)),
+                        Node::Const(v) => self.push_op(Op::Const(*v)),
                         // A leaf reading the bus's pre-assigned slot in the bus plane.
                         Node::FbRead { bus } => self.push_op(Op::FbRead { slot: bus.0 }),
                         // A leaf reading an input channel; widens the declared input count.
                         Node::Input { channel } => {
                             self.in_channels = self.in_channels.max(channel + 1);
-                            self.push_op(Op::Input { channel })
+                            self.push_op(Op::Input { channel: *channel })
                         }
                         // A leaf reading a control lane; widens the declared control width.
                         Node::Control { lane } => {
                             self.control_len = self.control_len.max(lane + 1);
-                            self.push_op(Op::Control { lane })
+                            self.push_op(Op::Control { lane: *lane })
                         }
                         // A leaf reading the executor's sample clock; no host plane to widen.
                         Node::Now => self.push_op(Op::Now),
                         Node::Ugen { ugen, inputs, buffer } => {
+                            // Resolve the row once; the op carries the reference so the VM's
+                            // hot loop never goes back through the global table.
+                            let def = ugen::def(*ugen);
+                            // The binary arithmetic words lower to an inline op — no input
+                            // arena, no state, no tick call (see `ir::BinKind`).
+                            if let Some(kind) = crate::ir::BinKind::of(def.name) {
+                                let a = self.reg_of[inputs[0].0 as usize].expect("input emitted first");
+                                let b = self.reg_of[inputs[1].0 as usize].expect("input emitted first");
+                                let reg = self.push_op(Op::Bin { kind, a, b });
+                                self.reg_of[id.0 as usize] = Some(reg);
+                                continue;
+                            }
                             // Inputs were emitted first (entered before this Exit), so their
                             // registers exist; place them contiguously in the arena.
-                            let regs: Vec<Reg> = inputs
-                                .iter()
-                                .map(|&input| self.reg_of[input.0 as usize].expect("input emitted first"))
-                                .collect();
-                            let input_count = regs.len() as u32;
+                            let input_count = inputs.len() as u32;
                             let input_start = self.inputs.len() as u32;
-                            self.inputs.extend_from_slice(&regs);
+                            for &input in inputs {
+                                let reg =
+                                    self.reg_of[input.0 as usize].expect("input emitted first");
+                                self.inputs.push(reg);
+                            }
                             let state_base = self.state_len;
-                            self.state_len += ugen::def(ugen).state_slots as u32;
+                            self.state_len += def.state_slots as u32;
                             // Seed a noise source's counter slot so co-existing instances
                             // decorrelate (without this each starts at counter 0 and emits the
                             // identical stream). `seed_ordinal` is a running index over seeded
                             // ops so each gets a distinct seed.
-                            if let Some(k) = ugen::seed_slot(ugen::def(ugen).name) {
+                            if let Some(k) = ugen::seed_slot(def.name) {
                                 self.initial_state
                                     .push((state_base + k as u32, ugen::noise_seed(self.seed_ordinal)));
                                 self.seed_ordinal += 1;
                             }
                             // A named buffer shares its pre-laid region; otherwise the generator
-                            // gets a fresh anonymous region of its row's `buffer_len`.
+                            // gets a fresh anonymous region — sized to this program (sample rate
+                            // and literal inputs, via `sized_buffer_len`) when the row opts in,
+                            // else the row's fixed `buffer_len`.
                             let (buffer_base, buffer_len) = match buffer {
                                 Some(buf) => (self.buf_bases[buf.0 as usize], self.buf_lens[buf.0 as usize]),
                                 None => {
-                                    let len = ugen::def(ugen).buffer_len as u32;
+                                    let len = if def.buffer_len == 0 {
+                                        0
+                                    } else {
+                                        let consts: Vec<Option<f32>> = inputs
+                                            .iter()
+                                            .map(|&input| match self.graph.node(input) {
+                                                Node::Const(v) => Some(*v),
+                                                _ => None,
+                                            })
+                                            .collect();
+                                        ugen::sized_buffer_len(def.name, self.sample_rate, &consts)
+                                            .unwrap_or(def.buffer_len) as u32
+                                    };
                                     let base = self.buffer_len;
                                     self.buffer_len += len;
                                     (base, len)
                                 }
                             };
                             self.push_op(Op::Ugen {
-                                ugen, input_start, input_count, state_base, buffer_base, buffer_len,
+                                def, input_start, input_count, state_base, buffer_base, buffer_len,
                             })
                         }
                     };
@@ -234,7 +262,7 @@ impl Lowering<'_> {
     fn push_op(&mut self, op: Op) -> Reg {
         let reg = Reg(self.reg_cursor);
         let outputs = match &op {
-            Op::Ugen { ugen, .. } => ugen::def(*ugen).outputs as u32,
+            Op::Ugen { def, .. } => def.outputs as u32,
             _ => 1,
         };
         self.ops.push(op);

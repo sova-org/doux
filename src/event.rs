@@ -138,6 +138,7 @@ pub struct Event {
     pub fm2h: Option<f32>,
     pub fmpivot: Option<f32>,
     pub fmfb: Option<f32>,
+    pub fmloop: Option<f32>,
 
     // AM
     pub am: Option<f32>,
@@ -259,7 +260,7 @@ pub struct Event {
     // is rejected at install so it can never be shadowed.
     pub patch: Option<String>,
     pub patchlevel: Option<f32>,
-    // Voice arf insert, resolved at dispatch like an `arf:` sound.
+    // Voice arf insert, resolved at dispatch like a source-patch sound.
     // `fx/off` clears the slot.
     pub fx: Option<String>,
 
@@ -454,6 +455,7 @@ impl Event {
                 "fm2h" => parse_param!(val, fm2h, ParamId::Fm2h),
                 "fmpivot" => parse_param!(val, fmpivot, ParamId::Fmpivot),
                 "fmfb" => parse_param!(val, fmfb, ParamId::Fmfb),
+                "fmloop" => parse_param!(val, fmloop, ParamId::Fmloop),
                 "am" => parse_param!(val, am, ParamId::Am),
                 "amdepth" => parse_param!(val, amdepth, ParamId::Amdepth),
                 "amshape" => event.amshape = val.parse().ok(),
@@ -663,7 +665,7 @@ mod tests {
 
     #[test]
     fn patch_params_parse_static_and_chain() {
-        let e = Event::parse("s/arf:pp/p:cutoff/2000/p:res/0.5~0.9:2", SR);
+        let e = Event::parse("s/pp/p:cutoff/2000/p:res/0.5~0.9:2", SR);
         assert_eq!(e.patch_params.len(), 2);
         assert!(matches!(
             &e.patch_params[0],

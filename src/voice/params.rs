@@ -185,6 +185,10 @@ pub struct VoiceParams {
     pub fmpivot: f32,
     /// FM feedback amount on the topmost operator.
     pub fmfb: f32,
+    /// Op1 → op2 return in `[0, 1]`, closing the two-op pair into a loop
+    /// (op2 → op1 via the fmpivot cos leg, op1 → op2 here). Same calibration
+    /// as fmfb: 1.0 ≈ 1 radian peak. Inert without fm2.
+    pub fmloop: f32,
 
     // ─────────────────────────────────────────────────────────────────────
     // Amplitude Modulation
@@ -430,6 +434,7 @@ impl Default for VoiceParams {
             fm2h: 1.0,
             fmpivot: 0.0,
             fmfb: 0.0,
+            fmloop: 0.0,
             am: 0.0,
             amdepth: 0.5,
             amshape: LfoShape::Sine,
