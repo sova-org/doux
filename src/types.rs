@@ -1234,7 +1234,10 @@ impl FromStr for ChorusType {
 }
 
 pub fn midi2freq(note: f32) -> f32 {
-    2.0_f32.powf((note - 69.0) / 12.0) * 440.0
+    // Clamp the octave exponent far past audibility so a large finite note
+    // (note ≳ 1580 overflows to `inf`) stays finite. Mirrors `freq2midi`'s
+    // `.max(0.001)` guard on the inverse.
+    2.0_f32.powf(((note - 69.0) / 12.0).min(30.0)) * 440.0
 }
 
 pub fn freq2midi(freq: f32) -> f32 {

@@ -73,4 +73,10 @@ impl Compressor {
         self.env += coeff * (sidechain_level - self.env);
         self.env
     }
+
+    /// Zero the envelope follower — used when the orbit crosses into silence so a
+    /// frozen or denormal duck state flushes to true zero.
+    pub fn clear_env(&mut self) {
+        self.env = 0.0;
+    }
 }

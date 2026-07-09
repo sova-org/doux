@@ -42,7 +42,6 @@ pub fn init_tables() {
     let _ = &*OMEGA;
 }
 
-#[derive(Clone, Copy)]
 pub struct StretchState {
     output_buf: [[f32; BUF_LEN]; 2],
     prev_phase: [f32; NUM_BINS],

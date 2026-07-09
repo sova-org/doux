@@ -33,6 +33,7 @@ impl SamplePool {
     }
 
     pub fn add(&mut self, samples: &[f32], channels: u8, freq: f32) -> Option<SampleInfo> {
+        let channels = channels.max(1);
         let frames = samples.len() / channels as usize;
         let offset = self.data.len();
         let info = SampleInfo {
@@ -120,6 +121,12 @@ pub struct WebSampleSource {
 
 impl WebSampleSource {
     pub fn new(offset: usize, frames: u32, channels: u8, freq: f32, begin: f32, end: f32) -> Self {
+        let channels = channels.max(1);
+        let freq = if freq.is_finite() && freq > 0.0 {
+            freq
+        } else {
+            261.626
+        };
         Self {
             info: WebSampleInfo {
                 offset,

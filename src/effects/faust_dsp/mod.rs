@@ -1250,6 +1250,7 @@ impl FaustChorus {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
         l: f32,
@@ -1677,6 +1678,12 @@ impl FaustVitalRev {
         self.dsp.set_param(Self::SIZE, p.size);
         run_block_stereo(&mut *self.dsp, frames, n);
     }
+
+    /// Zero the reverb tank in place (state only, coefficients kept) — flushes a
+    /// frozen or denormal tail to true zero at the orbit's silence crossing.
+    pub fn reset_in_place(&mut self) {
+        self.dsp.instance_clear();
+    }
 }
 
 /// Julian Parker's lush ambient reverb (`re.jpverb`), Faust-generated — an
@@ -1724,6 +1731,12 @@ impl FaustJpVerb {
         self.dsp.set_param(Self::HIGHCUT, p.highcut);
         run_block_stereo(&mut *self.dsp, frames, n);
     }
+
+    /// Zero the reverb tank in place (state only, coefficients kept) — flushes a
+    /// frozen or denormal tail to true zero at the orbit's silence crossing.
+    pub fn reset_in_place(&mut self) {
+        self.dsp.instance_clear();
+    }
 }
 
 /// Feedback comb resonator (Karplus-Strong style), Faust-generated — a per-orbit
@@ -1754,6 +1767,12 @@ impl FaustComb {
         self.dsp.set_param(Self::FB, p.feedback);
         self.dsp.set_param(Self::DAMP, p.damp);
         run_block_flat_mod(&mut self.dsp, buf, n, freq);
+    }
+
+    /// Zero the comb delay line in place (state only) — flushes a frozen or
+    /// denormal tail to true zero at the orbit's silence crossing.
+    pub fn reset_in_place(&mut self) {
+        self.dsp.instance_clear();
     }
 }
 
@@ -1806,6 +1825,12 @@ impl FaustFeedback {
         // SAFETY: `[..n]` was initialized by the loop above (`time` is ≥ n long).
         let dfreq = unsafe { init_slice(&dfreq[..n]) };
         run_block_stereo_mod(&mut *self.dsp, buf, n, dfreq);
+    }
+
+    /// Zero the stereo delay lines in place (state only) — flushes a frozen or
+    /// denormal tail to true zero at the orbit's silence crossing.
+    pub fn reset_in_place(&mut self) {
+        self.dsp.instance_clear();
     }
 }
 
@@ -1877,5 +1902,14 @@ impl FaustDelay {
                 run_block_stereo(&mut *self.multitap, buf, n);
             }
         }
+    }
+
+    /// Zero all four algorithms' delay lines in place (state only) — flushes a
+    /// frozen or denormal tail to true zero at the orbit's silence crossing.
+    pub fn reset_in_place(&mut self) {
+        self.standard.instance_clear();
+        self.pingpong.instance_clear();
+        self.tape.instance_clear();
+        self.multitap.instance_clear();
     }
 }

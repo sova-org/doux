@@ -133,17 +133,17 @@ impl ModChain {
 
     fn parse_envelope(s: &str) -> Option<Self> {
         let caret = s.find('^')?;
-        let min: f32 = s[..caret].parse().ok()?;
+        let min = finite_f32(&s[..caret])?;
         let rest = &s[caret + 1..];
         let parts: Vec<&str> = rest.split(':').collect();
         if parts.is_empty() || parts.len() > 5 {
             return None;
         }
-        let max: f32 = parts[0].parse().ok()?;
-        let attack: f32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.003);
-        let decay: f32 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let sustain: f32 = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(1.0);
-        let release: f32 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.005);
+        let max = finite_f32(parts[0])?;
+        let attack = parts.get(1).and_then(|s| finite_f32(s)).unwrap_or(0.003);
+        let decay = parts.get(2).and_then(|s| finite_f32(s)).unwrap_or(0.0);
+        let sustain = parts.get(3).and_then(|s| finite_f32(s)).unwrap_or(1.0);
+        let release = parts.get(4).and_then(|s| finite_f32(s)).unwrap_or(0.005);
         Some(ModChain::Envelope {
             min,
             max,
@@ -156,20 +156,20 @@ impl ModChain {
 
     fn parse_oscillate(s: &str) -> Option<Self> {
         let tilde = s.find('~')?;
-        let min: f32 = s[..tilde].parse().ok()?;
+        let min = finite_f32(&s[..tilde])?;
         let rest = &s[tilde + 1..];
         let colon = rest.find(':')?;
-        let max: f32 = rest[..colon].parse().ok()?;
+        let max = finite_f32(&rest[..colon])?;
         let period_str = &rest[colon + 1..];
 
         let (period, shape) = if let Some(stripped) = period_str.strip_suffix('t') {
-            (stripped.parse::<f32>().ok()?, ModShape::Triangle)
+            (finite_f32(stripped)?, ModShape::Triangle)
         } else if let Some(stripped) = period_str.strip_suffix('w') {
-            (stripped.parse::<f32>().ok()?, ModShape::Saw)
+            (finite_f32(stripped)?, ModShape::Saw)
         } else if let Some(stripped) = period_str.strip_suffix('q') {
-            (stripped.parse::<f32>().ok()?, ModShape::Square)
+            (finite_f32(stripped)?, ModShape::Square)
         } else {
-            (period_str.parse::<f32>().ok()?, ModShape::Sine)
+            (finite_f32(period_str)?, ModShape::Sine)
         };
 
         if period <= 0.0 {
@@ -185,18 +185,18 @@ impl ModChain {
 
     fn parse_random(s: &str) -> Option<Self> {
         let q = s.find('?')?;
-        let min: f32 = s[..q].parse().ok()?;
+        let min = finite_f32(&s[..q])?;
         let rest = &s[q + 1..];
         let colon = rest.find(':')?;
-        let max: f32 = rest[..colon].parse().ok()?;
+        let max = finite_f32(&rest[..colon])?;
         let period_str = &rest[colon + 1..];
 
         let (period, shape) = if let Some(stripped) = period_str.strip_suffix('s') {
-            (stripped.parse::<f32>().ok()?, ModShape::Rand)
+            (finite_f32(stripped)?, ModShape::Rand)
         } else if let Some(stripped) = period_str.strip_suffix('d') {
-            (stripped.parse::<f32>().ok()?, ModShape::Drunk)
+            (finite_f32(stripped)?, ModShape::Drunk)
         } else {
-            (period_str.parse::<f32>().ok()?, ModShape::Hold)
+            (finite_f32(period_str)?, ModShape::Hold)
         };
 
         if period <= 0.0 {
@@ -215,9 +215,9 @@ impl ModChain {
         if parts.len() != 2 {
             return None;
         }
-        let start: f32 = parts[0].parse().ok()?;
+        let start = finite_f32(parts[0])?;
         let colon = parts[1].find(':')?;
-        let target: f32 = parts[1][..colon].parse().ok()?;
+        let target = finite_f32(&parts[1][..colon])?;
         let dur_str = &parts[1][colon + 1..];
         let (dur_str, looping) = if let Some(stripped) = dur_str.strip_suffix('~') {
             (stripped, true)
@@ -240,7 +240,7 @@ impl ModChain {
     fn parse_slew(s: &str) -> Option<Self> {
         let rest = &s[1..];
         let colon = rest.find(':')?;
-        let target: f32 = rest[..colon].parse().ok()?;
+        let target = finite_f32(&rest[..colon])?;
         let dur_str = &rest[colon + 1..];
         let (period, curve) = parse_duration_curve(dur_str)?;
         if period <= 0.0 {
@@ -254,19 +254,27 @@ impl ModChain {
     }
 }
 
+/// Parse a token to a finite f32, rejecting `nan`/`inf`. Every modulation
+/// endpoint and period flows through here: a NaN period sails past the
+/// `period <= 0.0` guards (`NaN <= 0.0` is false) and would mint a NaN
+/// frequency `1.0 / NaN`, latching the modulated param dead.
+fn finite_f32(s: &str) -> Option<f32> {
+    s.parse::<f32>().ok().filter(|f| f.is_finite())
+}
+
 fn parse_duration_curve(s: &str) -> Option<(f32, ModCurve)> {
     if let Some(stripped) = s.strip_suffix('e') {
-        Some((stripped.parse().ok()?, ModCurve::Exponential))
+        Some((finite_f32(stripped)?, ModCurve::Exponential))
     } else if let Some(stripped) = s.strip_suffix('s') {
-        Some((stripped.parse().ok()?, ModCurve::Smooth))
+        Some((finite_f32(stripped)?, ModCurve::Smooth))
     } else if let Some(stripped) = s.strip_suffix('i') {
-        Some((stripped.parse().ok()?, ModCurve::Swell))
+        Some((finite_f32(stripped)?, ModCurve::Swell))
     } else if let Some(stripped) = s.strip_suffix('o') {
-        Some((stripped.parse().ok()?, ModCurve::Pluck))
+        Some((finite_f32(stripped)?, ModCurve::Pluck))
     } else if let Some(stripped) = s.strip_suffix('p') {
-        Some((stripped.parse().ok()?, ModCurve::Stair))
+        Some((finite_f32(stripped)?, ModCurve::Stair))
     } else {
-        Some((s.parse().ok()?, ModCurve::Linear))
+        Some((finite_f32(s)?, ModCurve::Linear))
     }
 }
 
@@ -395,6 +403,11 @@ pub struct ParamMod {
     pub seed: u32,
     pub drunk_pos: f32,
     pub envelope: Dahdsr,
+    /// `log2(target/start)` for an exponential `Transition` with positive
+    /// endpoints, else 0.0. Chain-invariant (endpoints are fixed for a
+    /// `ParamMod`'s lifetime — `set_mod` rebuilds via `new`), so the per-sample
+    /// glide costs only an `exp2f`, not the `log2f` too.
+    pub exp_log_ratio: f32,
 }
 
 impl Default for ParamMod {
@@ -412,12 +425,22 @@ impl Default for ParamMod {
             seed: 0,
             drunk_pos: 0.5,
             envelope: Dahdsr::default(),
+            exp_log_ratio: 0.0,
         }
     }
 }
 
 impl ParamMod {
     pub fn new(chain: ModChain, seed: u32) -> Self {
+        let exp_log_ratio = match chain {
+            ModChain::Transition {
+                start,
+                target,
+                curve: ModCurve::Exponential,
+                ..
+            } if start > 0.0 && target > 0.0 => log2f(target / start),
+            _ => 0.0,
+        };
         let mut m = Self {
             chain,
             phase: 0.0,
@@ -426,6 +449,7 @@ impl ParamMod {
             seed,
             drunk_pos: 0.5,
             envelope: Dahdsr::default(),
+            exp_log_ratio,
         };
         m.prev_rand = m.rand();
         m.next_rand = m.rand();
@@ -476,7 +500,15 @@ impl ParamMod {
                         return target;
                     }
                 }
-                interpolate(start, target, self.phase, curve)
+                // Exponential glide with positive endpoints: use the cached
+                // `log2(target/start)` so the per-sample cost is one `exp2f`.
+                // Bit-identical to `interpolate`'s exponential branch. Other
+                // curves (and non-positive endpoints) fall through.
+                if curve == ModCurve::Exponential && start > 0.0 && target > 0.0 {
+                    start * exp2f(self.phase * self.exp_log_ratio)
+                } else {
+                    interpolate(start, target, self.phase, curve)
+                }
             }
             ModChain::Envelope {
                 min,

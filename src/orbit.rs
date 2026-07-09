@@ -134,6 +134,10 @@ pub struct Orbit {
     /// its pool on clear (`patch/off`) or engine drop.
     pub patch: Option<VoicePatch>,
     pub patch_level: f32,
+    /// Set per block when the sticky `patch/` effect scrubbed a NaN/inf: its Vm
+    /// state may be latched, so `gen_block` swaps in a fresh pooled Vm. Cleared
+    /// at the patch stage's entry each `process_block`.
+    pub patch_poisoned: bool,
     pub sr: f32,
     isr: f32,
     // === Param modulation (ticked once per block in `apply_mods`) ===
@@ -183,6 +187,7 @@ impl Orbit {
             // patchlevel; sticky thereafter like every orbit param.
             patch: None,
             patch_level: 1.0,
+            patch_poisoned: false,
             sr,
             isr: 1.0 / sr,
             param_mods: [(OrbitParamId::Delay, ParamMod::default()); MAX_ORBIT_MODS],
@@ -376,6 +381,23 @@ impl Orbit {
         // released in `process_block` on silence, so it is NOT reset here.
         self.has_fx_send = false;
         self.has_pan_dry = false;
+    }
+
+    /// Zero every orbit-chain FX tail in place (delay lines, reverb tanks, comb
+    /// lines, feedback lines, compressor env). Called once when the orbit crosses
+    /// its silence holdoff (state is < −140 dB then, so this is inaudible) and by
+    /// `Engine::panic`. Flushes denormal or sub-threshold frozen state to true
+    /// zero on every target and shrinks the wasm per-sample denormal window to the
+    /// bounded 1 s holdoff. `instance_clear` keeps coefficients — no re-init.
+    pub fn clear_fx_state(&mut self) {
+        self.delay.reset_in_place();
+        self.jpverb.reset_in_place();
+        self.vital.reset_in_place();
+        for c in self.comb.iter_mut() {
+            c.reset_in_place();
+        }
+        self.fb.reset_in_place();
+        self.comp.clear_env();
     }
 
     /// True when any orbit FX has a non-zero send level — gate for routing
@@ -637,6 +659,7 @@ impl Orbit {
         // effect's control plane carries only the transport lane (patch.rs
         // contract), latched per chunk; `frame_pos` only advances while the
         // orbit is awake — `now` is windowed, arf/src/vm.rs:106.
+        self.patch_poisoned = false;
         if self.patch_level > 0.0 {
             if let Some(p) = self.patch.as_mut() {
                 let level = self.patch_level;
@@ -645,6 +668,7 @@ impl Orbit {
                 let program = p.entry.program();
                 let in_ch = program.in_channels();
                 let width = program.audio_channels().min(CHANNELS);
+                let mut bad = false;
                 for (i, frame) in self.bus.iter_mut().take(n).enumerate() {
                     let lvl = prev + step * (i as f32 + 1.0);
                     // C3 input rule: stereo patch reads the bus pair, mono
@@ -666,7 +690,7 @@ impl Orbit {
                     // Same scrub as run_arf_block: one non-finite sample
                     // would poison the master DC blocker. No 0.7 headroom —
                     // `{ 2 inputs out }` at patchlevel 1 must be unity.
-                    crate::patch::scrub_non_finite(&mut out);
+                    bad |= crate::patch::scrub_non_finite(&mut out);
                     let (w0, w1) = (out[0], out[1]);
                     if width == 2 {
                         frame[0] += w0;
@@ -677,6 +701,7 @@ impl Orbit {
                     }
                 }
                 self.prev_patch_level = level;
+                self.patch_poisoned = bad;
             }
         }
 
@@ -696,8 +721,21 @@ impl Orbit {
         for frame in self.bus.iter().take(n) {
             energy += frame[0].abs() + frame[1].abs();
         }
-        if energy < SILENCE_THRESHOLD * n as f32 {
-            self.silent_samples = self.silent_samples.saturating_add(n as u32);
+        if !energy.is_finite() {
+            // Recovery hatch: a NaN reached a native Faust feedback path. It would
+            // otherwise pin `silent_samples` to 0 forever (NaN fails both compares),
+            // so flush the chain and reset the counter.
+            self.clear_fx_state();
+            self.silent_samples = 0;
+        } else if energy < SILENCE_THRESHOLD * n as f32 {
+            let old = self.silent_samples;
+            let new = old.saturating_add(n as u32);
+            self.silent_samples = new;
+            // Crossing the holdoff: the tail is now inaudible (< 1e-7 for 1 s).
+            // Flush denormal/frozen FX state to true zero, exactly once.
+            if old <= self.silence_holdoff && new > self.silence_holdoff {
+                self.clear_fx_state();
+            }
         } else {
             self.silent_samples = 0;
         }

@@ -116,6 +116,7 @@ pub(super) fn line_len(sr: f32, consts: &[Option<f32>]) -> usize {
     (((t * sr).ceil() as usize) + 2).next_power_of_two()
 }
 
+#[allow(clippy::manual_clamp)] // max/min de-NaNs; `clamp` would propagate NaN (see `tick_comb`)
 fn tick_delay(ctx: &mut TickCtx, out: &mut [f32]) {
     // A masked ring line: write the input at the head, read `time` seconds earlier
     // (truncated to whole samples, clamped within the line), then advance the head. The
@@ -123,7 +124,7 @@ fn tick_delay(ctx: &mut TickCtx, out: &mut [f32]) {
     let mask = ctx.buffer.len() - 1;
     let head = ctx.state[0] as usize;
     ctx.buffer[head & mask] = ctx.inputs[0];
-    let delay = (ctx.inputs[1] * ctx.sr).clamp(0.0, mask as f32) as usize;
+    let delay = (ctx.inputs[1] * ctx.sr).max(0.0).min(mask as f32) as usize;
     out[0] = ctx.buffer[head.wrapping_sub(delay) & mask];
     ctx.state[0] = ((head + 1) & mask) as f32;
 }

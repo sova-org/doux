@@ -251,8 +251,11 @@ pub struct Voice {
     #[cfg(feature = "native")]
     pub registry_sample_b: Option<RegistrySample>,
     pub sample_blend: f32,
+    /// Boxed (~40 KB phase-vocoder state) so it lives off the hot `Voice`
+    /// struct — the per-voice-death `voices.swap` memcpys and the wasm shadow
+    /// stack both shrink. Allocated once at `Engine::new`, reset in place.
     #[cfg(feature = "native")]
-    pub stretch: StretchState,
+    pub stretch: Box<StretchState>,
     pub web_sample: Option<WebSampleSource>,
     /// Live arf patch handle (`Source::Arf`): pooled Vm + control plane.
     /// Never dropped on the audio thread — see the note in [`Voice::reset`].
@@ -261,6 +264,13 @@ pub struct Voice {
     /// just before the VCA. Same never-drop-on-RT contract as `patch`;
     /// cleared only by `fx/off`, New-mode reuse, or voice death.
     pub fx_patch: Option<crate::patch::VoicePatch>,
+    /// Set per block when the source patch's output scrubbed a NaN/inf: its Vm
+    /// state may be latched, so `gen_block` swaps in a fresh pooled Vm. Written
+    /// once per block by `run_arf_block`.
+    pub patch_poisoned: bool,
+    /// Same, for the `fx/` insert: cleared atop `finish_block`, OR-ed per sample
+    /// in `tick_fx_patch`.
+    pub fx_patch_poisoned: bool,
     pub(super) drum_svf: FaustSvf,
     pub(super) drum_svf2: FaustSvf,
     /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
@@ -347,10 +357,12 @@ impl Default for Voice {
             registry_sample_b: None,
             sample_blend: 0.0,
             #[cfg(feature = "native")]
-            stretch: StretchState::default(),
+            stretch: Box::new(StretchState::default()),
             web_sample: None,
             patch: None,
             fx_patch: None,
+            patch_poisoned: false,
+            fx_patch_poisoned: false,
             drum_svf: FaustSvf::default(),
             drum_svf2: FaustSvf::default(),
             pluck: Box::new(PluckState::default()),
@@ -404,13 +416,15 @@ impl Voice {
         self.sample_blend = 0.0;
         #[cfg(feature = "native")]
         {
-            self.stretch = StretchState::default();
+            *self.stretch = StretchState::default();
         }
         self.web_sample = None;
         // `patch` is deliberately untouched: dropping the arf Vm here would
         // deallocate on the audio thread. Every engine site that ends or
         // reuses a voice returns it to its pool (`PatchRegistry::retire`)
         // before calling `reset`.
+        self.patch_poisoned = false;
+        self.fx_patch_poisoned = false;
         // Clear all cold FX state in place — never rebuild the ~1.1 MB struct by
         // value (a stack temporary that overflows the audio thread on note-on).
         self.fx.reset();
@@ -870,7 +884,7 @@ impl Voice {
                 &mut out[..width],
             );
             p.frame_pos += 1;
-            crate::patch::scrub_non_finite(&mut out);
+            self.fx_patch_poisoned |= crate::patch::scrub_non_finite(&mut out);
             let (w0, w1) = (out[0], out[1]);
             if nch == 2 {
                 self.scratch[i][0] = w0;
@@ -885,6 +899,8 @@ impl Voice {
     pub(crate) fn finish_block(&mut self, env: &[f32], n: usize, isr: f32) {
         let sr = self.sr;
         let nch = self.nch;
+        // Re-accumulated per block by `tick_fx_patch` (OR-ed per sample).
+        self.fx_patch_poisoned = false;
         let has_mods = self.param_mod_count > 0;
         for k in 0..self.stage_count as usize {
             let stage = self.stage_program[k];
@@ -1977,18 +1993,19 @@ impl Voice {
     }
 
     /// Block-rate preamble: trigger the envelope (once) and precompute `n`
-    /// envelope samples into a stack-allocated buffer. Param-mods and carrier
-    /// freq are computed per-sample inside the source loop, so they aren't
-    /// touched here. Returns `None` if the envelope is `Off` after the block.
-    pub(crate) fn prepare_block(&mut self, isr: f32, n: usize) -> Option<[f32; MAX_BLOCK]> {
+    /// envelope samples into the caller's `env` buffer (a stack array in the
+    /// `process_block` variants — passing it by `&mut` avoids the 1 KB by-value
+    /// return copy). Param-mods and carrier freq are computed per-sample inside
+    /// the source loop, so they aren't touched here. Returns `false` (env
+    /// untouched-past-`n` / meaningless) if the envelope is `Off` after the block.
+    pub(crate) fn prepare_block(&mut self, isr: f32, n: usize, env: &mut [f32; MAX_BLOCK]) -> bool {
         if !self.triggered {
             self.trigger_envelopes();
             self.triggered = true;
         }
 
-        let mut env: [f32; MAX_BLOCK] = [0.0; MAX_BLOCK];
         self.dahdsr.update_block(
-            &mut env,
+            env,
             n,
             isr,
             self.params.envdelay,
@@ -1998,11 +2015,7 @@ impl Voice {
             self.params.sustain,
             self.params.release,
         );
-        if self.dahdsr.is_off() {
-            return None;
-        }
-
-        Some(env)
+        !self.dahdsr.is_off()
     }
 
     /// Orchestrates per-voice processing for a block. Returns the number of
@@ -2027,12 +2040,13 @@ impl Voice {
             n <= MAX_BLOCK,
             "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
-        let Some(env) = self.prepare_block(isr, n) else {
+        let mut env = [0.0f32; MAX_BLOCK];
+        if !self.prepare_block(isr, n, &mut env) {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];
             }
             return 0;
-        };
+        }
 
         let written = self.run_source_block(
             &env,
@@ -2067,12 +2081,13 @@ impl Voice {
             n <= MAX_BLOCK,
             "Voice::process_block: n={n} > MAX_BLOCK={MAX_BLOCK}"
         );
-        let Some(env) = self.prepare_block(isr, n) else {
+        let mut env = [0.0f32; MAX_BLOCK];
+        if !self.prepare_block(isr, n, &mut env) {
             for i in 0..n {
                 self.scratch[i] = [0.0; CHANNELS];
             }
             return 0;
-        };
+        }
 
         let written = self.run_source_block(
             &env,

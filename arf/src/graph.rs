@@ -236,6 +236,217 @@ impl Graph {
         &self.nodes[id.0 as usize]
     }
 
+    /// Reject a malformed graph before it reaches the compiler or the realtime VM. The
+    /// serialized graph (see [`Node`]) is the untrusted patch boundary: hand-crafted or corrupt
+    /// JSON can carry out-of-range node ids, wrong arities, non-finite constants, or cycles —
+    /// each of which panics [`crate::compile::compile`] or the VM's fixed-size scratch on the
+    /// audio thread. This one pass rejects them with a message instead. In-process `Graph`-API
+    /// callers (a Forth front-end) build well-formed graphs by construction and need not call it.
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::ugen::{Arity, ListShape, def};
+        let n = self.nodes.len();
+
+        // Per node: referenced ids in range, arity matches the row, constants finite.
+        for (i, node) in self.nodes.iter().enumerate() {
+            match node {
+                Node::Const(v) => {
+                    if !v.is_finite() {
+                        return Err(format!("node {i} is a non-finite constant"));
+                    }
+                }
+                Node::Ugen {
+                    ugen,
+                    inputs,
+                    buffer,
+                } => {
+                    let def = def(*ugen);
+                    for &input in inputs {
+                        if input.0 as usize >= n {
+                            return Err(format!(
+                                "node {i} ({}) references input node {} of {n}",
+                                def.name, input.0
+                            ));
+                        }
+                    }
+                    // The VM's per-op input scratch is `MAX_CHANNELS` wide (arf/src/vm.rs).
+                    if inputs.len() > MAX_CHANNELS {
+                        return Err(format!(
+                            "node {i} ({}) has {} inputs (cap {MAX_CHANNELS})",
+                            def.name,
+                            inputs.len()
+                        ));
+                    }
+                    match def.arity {
+                        Arity::Fixed(a) => {
+                            if inputs.len() != a {
+                                return Err(format!(
+                                    "node {i} ({}) takes {a} inputs, got {}",
+                                    def.name,
+                                    inputs.len()
+                                ));
+                            }
+                        }
+                        Arity::Variadic => {
+                            if inputs.is_empty() {
+                                return Err(format!(
+                                    "node {i} ({}) needs at least one input",
+                                    def.name
+                                ));
+                            }
+                        }
+                        Arity::VariadicLed { shape } => {
+                            if inputs.is_empty() {
+                                return Err(format!(
+                                    "node {i} ({}) needs a leading operand",
+                                    def.name
+                                ));
+                            }
+                            // Input 0 is the trigger/index operand; inputs 1.. are the list.
+                            let list = inputs.len() - 1;
+                            let ok = match shape {
+                                ListShape::Any => list >= 1,
+                                ListShape::OddAtLeastThree => list >= 3 && list % 2 == 1,
+                            };
+                            if !ok {
+                                return Err(format!(
+                                    "node {i} ({}) has a {list}-element list that breaks its shape law",
+                                    def.name
+                                ));
+                            }
+                        }
+                    }
+                    if let Some(buf) = buffer
+                        && buf.0 as usize >= self.buffers.len()
+                    {
+                        return Err(format!(
+                            "node {i} ({}) references buffer {} of {}",
+                            def.name,
+                            buf.0,
+                            self.buffers.len()
+                        ));
+                    }
+                }
+                Node::FbRead { bus } => {
+                    if bus.0 as usize >= self.bus_sources.len() {
+                        return Err(format!(
+                            "node {i} reads feedback bus {} of {}",
+                            bus.0,
+                            self.bus_sources.len()
+                        ));
+                    }
+                }
+                Node::Output { source, port } => {
+                    if source.0 as usize >= n {
+                        return Err(format!("node {i} output selects node {} of {n}", source.0));
+                    }
+                    match &self.nodes[source.0 as usize] {
+                        Node::Ugen { ugen, .. } => {
+                            let outs = def(*ugen).outputs;
+                            if *port as usize >= outs {
+                                return Err(format!(
+                                    "node {i} selects port {port} of a {outs}-output generator"
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(format!(
+                                "node {i} output selects node {}, which is not a generator",
+                                source.0
+                            ));
+                        }
+                    }
+                }
+                Node::Input { .. } | Node::Control { .. } | Node::Now => {}
+            }
+        }
+
+        // Compile roots reference real nodes too (they bypass the per-node loop above).
+        for &out in &self.outputs {
+            if out.0 as usize >= n {
+                return Err(format!("graph output references node {} of {n}", out.0));
+            }
+        }
+        for (b, src) in self.bus_sources.iter().enumerate() {
+            if let Some(node) = src
+                && node.0 as usize >= n
+            {
+                return Err(format!("bus {b} source references node {} of {n}", node.0));
+            }
+        }
+        for &sink in &self.sinks {
+            if sink.0 as usize >= n {
+                return Err(format!("sink references node {} of {n}", sink.0));
+            }
+        }
+
+        // Buffer lengths and parameter defaults must be finite: serde casts an out-of-range
+        // JSON float to `inf` when it deserializes an f32.
+        for (b, &secs) in self.buffers.iter().enumerate() {
+            if !secs.is_finite() {
+                return Err(format!("buffer {b} has a non-finite length"));
+            }
+        }
+        for (name, default) in &self.params {
+            if !default.is_finite() {
+                return Err(format!("param {name:?} has a non-finite default"));
+            }
+        }
+
+        // Reject cycles: the compiler's `emit` memoises a node only on its Exit, so a cycle
+        // makes its worklist grow without bound (OOM on the control thread). A valid graph is a
+        // DAG whose only feedback is through `FbRead` leaves — so this walk follows just `Ugen`
+        // inputs and `Output` sources (the edges `emit` recurses), from the compile roots.
+        #[derive(Clone, Copy, PartialEq)]
+        enum Color {
+            White,
+            Gray,
+            Black,
+        }
+        enum Step {
+            Enter(NodeId),
+            Exit(NodeId),
+        }
+        let mut color = vec![Color::White; n];
+        let roots = self
+            .outputs
+            .iter()
+            .copied()
+            .chain(self.bus_sources.iter().filter_map(|s| *s))
+            .chain(self.sinks.iter().copied());
+        let mut work: Vec<Step> = Vec::new();
+        for root in roots {
+            work.push(Step::Enter(root));
+            while let Some(step) = work.pop() {
+                match step {
+                    Step::Enter(id) => {
+                        let idx = id.0 as usize;
+                        match color[idx] {
+                            Color::Black => continue,
+                            Color::Gray => {
+                                return Err(format!("graph has a cycle through node {idx}"));
+                            }
+                            Color::White => {}
+                        }
+                        color[idx] = Color::Gray;
+                        work.push(Step::Exit(id));
+                        match &self.nodes[idx] {
+                            Node::Ugen { inputs, .. } => {
+                                for &input in inputs {
+                                    work.push(Step::Enter(input));
+                                }
+                            }
+                            Node::Output { source, .. } => work.push(Step::Enter(*source)),
+                            _ => {}
+                        }
+                    }
+                    Step::Exit(id) => color[id.0 as usize] = Color::Black,
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.nodes.len()
     }

@@ -134,11 +134,7 @@ impl Recorder {
             self.producer.push_slice(&output[..want.min(output.len())])
         } else {
             // Downmix to stereo (front L/R; mono duplicates L) into scratch.
-            let in_frames = if output_channels == 0 {
-                0
-            } else {
-                output.len() / output_channels
-            };
+            let in_frames = output.len().checked_div(output_channels).unwrap_or(0);
             let frames = block_samples
                 .min(self.scratch.len() / CHANNELS)
                 .min(in_frames);

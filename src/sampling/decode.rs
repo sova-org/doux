@@ -163,7 +163,7 @@ pub fn decode_sample_file(path: &Path, target_sr: f32) -> Result<SampleData, Str
         .ok_or("No audio track found")?;
 
     let codec_params = &track.codec_params;
-    let channels = codec_params.channels.map(|c| c.count()).unwrap_or(1) as u8;
+    let channels = codec_params.channels.map(|c| c.count().max(1)).unwrap_or(1) as u8;
     let sample_rate = codec_params.sample_rate.unwrap_or(44100) as f32;
 
     let mut decoder = symphonia::default::get_codecs()
@@ -251,7 +251,7 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
         .ok_or("No audio track found")?;
 
     let codec_params = &track.codec_params;
-    let channels = codec_params.channels.map(|c| c.count()).unwrap_or(1) as u8;
+    let channels = codec_params.channels.map(|c| c.count().max(1)).unwrap_or(1) as u8;
     let sample_rate = codec_params.sample_rate.unwrap_or(44100) as f32;
     let file_n_frames = codec_params.n_frames;
     let max_interleaved = HEAD_FRAMES * channels as usize;

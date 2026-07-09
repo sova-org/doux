@@ -242,11 +242,19 @@ pub struct Engine {
     pub(crate) schedule: Schedule,
     pub(crate) time: f64,
     pub(crate) tick: u64,
+    /// Earliest `tick` a NaN-latched patch Vm may be healed (swapped for a fresh
+    /// pooled one). Bounds the off-RT reaper's reset/memset load to ~one heal per
+    /// second engine-wide — a permanently-NaN 4 MiB-buffer patch would otherwise
+    /// cost the reaper hundreds of MB/s. See the heal path in `gen_block`.
+    next_heal_tick: u64,
     /// Transport tempo in beats per second, latched into every live patch's
     /// `BPS_LANE` once per chunk so arf graphs can read `bps`. Set from the
     /// host via [`Engine::set_tempo`]; defaults to 2.0 (120 BPM).
     tempo_bps: f32,
     pub(crate) output_channels: usize,
+    /// Equal-power room-wet normalization `1/sqrt(output_channels)`, an
+    /// engine-lifetime constant (output width is fixed at construction).
+    room_gain: f32,
     pub(crate) host_buffer_size: usize,
     /// Inner DSP block size; sized scratch buffers guarantee `.get() ≤ MAX_BLOCK`.
     pub(crate) inner_block_size: DspBlockSize,
@@ -375,8 +383,10 @@ impl Engine {
             schedule: Schedule::new(),
             time: 0.0,
             tick: 0,
+            next_heal_tick: 0,
             tempo_bps: 2.0,
             output_channels: config.output_channels,
+            room_gain: 1.0 / (config.output_channels as f32).sqrt(),
             host_buffer_size: config.host_buffer_size,
             inner_block_size: DspBlockSize::new(config.inner_block_size),
             output: vec![0.0; config.host_buffer_size * config.output_channels],
@@ -582,6 +592,12 @@ impl Engine {
 
     #[cfg(not(feature = "native"))]
     pub fn load_sample(&mut self, samples: &[f32], channels: u8, freq: f32) -> Option<usize> {
+        // JS may hand a NaN/0 base freq, which feeds pitch-ratio math downstream.
+        let freq = if freq.is_finite() && freq > 0.0 {
+            freq
+        } else {
+            261.626
+        };
         let info = self.sample_pool.add(samples, channels, freq)?;
         let idx = self.samples.len();
         self.samples.push(info);
@@ -848,6 +864,24 @@ impl Engine {
         Some(i)
     }
 
+    /// The slot of the voice nearest silence (minimum envelope value) — the
+    /// steal victim when a `New` event arrives at the polyphony ceiling. Mirrors
+    /// the overload shedder's scan; the minimum envelope naturally prefers
+    /// releasing voices. Only called when `active_voices >= max_voices ≥ 1`, so
+    /// the scan is non-empty and slot 0 is a valid default.
+    fn steal_voice_slot(&self) -> usize {
+        let mut min_idx = 0;
+        let mut min_val = f32::MAX;
+        for i in 0..self.active_voices {
+            let val = self.voices[i].dahdsr.current_val;
+            if val < min_val {
+                min_val = val;
+                min_idx = i;
+            }
+        }
+        min_idx
+    }
+
     /// Process an event, handling voice selection like dough.c's process_engine_event()
     fn process_event(&mut self, event: &Event) -> Option<usize> {
         // Cut group: reuse first matching voice, hard_cut any extras
@@ -947,6 +981,10 @@ impl Engine {
             .and_then(|tag| (0..self.active_voices).find(|&i| self.voices[i].tag == Some(tag)));
         let has_sound = event.sound.is_some() || has_web_sample;
 
+        // Set when a New event steals an existing slot at the polyphony ceiling;
+        // the New block below then carries the victim's envelope for a click-free
+        // takeover (like a cut-group reuse).
+        let mut stole_slot = false;
         let (voice_idx, mode) = if let Some(reuse_idx) = cut_reuse {
             (reuse_idx, EventMode::New)
         } else if let Some(idx) = tagged {
@@ -962,22 +1000,25 @@ impl Engine {
             // sound: drop — a tweak must not spawn a default voice.
             return None;
         } else {
-            // Allocate new
+            // Allocate new — or, at the polyphony ceiling, steal the quietest
+            // voice so the newest note always sounds. Native still honors
+            // `load_gate` (an engine reset in progress drops the event).
             #[cfg(feature = "native")]
-            if self.load_gate || self.active_voices >= self.max_voices {
+            if self.load_gate {
                 return None;
             }
-            #[cfg(not(feature = "native"))]
             if self.active_voices >= self.max_voices {
-                return None;
+                stole_slot = true;
+                (self.steal_voice_slot(), EventMode::New)
+            } else {
+                let i = self.active_voices;
+                self.active_voices += 1;
+                (i, EventMode::New)
             }
-            let i = self.active_voices;
-            self.active_voices += 1;
-            (i, EventMode::New)
         };
 
         if mode == EventMode::New {
-            let old_env = if cut_reuse.is_some() {
+            let old_env = if cut_reuse.is_some() || stole_slot {
                 self.voices[voice_idx].dahdsr.current_val
             } else {
                 0.0
@@ -1478,7 +1519,10 @@ impl Engine {
             }
             if let Some(target_dur) = event.fit {
                 let sample_dur = frame_count as f32 * (end - begin) / self.sr;
-                v.params.speed = sample_dur / target_dur;
+                let sp = sample_dur / target_dur;
+                if sp.is_finite() {
+                    v.params.speed = sp;
+                }
             }
         } else if event.begin.is_some() || event.end.is_some() || event.slice.is_some() {
             #[cfg(feature = "native")]
@@ -1514,7 +1558,10 @@ impl Engine {
                 }
                 if let Some(target_dur) = event.fit {
                     let sample_dur = info.frames as f32 * (end - begin) / self.sr;
-                    v.params.speed = sample_dur / target_dur;
+                    let sp = sample_dur / target_dur;
+                    if sp.is_finite() {
+                        v.params.speed = sp;
+                    }
                 }
             }
         } else if event.begin.is_some() || event.end.is_some() || event.slice.is_some() {
@@ -1724,6 +1771,33 @@ impl Engine {
         }
     }
 
+    /// Swap a NaN-latched patch Vm for a fresh pooled one, retiring the poisoned
+    /// one through the off-RT reaper. `poisoned` is read (Copy) before the slot's
+    /// mutable borrow so flag and slot stay disjoint. Fresh-first: a dry pool
+    /// leaves the slot untouched rather than stranding it silent. A successful
+    /// swap advances the engine-wide cooldown by one second. Sticky user params
+    /// live on the `VoicePatch`, not the Vm, so they survive the swap.
+    #[inline]
+    fn heal_patch(
+        poisoned: bool,
+        slot: &mut Option<crate::patch::VoicePatch>,
+        registry: &crate::patch::PatchRegistry,
+        tick: u64,
+        heal_sr: u64,
+        next_heal_tick: &mut u64,
+    ) {
+        if !poisoned || tick < *next_heal_tick {
+            return;
+        }
+        let Some(p) = slot.as_mut() else { return };
+        let Some(fresh) = p.entry.take_vm() else {
+            return;
+        };
+        let old = std::mem::replace(&mut p.vm, fresh);
+        registry.retire_vm(std::sync::Arc::clone(&p.entry), old);
+        *next_heal_tick = tick + heal_sr;
+    }
+
     /// Phase F: per-chunk voice + orbit + final-mix pass.
     ///
     /// `start` is the absolute sample offset within the CPAL buffer; `n` is the
@@ -1773,6 +1847,7 @@ impl Engine {
         let bps = self.tempo_bps;
         let input_channels = self.input_channels;
         let output_channels = self.output_channels;
+        let room_gain = self.room_gain;
         let master_dc = &mut self.master_dc;
         let master_dc_coeff = self.master_dc_coeff;
         let limiter = &mut self.limiter;
@@ -1798,11 +1873,19 @@ impl Engine {
         let orbits = &mut self.orbits;
         let active_voices = &mut self.active_voices;
         let patch_registry = &self.patch_registry;
+        // NaN-heal cooldown state (§ Step 4). `heal_now` is this chunk's tick;
+        // `next_heal_tick` gates heals to ~one per second engine-wide.
+        let heal_now = self.tick;
+        let heal_sr = self.sr as u64;
+        let next_heal_tick = &mut self.next_heal_tick;
         #[cfg(not(feature = "native"))]
         let pool = self.sample_pool.data.as_slice();
         #[cfg(not(feature = "native"))]
         let samples_slice = self.samples.as_slice();
 
+        // Superpan gains scratch, reused across voices: `panaz_gains` fully writes
+        // `[..num]` and only `[..num]` is read, so one init per chunk suffices.
+        let mut gains = [0.0f32; superpan::MAX_SUPERPAN_NODES];
         let mut i = 0;
         while i < *active_voices {
             let voice = &mut voices[i];
@@ -1853,7 +1936,6 @@ impl Engine {
                 let num_pairs = output_channels / 2;
                 let num = if set.is_empty() { num_pairs } else { set.len() }
                     .min(superpan::MAX_SUPERPAN_NODES);
-                let mut gains = [0.0f32; superpan::MAX_SUPERPAN_NODES];
                 superpan::panaz_gains(num, pos, voice.params.superwidth, &mut gains);
                 *superpan_used = true;
                 for f in 0..written {
@@ -1908,6 +1990,25 @@ impl Engine {
                 continue;
             }
 
+            // Voice survived the block: heal a NaN-latched source or insert Vm.
+            let voice = &mut voices[i];
+            Self::heal_patch(
+                voice.patch_poisoned,
+                &mut voice.patch,
+                patch_registry,
+                heal_now,
+                heal_sr,
+                next_heal_tick,
+            );
+            Self::heal_patch(
+                voice.fx_patch_poisoned,
+                &mut voice.fx_patch,
+                patch_registry,
+                heal_now,
+                heal_sr,
+                next_heal_tick,
+            );
+
             i += 1;
         }
 
@@ -1919,6 +2020,14 @@ impl Engine {
                 p.control[arf::graph::BPS_LANE] = bps;
             }
             orbit.process_block(n);
+            Self::heal_patch(
+                orbit.patch_poisoned,
+                &mut orbit.patch,
+                patch_registry,
+                heal_now,
+                heal_sr,
+                next_heal_tick,
+            );
         }
         #[cfg(all(feature = "native", feature = "profiling"))]
         {
@@ -1931,8 +2040,6 @@ impl Engine {
         let final_mix_start = std::time::Instant::now();
 
         let num_pairs = output_channels / 2;
-        // Equal-power normalization for diffuse room-wet spread across N channels.
-        let room_gain = 1.0 / (output_channels as f32).sqrt();
 
         // Orbit-major passes. Each output slot still receives its contributions
         // in the same order as the old frame-major loop — orbits ascending, then
@@ -1946,10 +2053,7 @@ impl Engine {
         #[cfg(feature = "native")]
         let orbit_rec_bus = &mut self.orbit_rec_bus;
 
-        // Pass 1: non-room orbits onto their stereo pair. Sidechain levels are
-        // staged through a stack scratch so reading another orbit's post-FX bus
-        // doesn't alias the mutable compressor borrow.
-        let mut sc_lv = [0.0f32; MAX_BLOCK];
+        // Pass 1: non-room orbits onto their stereo pair.
         for oi in 0..MAX_ORBITS {
             // Room-routed orbits contribute only their wet, spread below — skip
             // the stereo-pair mapping, compressor, and recorder for them.
@@ -1976,15 +2080,23 @@ impl Engine {
                 let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
                 let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
                 let expo = 1.0 + cp.amount * 4.0;
+                // Sidechain levels staged through a stack scratch so reading
+                // another orbit's post-FX bus doesn't alias the compressor borrow.
+                // The 1 KB zero is paid only by an engaged compressor; `[..n]` is
+                // fully rewritten below before any read.
+                let mut sc_lv = [0.0f32; MAX_BLOCK];
                 for (slot, frame) in sc_lv.iter_mut().zip(orbits[sc].bus.iter()).take(n) {
                     *slot = frame[0].abs().max(frame[1].abs());
                 }
                 let orbit = &mut orbits[oi];
                 for (f, &sc_level) in sc_lv.iter().enumerate().take(n) {
                     let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
-                    let base = 1.0 - env;
+                    // `.max(0.0)`: the sidechain env can exceed 1 (unclamped), so
+                    // `1 - env` may go negative and `powf(negative, non-integer)`
+                    // would mint a NaN into the master mix. 0 is the right full-duck limit.
+                    let base = (1.0 - env).max(0.0);
                     // IEEE 754: powf(1.0, y) == 1.0 exactly, so the skip is free.
-                    let gain = if base == 1.0 { 1.0 } else { base.powf(expo) };
+                    let gain = if base == 1.0 { 1.0 } else { dsp::powf(base, expo) };
                     let orbit_frame = orbit.bus[f];
                     let base_idx = (start + f) * output_channels;
                     output[base_idx + pair_offset] += orbit_frame[0] * gain;
@@ -2368,6 +2480,24 @@ impl Engine {
             }
         }
         self.active_voices = 0;
+
+        // Clear every orbit's FX tail (reverb tanks, delay lines, comp env) so a
+        // ringing or NaN-latched orbit goes truly silent — the emergency hatch a
+        // `panic`/`reset` promises. The sticky `patch/` effect stays installed:
+        // swap its Vm for a fresh pooled one (config survives, state resets) via
+        // the Step-4 retire path. Params/levels stay sticky (config, not sound).
+        for orbit in self.orbits.iter_mut() {
+            orbit.clear_fx_state();
+            let Some(p) = orbit.patch.as_mut() else {
+                continue;
+            };
+            let Some(fresh) = p.entry.take_vm() else {
+                continue;
+            };
+            let old = std::mem::replace(&mut p.vm, fresh);
+            self.patch_registry
+                .retire_vm(std::sync::Arc::clone(&p.entry), old);
+        }
     }
 }
 
@@ -2385,8 +2515,9 @@ impl Drop for Engine {
                 self.patch_registry.retire(vp);
             }
         }
-        // Orbit patches hold pooled Vms too. (`panic()` leaves them alone —
-        // they are sticky FX config like `verb_level`, not sounding voices.)
+        // Orbit patches hold pooled Vms too. (`panic()` resets their FX *state*
+        // but keeps them installed — sticky FX config like `verb_level`, not
+        // sounding voices — so this final retire still runs on engine drop.)
         for o in self.orbits.iter_mut() {
             if let Some(vp) = o.patch.take() {
                 self.patch_registry.retire(vp);

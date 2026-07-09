@@ -27,6 +27,7 @@ pub struct SampleData {
 impl SampleData {
     /// Creates new sample data from decoded audio.
     pub fn new(samples: Vec<f32>, channels: u8, freq: f32) -> Self {
+        let channels = channels.max(1);
         let frame_count = (samples.len() / channels as usize) as u32;
         Self {
             frames: samples.into_boxed_slice(),
@@ -39,6 +40,7 @@ impl SampleData {
 
     /// Creates sample data for a head preload where total_frames may exceed frame_count.
     pub fn new_head(samples: Vec<f32>, channels: u8, freq: f32, total_frames: u32) -> Self {
+        let channels = channels.max(1);
         let frame_count = (samples.len() / channels as usize) as u32;
         Self {
             frames: samples.into_boxed_slice(),

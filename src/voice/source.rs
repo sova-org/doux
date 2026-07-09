@@ -362,6 +362,7 @@ impl Voice {
         if let Some(ref mut vp) = self.patch {
             vp.control[VEL_LANE] = self.params.velocity;
         }
+        let mut bad = false;
         for i in 0..n {
             let freq = self.tick_pre(isr, i);
             let gate = if self.dahdsr.is_releasing() { 0.0 } else { 1.0 };
@@ -382,13 +383,17 @@ impl Voice {
                 // One unscrubbed non-finite sample would permanently poison
                 // the master DC-blocker downstream. 0.7 is the same headroom
                 // scale as the sample sources.
-                crate::patch::scrub_non_finite(&mut frame);
+                bad |= crate::patch::scrub_non_finite(&mut frame);
                 self.scratch[i][0] = frame[0] * 0.7;
                 self.scratch[i][1] = frame[1] * 0.7;
             } else {
                 self.scratch[i] = [0.0; CHANNELS];
             }
         }
+        // Flag a latched source Vm for the heal path (`gen_block`). A held or
+        // same-patch-retriggered voice keeps its Vm, so it never self-heals
+        // without this.
+        self.patch_poisoned = bad;
     }
 
     #[cfg(not(feature = "native"))]

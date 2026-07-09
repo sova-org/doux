@@ -311,8 +311,12 @@ impl Event {
     /// decimal. Timing (`tick`, `delta`) and JS-set PCM offsets (`file_pcm`,
     /// `file_frames`) keep their own exact integer parse: they can exceed
     /// f32's 2^24 exact range and are never fractional.
+    ///
+    /// Non-finite tokens (`nan`, `inf`) are rejected here so no NaN/inf ever
+    /// reaches DSP state — a single NaN summed into an orbit's feedback latches
+    /// that orbit dead until engine rebuild.
     fn num(val: &str) -> Option<f32> {
-        val.parse::<f32>().ok()
+        val.parse::<f32>().ok().filter(|f| f.is_finite())
     }
 
     fn parse_usize(val: &str) -> Option<usize> {
@@ -347,7 +351,7 @@ impl Event {
             ($val:expr, $field:ident, $id:expr) => {
                 if let Some(chain) = ModChain::parse($val) {
                     event.mods.push(($id, chain));
-                } else if let Ok(v) = $val.parse() {
+                } else if let Some(v) = Self::num($val) {
                     event.$field = Some(v);
                     event.static_ids.push($id);
                 }
@@ -358,7 +362,7 @@ impl Event {
             ($val:expr, $field:ident, $id:expr) => {
                 if let Some(chain) = ModChain::parse($val) {
                     event.orbit_mods.push(($id, chain));
-                } else if let Ok(v) = $val.parse() {
+                } else if let Some(v) = Self::num($val) {
                     event.$field = Some(v);
                     event.orbit_static_ids.push($id);
                 }
@@ -384,7 +388,7 @@ impl Event {
                         .map(|t| (t * sr as f64).floor() as u64);
                 }
                 "delta" => event.delta = val.parse().ok(),
-                "gate" => event.gate = val.parse().ok(),
+                "gate" => event.gate = Self::num(val),
                 "voice" => event.voice = Self::parse_usize(val),
                 "reset" => event.reset = Some(val == "1" || val == "true"),
                 "orbit" => event.orbit = Self::parse_usize(val),
@@ -392,31 +396,31 @@ impl Event {
                 "note" => {
                     if let Some(chain) = ModChain::parse(val).map(|c| c.map_values(midi2freq)) {
                         event.mods.push((ParamId::Freq, chain));
-                    } else if let Ok(n) = val.parse() {
+                    } else if let Some(n) = Self::num(val) {
                         event.freq = Some(midi2freq(n));
                         event.static_ids.push(ParamId::Freq);
                     }
                 }
                 "detune" => parse_param!(val, detune, ParamId::Detune),
                 "speed" => parse_param!(val, speed, ParamId::Speed),
-                "glide" => event.glide = val.parse().ok(),
+                "glide" => event.glide = Self::num(val),
                 "stretch" => parse_param!(val, stretch, ParamId::Stretch),
-                "fit" => event.fit = val.parse().ok(),
+                "fit" => event.fit = Self::num(val),
                 "sound" | "s" => event.sound = Some(val.to_string()),
                 "pw" => parse_param!(val, pw, ParamId::Pw),
-                "spread" => event.spread = val.parse().ok(),
+                "spread" => event.spread = Self::num(val),
                 "size" => event.size = Self::num(val).map(|f| f as u16),
-                "warp" => event.warp = val.parse().ok(),
+                "warp" => event.warp = Self::num(val),
                 "mirror" => parse_param!(val, mirror, ParamId::Mirror),
                 "harmonics" | "harm" => parse_param!(val, harmonics, ParamId::Harmonics),
                 "timbre" => parse_param!(val, timbre, ParamId::Timbre),
                 "morph" => parse_param!(val, morph, ParamId::Morph),
                 "n" => event.n = Some(val.to_string()),
                 "cut" => event.cut = Self::parse_usize(val),
-                "begin" => event.begin = val.parse().ok(),
-                "end" => event.end = val.parse().ok(),
-                "slice" => event.slice = val.parse().ok(),
-                "pick" => event.pick = val.parse().ok(),
+                "begin" => event.begin = Self::num(val),
+                "end" => event.end = Self::num(val),
+                "slice" => event.slice = Self::num(val),
+                "pick" => event.pick = Self::num(val),
                 "bank" => event.bank = Some(val.to_string()),
                 "wave" | "waveform" => parse_param!(val, wave, ParamId::Wave),
                 "sub" => parse_param!(val, sub, ParamId::Sub),
@@ -430,17 +434,17 @@ impl Event {
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = Self::parse_u8(val),
-                "file_freq" => event.file_freq = val.parse().ok(),
+                "file_freq" => event.file_freq = Self::num(val),
                 "gain" => parse_param!(val, gain, ParamId::Gain),
                 "postgain" => parse_param!(val, postgain, ParamId::Postgain),
-                "velocity" => event.velocity = val.parse().ok(),
+                "velocity" => event.velocity = Self::num(val),
                 "pan" => parse_param!(val, pan, ParamId::Pan),
-                "envdelay" | "envdly" => event.envdelay = val.parse().ok(),
-                "attack" => event.attack = val.parse().ok(),
-                "hold" | "hld" => event.hold = val.parse().ok(),
-                "decay" => event.decay = val.parse().ok(),
-                "sustain" => event.sustain = val.parse().ok(),
-                "release" => event.release = val.parse().ok(),
+                "envdelay" | "envdly" => event.envdelay = Self::num(val),
+                "attack" => event.attack = Self::num(val),
+                "hold" | "hld" => event.hold = Self::num(val),
+                "decay" => event.decay = Self::num(val),
+                "sustain" => event.sustain = Self::num(val),
+                "release" => event.release = Self::num(val),
                 "lpf" | "cutoff" => parse_param!(val, lpf, ParamId::Lpf),
                 "lpq" | "resonance" => parse_param!(val, lpq, ParamId::Lpq),
                 "hpf" | "hcutoff" => parse_param!(val, hpf, ParamId::Hpf),
@@ -487,14 +491,14 @@ impl Event {
                 "fshift" | "fsh" => parse_param!(val, fshift, ParamId::Fshift),
                 "pshift" | "psh" => parse_param!(val, pshift, ParamId::Pshift),
                 "pshiftwin" | "pwin" => parse_param!(val, pshiftwin, ParamId::Pshiftwin),
-                "wah" => event.wah = val.parse().ok(),
-                "wahpeak" => event.wahpeak = val.parse().ok(),
-                "wahsens" => event.wahsens = val.parse().ok(),
-                "wahmanual" => event.wahmanual = val.parse().ok(),
-                "vinyl" => event.vinyl = val.parse().ok(),
-                "vinylwow" => event.vinylwow = val.parse().ok(),
-                "vinylnoise" => event.vinylnoise = val.parse().ok(),
-                "vinyltone" => event.vinyltone = val.parse().ok(),
+                "wah" => event.wah = Self::num(val),
+                "wahpeak" => event.wahpeak = Self::num(val),
+                "wahsens" => event.wahsens = Self::num(val),
+                "wahmanual" => event.wahmanual = Self::num(val),
+                "vinyl" => event.vinyl = Self::num(val),
+                "vinylwow" => event.vinylwow = Self::num(val),
+                "vinylnoise" => event.vinylnoise = Self::num(val),
+                "vinyltone" => event.vinyltone = Self::num(val),
                 "vinyltype" => event.vinyltype = val.parse().ok(),
                 "smear" => parse_param!(val, smear, ParamId::Smear),
                 "smearfreq" => parse_param!(val, smearfreq, ParamId::Smearfreq),
@@ -526,9 +530,9 @@ impl Event {
                 "fold" => parse_param!(val, fold, ParamId::Fold),
                 "wrap" => parse_param!(val, wrap, ParamId::Wrap),
                 "distort" => parse_param!(val, distort, ParamId::Distort),
-                "distortvol" => event.distortvol = val.parse().ok(),
+                "distortvol" => event.distortvol = Self::num(val),
                 "distortmode" | "dmode" => event.distortmode = val.parse().ok(),
-                "distortasym" | "dasym" => event.distortasym = val.parse().ok(),
+                "distortasym" | "dasym" => event.distortasym = Self::num(val),
                 "foldmode" | "fmode" => event.foldmode = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),
                 "haas" => parse_param!(val, haas, ParamId::Haas),
@@ -591,7 +595,7 @@ impl Event {
                         event
                             .patch_params
                             .push((name.to_string(), PatchParamValue::Chain(chain)));
-                    } else if let Ok(v) = val.parse() {
+                    } else if let Some(v) = Self::num(val) {
                         event
                             .patch_params
                             .push((name.to_string(), PatchParamValue::Value(v)));

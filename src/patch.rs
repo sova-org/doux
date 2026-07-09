@@ -108,17 +108,23 @@ impl VoicePatch {
     }
 }
 
-/// Zero any non-finite sample in a patch's output frame. arf's core is
-/// IEEE-transparent (a pathological graph can emit NaN/inf); doux scrubs at
-/// the boundary so one bad patch cannot poison downstream filter state.
-/// Shared by all three tick sites (source, insert, orbit effect).
+/// Zero any non-finite sample in a patch's output frame, returning `true` if it
+/// zeroed anything. arf's core is IEEE-transparent (a pathological graph can
+/// emit NaN/inf); doux scrubs at the boundary so one bad patch cannot poison
+/// downstream filter state. The `bool` lets the tick sites flag a poisoned Vm
+/// for the NaN-heal path (whose own state may still be latched even after the
+/// output frame is scrubbed). Shared by all three tick sites (source, insert,
+/// orbit effect).
 #[inline]
-pub(crate) fn scrub_non_finite(frame: &mut [f32]) {
+pub(crate) fn scrub_non_finite(frame: &mut [f32]) -> bool {
+    let mut bad = false;
     for s in frame {
         if !s.is_finite() {
             *s = 0.0;
+            bad = true;
         }
     }
+    bad
 }
 
 /// A message to the patch-reaper thread.
@@ -275,6 +281,20 @@ impl PatchRegistry {
         // so reject it here instead.
         for op in program.ops() {
             match *op {
+                // Arity belt for the direct `install(name, Program)` path (graph JSON is caught
+                // earlier by `Graph::validate`): a bad input count would index the VM's fixed
+                // `scratch[..input_count]` out of range, or read `ctx.inputs[k]` past the gathered
+                // slice inside a `Fixed(n)` tick — an audio-thread panic.
+                arf::ir::Op::Ugen {
+                    def, input_count, ..
+                } if input_count as usize > arf::graph::MAX_CHANNELS
+                    || matches!(def.arity, arf::ugen::Arity::Fixed(a) if a != input_count as usize) =>
+                {
+                    return Err(format!(
+                        "patch generator {:?} has {input_count} inputs (bad arity)",
+                        def.name
+                    ));
+                }
                 arf::ir::Op::Ugen {
                     buffer_base,
                     buffer_len,
@@ -336,6 +356,9 @@ impl PatchRegistry {
     pub fn install_graph(&self, name: &str, graph_json: &str, sr: f32) -> Result<(), String> {
         let graph: arf::graph::Graph =
             serde_json::from_str(graph_json).map_err(|e| format!("invalid patch graph: {e}"))?;
+        graph
+            .validate()
+            .map_err(|e| format!("invalid patch graph: {e}"))?;
         let program = arf::compile::compile(&graph, sr);
         self.install(name, program)
     }
@@ -377,6 +400,13 @@ impl PatchRegistry {
     /// (single-threaded) the reset runs inline.
     pub(crate) fn retire(&self, patch: VoicePatch) {
         let VoicePatch { entry, vm, .. } = patch;
+        self.retire_vm(entry, vm);
+    }
+
+    /// Retire a bare `(entry, vm)` pair — the core of [`retire`], reused by the
+    /// NaN-heal path in `gen_block`, which swaps a poisoned Vm for a fresh pooled
+    /// one and sends the old one home here. RT-safe.
+    pub(crate) fn retire_vm(&self, entry: Arc<PatchEntry>, vm: Vm) {
         #[cfg(feature = "native")]
         {
             // On Full/Disconnected — or when the reaper never spawned — the

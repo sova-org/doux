@@ -442,7 +442,7 @@ fn tick_noiseh(ctx: &mut TickCtx, out: &mut [f32]) {
     let counter = ctx.state[2] as u32;
     let next_counter = advance_counter(counter);
     let draw = noise_sample(next_counter);
-    let phase = ctx.state[0] + ctx.inputs[0] / ctx.sr;
+    let phase = ctx.state[0] + ctx.inputs[0].max(0.0) / ctx.sr;
     let wrapped = phase >= 1.0;
     let value = if wrapped { draw } else { ctx.state[1] };
     ctx.state[0] = wrap01(phase);
@@ -458,7 +458,7 @@ fn tick_noisei(ctx: &mut TickCtx, out: &mut [f32]) {
     let counter = ctx.state[3] as u32;
     let next_counter = advance_counter(counter);
     let draw = noise_sample(next_counter);
-    let phase = ctx.state[0] + ctx.inputs[0] / ctx.sr;
+    let phase = ctx.state[0] + ctx.inputs[0].max(0.0) / ctx.sr;
     let wrapped = phase >= 1.0;
     let prev = if wrapped { ctx.state[2] } else { ctx.state[1] };
     let next = if wrapped { draw } else { ctx.state[2] };

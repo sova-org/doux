@@ -361,7 +361,7 @@ fn clamp01(x: f32) -> f32 {
 }
 
 fn tick_impulse(ctx: &mut TickCtx, out: &mut [f32]) {
-    let inc = ctx.inputs[0] / ctx.sr;
+    let inc = ctx.inputs[0].max(0.0) / ctx.sr; // `.max` de-NaNs, like `tick_clock`
     let p = ctx.state[0] + inc;
     out[0] = if p >= 1.0 { 1.0 } else { 0.0 }; // fire when the phase crosses a period
     ctx.state[0] = wrap01(p);
@@ -438,6 +438,7 @@ fn tick_xline(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = start * powf(ratio, t);
 }
 
+#[allow(clippy::manual_clamp)] // max/min de-NaNs; `clamp` would propagate NaN
 fn tick_phasor(ctx: &mut TickCtx, out: &mut [f32]) {
     // A 0→1 ramp at `freq` Hz: output the phase, then advance and wrap. Phase *accumulation* (not
     // a `now` read) keeps it precise for any frequency over unbounded runtime — `now * freq` would
@@ -445,7 +446,8 @@ fn tick_phasor(ctx: &mut TickCtx, out: &mut [f32]) {
     // Two phasors at the same rate stay sample-locked.
     let phase = ctx.state[0];
     out[0] = phase;
-    let inc = ctx.inputs[0] / ctx.sr;
+    // de-NaN and bound |inc| ≤ 1 (wrap01 handles reverse; |inc| > 1 aliases anyway).
+    let inc = (ctx.inputs[0] / ctx.sr).max(-1.0).min(1.0);
     ctx.state[0] = wrap01(phase + inc);
 }
 
