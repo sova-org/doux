@@ -21,8 +21,9 @@ FRATIO = 1.5;
 DEPTH = 1.0;
 INVERT = 0.0;
 
-frqmin = max(20.0, d_center);
+frqmin = max(20.0, min(d_center, 0.45 * ma.SR));
 frqmax = min(0.45 * ma.SR, frqmin * (2.0 ^ (c_sweep / 1200.0)));
+fbc = max(0.0, min(0.95, b_fb)); // clamp feedback: >=1 self-oscillates to NaN
 
 process =
-    pf.phaser2_mono(NOTCHES, e_phase, WIDTH, frqmin, FRATIO, frqmax, a_speed, DEPTH, b_fb, INVERT);
+    pf.phaser2_mono(NOTCHES, e_phase, WIDTH, frqmin, FRATIO, frqmax, a_speed, DEPTH, fbc, INVERT);

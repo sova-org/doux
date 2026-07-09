@@ -173,11 +173,7 @@ pub fn cosf(x: f32) -> f32 {
 /// performance degradation in audio processing loops on some architectures.
 #[inline]
 pub fn ftz(x: f32, limit: f32) -> f32 {
-    if x < limit && x > -limit {
-        0.0
-    } else {
-        x
-    }
+    if x < limit && x > -limit { 0.0 } else { x }
 }
 
 /// Enables FTZ (flush-to-zero on output) and DAZ (denormals-are-zero on input)
@@ -267,11 +263,7 @@ pub fn atan2f(y: f32, x: f32) -> f32 {
 
     let r = if ax < ay { FRAC_PI_2 - r } else { r };
     let r = if x < 0.0 { PI - r } else { r };
-    if y < 0.0 {
-        -r
-    } else {
-        r
-    }
+    if y < 0.0 { -r } else { r }
 }
 
 /// Fast tangent approximation via `sinf(x) / cosf(x)`.

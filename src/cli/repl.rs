@@ -324,7 +324,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let rest = s.strip_prefix(".patch").unwrap_or_default().trim_start();
                         match rest.split_once(char::is_whitespace) {
                             Some((name, graph_json)) if !graph_json.trim().is_empty() => {
-                                match patch_registry.install_graph(name, graph_json, oc.sample_rate) {
+                                match patch_registry.install_graph(name, graph_json, oc.sample_rate)
+                                {
                                     Ok(()) => println!("installed {name}"),
                                     Err(e) => eprintln!("{RED}[patch]{RESET} {e}"),
                                 }

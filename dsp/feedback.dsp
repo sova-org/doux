@@ -29,7 +29,9 @@ MAXSAMP = 65536; // ds <= MAXSAMP-1 = 0.68 s at 96 kHz (covers fbtime max 680 ms
 cross = max(0.0, min(1.0, c_cross));
 fb    = max(0.0, min(0.99, g_fb));
 
-damp(x) = (1.0 - b_damp) * x : fi.pole(b_damp);
+// Clamp < 1: fi.pole coeff >= 1 puts the pole on/outside the unit circle -> diverges.
+dampc = max(0.0, min(0.99, b_damp));
+damp(x) = (1.0 - dampc) * x : fi.pole(dampc);
 
 // Stereo feedback: yl/yr are the (pre-damp) delayed wet outputs; the cross
 // matrix mixes the damped outputs into each channel's feedback; `~` supplies

@@ -6,43 +6,161 @@
 
 use core::f32::consts::{PI, TAU};
 
-use super::{wrap01, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{Arity, Category, InputDescriptor, TickCtx, UGen, Unit, wrap01};
 use crate::fastmath::sinf;
 
 pub(super) static UGENS: &[UGen] = &[
     // sine ( freq -- sig )   state: [phase 0..1]
-    UGen { name: "sine", category: Category::Oscillator, description: "Sine oscillator — a pure tone; frequency in Hz.",
-           examples: &["440 sine 0.2 * out", "440  5 sine 6 * +  sine 0.2 * out", "[ 220 330 ] sine 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 440.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 12, tick: tick_sine },
+    UGen {
+        name: "sine",
+        category: Category::Oscillator,
+        description: "Sine oscillator — a pure tone; frequency in Hz.",
+        examples: &[
+            "440 sine 0.2 * out",
+            "440  5 sine 6 * +  sine 0.2 * out",
+            "[ 220 330 ] sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (20.0, 20_000.0),
+            default: 440.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_sine,
+    },
     // saw  ( freq -- sig )   state: [phase 0..1]
-    UGen { name: "saw", category: Category::Oscillator, description: "Sawtooth oscillator — band-limited (polyBLEP); frequency in Hz.",
-           examples: &["110 saw 0.2 * out", "110 saw 600 0.8 lpf2 0.3 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 110.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 10, tick: tick_saw },
+    UGen {
+        name: "saw",
+        category: Category::Oscillator,
+        description: "Sawtooth oscillator — band-limited (polyBLEP); frequency in Hz.",
+        examples: &["110 saw 0.2 * out", "110 saw 600 0.8 lpf2 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (20.0, 20_000.0),
+            default: 110.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_saw,
+    },
     // pulse ( freq width -- sig )   state: [phase 0..1]   band-limited variable-width pulse
-    UGen { name: "pulse", category: Category::Oscillator, description: "Pulse oscillator — band-limited (polyBLEP), variable `width` duty; frequency in Hz.",
-           examples: &["110 0.5 pulse 0.2 * out", "110  0.2 sine 0.4 * 0.5 +  pulse 0.2 * out"], arity: Arity::Fixed(2),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 110.0 },
-                     InputDescriptor { name: "width", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 16, tick: tick_pulse },
+    UGen {
+        name: "pulse",
+        category: Category::Oscillator,
+        description: "Pulse oscillator — band-limited (polyBLEP), variable `width` duty; frequency in Hz.",
+        examples: &[
+            "110 0.5 pulse 0.2 * out",
+            "110  0.2 sine 0.4 * 0.5 +  pulse 0.2 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 110.0,
+            },
+            InputDescriptor {
+                name: "width",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.5,
+            },
+        ],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_pulse,
+    },
     // tri ( freq -- sig )   state: [phase 0..1]   band-limited triangle (polyBLAMP)
-    UGen { name: "tri", category: Category::Oscillator, description: "Triangle oscillator — band-limited (polyBLAMP); frequency in Hz.",
-           examples: &["220 tri 0.3 * out", "220 tri 1200 lpf 0.3 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 110.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 16, tick: tick_tri },
+    UGen {
+        name: "tri",
+        category: Category::Oscillator,
+        description: "Triangle oscillator — band-limited (polyBLAMP); frequency in Hz.",
+        examples: &["220 tri 0.3 * out", "220 tri 1200 lpf 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (20.0, 20_000.0),
+            default: 110.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_tri,
+    },
     // varsaw ( freq width -- sig )   state: [phase 0..1]   band-limited saw↔tri morph (polyBLAMP)
-    UGen { name: "varsaw", category: Category::Oscillator, description: "Variable-slope saw↔triangle — band-limited (polyBLAMP); `width` sets the peak position.",
-           examples: &["110 0.3 varsaw 0.2 * out", "110  0.1 sine 0.45 * 0.5 +  varsaw 0.2 * out"], arity: Arity::Fixed(2),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 110.0 },
-                     InputDescriptor { name: "width", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 18, tick: tick_varsaw },
+    UGen {
+        name: "varsaw",
+        category: Category::Oscillator,
+        description: "Variable-slope saw↔triangle — band-limited (polyBLAMP); `width` sets the peak position.",
+        examples: &[
+            "110 0.3 varsaw 0.2 * out",
+            "110  0.1 sine 0.45 * 0.5 +  varsaw 0.2 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 110.0,
+            },
+            InputDescriptor {
+                name: "width",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.5,
+            },
+        ],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 18,
+        tick: tick_varsaw,
+    },
     // blip ( freq nharm -- sig )   state: [phase 0..1]   band-limited impulse train (Dirichlet)
-    UGen { name: "blip", category: Category::Oscillator, description: "Band-limited impulse train — `nharm` equal cosine harmonics of `freq`, clamped under Nyquist (SC Blip).",
-           examples: &["220 8 blip 0.3 * out", "220  2 sine 20 * 22 +  blip 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 440.0 },
-                     InputDescriptor { name: "nharm", unit: Unit::None, range: (1.0, 512.0), default: 8.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 24, tick: tick_blip },
+    UGen {
+        name: "blip",
+        category: Category::Oscillator,
+        description: "Band-limited impulse train — `nharm` equal cosine harmonics of `freq`, clamped under Nyquist (SC Blip).",
+        examples: &[
+            "220 8 blip 0.3 * out",
+            "220  2 sine 20 * 22 +  blip 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 440.0,
+            },
+            InputDescriptor {
+                name: "nharm",
+                unit: Unit::None,
+                range: (1.0, 512.0),
+                default: 8.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 24,
+        tick: tick_blip,
+    },
 ];
 
 /// Canonical 2-sample polyBLEP residual: the correction added to a naive waveform to
@@ -112,7 +230,11 @@ fn tick_tri(ctx: &mut TickCtx, out: &mut [f32]) {
     let p = ctx.state[0];
     let inc = ctx.inputs[0] / ctx.sr;
     let dt = inc.abs();
-    let naive = if p < 0.5 { 4.0 * p - 1.0 } else { 3.0 - 4.0 * p }; // trough −1@0, peak +1@0.5
+    let naive = if p < 0.5 {
+        4.0 * p - 1.0
+    } else {
+        3.0 - 4.0 * p
+    }; // trough −1@0, peak +1@0.5
     let corr = 4.0 * dt * (poly_blamp(p, dt) - poly_blamp(wrap01(p + 0.5), dt));
     out[0] = naive + corr;
     ctx.state[0] = wrap01(p + inc);
@@ -126,7 +248,11 @@ fn tick_varsaw(ctx: &mut TickCtx, out: &mut [f32]) {
     let inc = ctx.inputs[0] / ctx.sr;
     let dt = inc.abs();
     // naive var-triangle: trough −1@0, peak +1@w
-    let naive = if p < w { 2.0 * p / w - 1.0 } else { 1.0 - 2.0 * (p - w) / (1.0 - w) };
+    let naive = if p < w {
+        2.0 * p / w - 1.0
+    } else {
+        1.0 - 2.0 * (p - w) / (1.0 - w)
+    };
     let s = 1.0 / w + 1.0 / (1.0 - w); // summed corner slope magnitude
     let corr = dt * s * (poly_blamp(p, dt) - poly_blamp(wrap01(p - w), dt));
     out[0] = naive + corr;

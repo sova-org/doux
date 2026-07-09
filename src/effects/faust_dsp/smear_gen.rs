@@ -11,7 +11,9 @@ pub struct SmearDsp {
 	fVec0: [F32;2],
 	fSampleRate: i32,
 	fConst0: F32,
+	fConst1: F32,
 	fHslider2: F32,
+	fConst2: F32,
 	fRec12: [F32;2],
 	fRec11: [F32;2],
 	fRec10: [F32;2],
@@ -50,7 +52,9 @@ impl SmearDsp {
 			fVec0: [0.0;2],
 			fSampleRate: 0,
 			fConst0: 0.0,
+			fConst1: 0.0,
 			fHslider2: 0.0,
+			fConst2: 0.0,
 			fRec12: [0.0;2],
 			fRec11: [0.0;2],
 			fRec10: [0.0;2],
@@ -142,7 +146,9 @@ impl SmearDsp {
 	pub fn instance_constants(&mut self, sample_rate: i32) {
 		// Obtaining locks on 0 static var(s)
 		self.fSampleRate = sample_rate;
-		self.fConst0 = 3.1415927 / F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
+		self.fConst0 = F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
+		self.fConst1 = 3.1415927 / self.fConst0;
+		self.fConst2 = 0.4999 * self.fConst0;
 	}
 	pub fn instance_init(&mut self, sample_rate: i32) {
 		self.instance_constants(sample_rate);
@@ -198,8 +204,8 @@ impl SmearDsp {
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let mut fSlow0: F32 = self.fHslider0;
 		let mut fSlow1: F32 = 1.0 - fSlow0;
-		let mut fSlow2: F32 = self.fHslider1;
-		let mut fSlow3: F32 = F32::tan(F32::min(self.fConst0 * self.fHslider2, 1.5704821));
+		let mut fSlow2: F32 = F32::max(0.0, F32::min(0.95, self.fHslider1));
+		let mut fSlow3: F32 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider2, self.fConst2)));
 		let mut fSlow4: F32 = (fSlow3 + -1.0) / (fSlow3 + 1.0);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {

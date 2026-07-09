@@ -137,7 +137,7 @@ impl PitchShiftDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
+		let mut fSlow0: F32 = F32::max(1.0, self.fHslider0);
 		let mut fSlow1: F32 = self.fConst1 * fSlow0;
 		let mut fSlow2: F32 = F32::powf(2.0, 0.083333336 * self.fHslider1);
 		let mut fSlow3: F32 = self.fConst2 / fSlow0;

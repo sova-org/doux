@@ -605,9 +605,10 @@ impl Voice {
             ParamId::Superwidth => self.params.superwidth,
             // The current lane value: the declared default until something writes
             // it (VoicePatch::new fills defaults), 0.0 with no source patch.
-            ParamId::PatchLane(lane) => {
-                self.patch.as_ref().map_or(0.0, |p| p.control[lane as usize])
-            }
+            ParamId::PatchLane(lane) => self
+                .patch
+                .as_ref()
+                .map_or(0.0, |p| p.control[lane as usize]),
         }
     }
 
@@ -647,12 +648,7 @@ impl Voice {
             Stage::Distort => &[P::Distort],
             Stage::Am => &[P::Am, P::Amdepth],
             Stage::Rm => &[P::Rm, P::Rmdepth],
-            Stage::Phaser => &[
-                P::Phaser,
-                P::Phaserdepth,
-                P::Phasersweep,
-                P::Phasercenter,
-            ],
+            Stage::Phaser => &[P::Phaser, P::Phaserdepth, P::Phasersweep, P::Phasercenter],
             Stage::Flanger => &[P::Flanger, P::Flangerdepth, P::Flangerfeedback],
             Stage::FreqShift => &[P::Fshift],
             Stage::PitchShift => &[P::Pshift, P::Pshiftwin],
@@ -1229,8 +1225,14 @@ impl Voice {
                     let shift = self.params.pshift;
                     let window = self.params.pshiftwin;
                     for c in 0..nch {
-                        self.fx.pshift[c]
-                            .process_block(&mut self.scratch[..n], n, c, shift, window, sr);
+                        self.fx.pshift[c].process_block(
+                            &mut self.scratch[..n],
+                            n,
+                            c,
+                            shift,
+                            window,
+                            sr,
+                        );
                     }
                 }
             }

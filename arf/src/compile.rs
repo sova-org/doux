@@ -47,11 +47,7 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
         seed_ordinal: 0,
     };
 
-    let outputs: Vec<Reg> = graph
-        .outputs()
-        .iter()
-        .map(|&node| ctx.emit(node))
-        .collect();
+    let outputs: Vec<Reg> = graph.outputs().iter().map(|&node| ctx.emit(node)).collect();
 
     // Each written bus is also a root: emit its source so the write-back has a register,
     // and record the store into the bus's slot (the read side is an `Op::FbRead`).
@@ -59,7 +55,10 @@ pub fn compile(graph: &Graph, sample_rate: f32) -> Program {
     for (bus, source) in graph.bus_sources().iter().enumerate() {
         if let Some(&node) = source.as_ref() {
             let reg = ctx.emit(node);
-            feedbacks.push(Feedback { slot: bus as u32, source: reg });
+            feedbacks.push(Feedback {
+                slot: bus as u32,
+                source: reg,
+            });
         }
     }
 
@@ -187,15 +186,21 @@ impl Lowering<'_> {
                         }
                         // A leaf reading the executor's sample clock; no host plane to widen.
                         Node::Now => self.push_op(Op::Now),
-                        Node::Ugen { ugen, inputs, buffer } => {
+                        Node::Ugen {
+                            ugen,
+                            inputs,
+                            buffer,
+                        } => {
                             // Resolve the row once; the op carries the reference so the VM's
                             // hot loop never goes back through the global table.
                             let def = ugen::def(*ugen);
                             // The binary arithmetic words lower to an inline op — no input
                             // arena, no state, no tick call (see `ir::BinKind`).
                             if let Some(kind) = crate::ir::BinKind::of(def.name) {
-                                let a = self.reg_of[inputs[0].0 as usize].expect("input emitted first");
-                                let b = self.reg_of[inputs[1].0 as usize].expect("input emitted first");
+                                let a =
+                                    self.reg_of[inputs[0].0 as usize].expect("input emitted first");
+                                let b =
+                                    self.reg_of[inputs[1].0 as usize].expect("input emitted first");
                                 let reg = self.push_op(Op::Bin { kind, a, b });
                                 self.reg_of[id.0 as usize] = Some(reg);
                                 continue;
@@ -216,8 +221,10 @@ impl Lowering<'_> {
                             // identical stream). `seed_ordinal` is a running index over seeded
                             // ops so each gets a distinct seed.
                             if let Some(k) = ugen::seed_slot(def.name) {
-                                self.initial_state
-                                    .push((state_base + k as u32, ugen::noise_seed(self.seed_ordinal)));
+                                self.initial_state.push((
+                                    state_base + k as u32,
+                                    ugen::noise_seed(self.seed_ordinal),
+                                ));
                                 self.seed_ordinal += 1;
                             }
                             // A named buffer shares its pre-laid region; otherwise the generator
@@ -225,7 +232,10 @@ impl Lowering<'_> {
                             // and literal inputs, via `sized_buffer_len`) when the row opts in,
                             // else the row's fixed `buffer_len`.
                             let (buffer_base, buffer_len) = match buffer {
-                                Some(buf) => (self.buf_bases[buf.0 as usize], self.buf_lens[buf.0 as usize]),
+                                Some(buf) => (
+                                    self.buf_bases[buf.0 as usize],
+                                    self.buf_lens[buf.0 as usize],
+                                ),
                                 None => {
                                     let len = if def.buffer_len == 0 {
                                         0
@@ -238,7 +248,8 @@ impl Lowering<'_> {
                                             })
                                             .collect();
                                         ugen::sized_buffer_len(def.name, self.sample_rate, &consts)
-                                            .unwrap_or(def.buffer_len) as u32
+                                            .unwrap_or(def.buffer_len)
+                                            as u32
                                     };
                                     let base = self.buffer_len;
                                     self.buffer_len += len;
@@ -246,7 +257,12 @@ impl Lowering<'_> {
                                 }
                             };
                             self.push_op(Op::Ugen {
-                                def, input_start, input_count, state_base, buffer_base, buffer_len,
+                                def,
+                                input_start,
+                                input_count,
+                                state_base,
+                                buffer_base,
+                                buffer_len,
                             })
                         }
                     };
@@ -312,6 +328,10 @@ mod tests {
         }
         g.set_outputs(vec![node]);
         let program = compile(&g, 48_000.0);
-        assert_eq!(program.num_registers(), N + 1, "const + N sines = N+1 registers");
+        assert_eq!(
+            program.num_registers(),
+            N + 1,
+            "const + N sines = N+1 registers"
+        );
     }
 }

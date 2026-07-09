@@ -171,13 +171,13 @@ impl WahDsp {
 		let mut fSlow1: F32 = 1.0 - fSlow0;
 		let mut fSlow2: F32 = self.fHslider1;
 		let mut fSlow3: F32 = 4e+03 * self.fHslider2;
-		let mut fSlow4: F32 = 1.0 / (18.0 * self.fHslider3 + 2.0);
+		let mut fSlow4: F32 = 1.0 / (18.0 * F32::max(0.0, F32::min(1.0, self.fHslider3)) + 2.0);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
 			let mut fTemp1: F32 = F32::abs(fTemp0);
 			self.fRec3[0] = F32::max(fTemp1, self.fConst3 * self.fRec3[1] + self.fConst4 * fTemp1);
-			let mut fTemp2: F32 = F32::tan(self.fConst1 * F32::min(self.fConst2, fSlow2 + fSlow3 * self.fRec3[0]));
+			let mut fTemp2: F32 = F32::tan(self.fConst1 * F32::max(2e+01, F32::min(self.fConst2, fSlow2 + fSlow3 * self.fRec3[0])));
 			let mut fTemp3: F32 = self.fRec0[1] + fTemp2 * (fTemp0 - self.fRec1[1]);
 			let mut fTemp4: F32 = fTemp2 * (fSlow4 + fTemp2) + 1.0;
 			let mut fTemp5: F32 = fTemp3 / fTemp4;

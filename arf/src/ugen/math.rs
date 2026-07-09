@@ -7,222 +7,735 @@
 
 use core::f32::consts::{LN_2, LOG10_2};
 
-use super::{signal, Arity, Category, ListShape, TickCtx, UGen};
+use super::{Arity, Category, ListShape, TickCtx, UGen, signal};
 use crate::fastmath::{atan2f, cosf, exp2f, expf, fast_tan, log2f, pow10, powf, sinf};
 
 pub(super) static UGENS: &[UGen] = &[
     // + ( a b -- a+b )
-    UGen { name: "+", category: Category::Math, description: "Add two signals.",
-           examples: &["440 sine 660 sine + 0.2 * out", "1 2 + out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_add },
+    UGen {
+        name: "+",
+        category: Category::Math,
+        description: "Add two signals.",
+        examples: &["440 sine 660 sine + 0.2 * out", "1 2 + out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_add,
+    },
     // - ( a b -- a-b )
-    UGen { name: "-", category: Category::Math, description: "Subtract the second signal from the first.",
-           examples: &["noise 0.2 *  noise 0.2 * - out", "10 3 - out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_sub },
+    UGen {
+        name: "-",
+        category: Category::Math,
+        description: "Subtract the second signal from the first.",
+        examples: &["noise 0.2 *  noise 0.2 * - out", "10 3 - out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_sub,
+    },
     // * ( a b -- a*b )
-    UGen { name: "*", category: Category::Math, description: "Multiply two signals (gain, ring/amplitude modulation).",
-           examples: &["440 sine 0.2 * out", "440 sine  110 sine *  0.3 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_mul },
+    UGen {
+        name: "*",
+        category: Category::Math,
+        description: "Multiply two signals (gain, ring/amplitude modulation).",
+        examples: &["440 sine 0.2 * out", "440 sine  110 sine *  0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_mul,
+    },
     // / ( a b -- a/b )   IEEE: a/0 is ±inf, 0/0 is NaN
-    UGen { name: "/", category: Category::Math, description: "Divide the first signal by the second (IEEE: ÷0 is ±inf).",
-           examples: &["440 sine  4 /  0.2 * out", "880 2 / sine 0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 4, tick: tick_div },
+    UGen {
+        name: "/",
+        category: Category::Math,
+        description: "Divide the first signal by the second (IEEE: ÷0 is ±inf).",
+        examples: &["440 sine  4 /  0.2 * out", "880 2 / sine 0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_div,
+    },
     // mix ( chans -- sig )   sum a whole channel-list to mono; variadic (consumes the list)
-    UGen { name: "mix", category: Category::Math, description: "Sum a channel-list down to one signal.",
-           examples: &["[ 220 330 440 ] sine mix 0.1 * out", "[ 110 220 ] saw mix 600 lpf 0.2 * out"], arity: Arity::Variadic, inputs: &[signal("in")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 2, tick: tick_mix },
+    UGen {
+        name: "mix",
+        category: Category::Math,
+        description: "Sum a channel-list down to one signal.",
+        examples: &[
+            "[ 220 330 440 ] sine mix 0.1 * out",
+            "[ 110 220 ] saw mix 600 lpf 0.2 * out",
+        ],
+        arity: Arity::Variadic,
+        inputs: &[signal("in")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 2,
+        tick: tick_mix,
+    },
     // select ( index chans -- sig )   pick one channel by index; variadic, built by a bespoke
     // front-end `VariadicLed` arm: input 0 is the index, inputs 1.. the values.
-    UGen { name: "select", category: Category::Math, description: "Pick one signal from a channel-list by index (floored, clamped to the list) — `index [ a b c ] select`.",
-           examples: &["1.7 [ 10 20 30 ] select out", "1 phasor 3 * [ 110 220 330 ] select sine 0.2 * out"], arity: Arity::VariadicLed { shape: ListShape::Any }, inputs: &[signal("index")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 3, tick: tick_select },
-
+    UGen {
+        name: "select",
+        category: Category::Math,
+        description: "Pick one signal from a channel-list by index (floored, clamped to the list) — `index [ a b c ] select`.",
+        examples: &[
+            "1.7 [ 10 20 30 ] select out",
+            "1 phasor 3 * [ 110 220 330 ] select sine 0.2 * out",
+        ],
+        arity: Arity::VariadicLed {
+            shape: ListShape::Any,
+        },
+        inputs: &[signal("index")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 3,
+        tick: tick_select,
+    },
     // --- scalar transforms ---------------------------------------------------
     // min ( a b -- min )   NaN-suppressing, like `f32::min`.
-    UGen { name: "min", category: Category::Math, description: "The smaller of two signals.",
-           examples: &["440 sine  0.3 min  out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_min },
+    UGen {
+        name: "min",
+        category: Category::Math,
+        description: "The smaller of two signals.",
+        examples: &["440 sine  0.3 min  out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_min,
+    },
     // max ( a b -- max )
-    UGen { name: "max", category: Category::Math, description: "The larger of two signals.",
-           examples: &["440 sine  -0.3 max  0.5 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_max },
+    UGen {
+        name: "max",
+        category: Category::Math,
+        description: "The larger of two signals.",
+        examples: &["440 sine  -0.3 max  0.5 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_max,
+    },
     // clip ( x lo hi -- y )   clamp = max(lo, x) then min(hi, .); the workhorse limiter.
-    UGen { name: "clip", category: Category::Math, description: "Clamp a signal into [lo, hi].",
-           examples: &["440 sine 3 *  -0.4 0.4 clip  0.5 * out"], arity: Arity::Fixed(3), inputs: &[signal("x"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 2, tick: tick_clip },
+    UGen {
+        name: "clip",
+        category: Category::Math,
+        description: "Clamp a signal into [lo, hi].",
+        examples: &["440 sine 3 *  -0.4 0.4 clip  0.5 * out"],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("x"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 2,
+        tick: tick_clip,
+    },
     // abs ( x -- |x| )
-    UGen { name: "abs", category: Category::Math, description: "Absolute value (magnitude).",
-           examples: &["440 sine abs 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_abs },
+    UGen {
+        name: "abs",
+        category: Category::Math,
+        description: "Absolute value (magnitude).",
+        examples: &["440 sine abs 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_abs,
+    },
     // neg ( x -- -x )
-    UGen { name: "neg", category: Category::Math, description: "Negate a signal (flip its sign).",
-           examples: &["440 sine neg 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_neg },
+    UGen {
+        name: "neg",
+        category: Category::Math,
+        description: "Negate a signal (flip its sign).",
+        examples: &["440 sine neg 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_neg,
+    },
     // sign ( x -- s )   -1, 0, or +1.
-    UGen { name: "sign", category: Category::Math, description: "Sign of a signal: -1, 0, or +1.",
-           examples: &["440 sine sign 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_sign },
+    UGen {
+        name: "sign",
+        category: Category::Math,
+        description: "Sign of a signal: -1, 0, or +1.",
+        examples: &["440 sine sign 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_sign,
+    },
     // recip ( x -- 1/x )   IEEE: 1/0 is ±inf.
-    UGen { name: "recip", category: Category::Math, description: "Reciprocal 1/x (IEEE: 1/0 is ±inf).",
-           examples: &["0.5 recip 220 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 4, tick: tick_recip },
+    UGen {
+        name: "recip",
+        category: Category::Math,
+        description: "Reciprocal 1/x (IEEE: 1/0 is ±inf).",
+        examples: &["0.5 recip 220 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_recip,
+    },
     // sqrt ( x -- √x )   IEEE: √(negative) is NaN.
-    UGen { name: "sqrt", category: Category::Math, description: "Square root (IEEE: √negative is NaN).",
-           examples: &["2 sqrt 220 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 4, tick: tick_sqrt },
+    UGen {
+        name: "sqrt",
+        category: Category::Math,
+        description: "Square root (IEEE: √negative is NaN).",
+        examples: &["2 sqrt 220 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_sqrt,
+    },
     // floor ( x -- ⌊x⌋ )
-    UGen { name: "floor", category: Category::Math, description: "Round toward −∞.",
-           examples: &["1 phasor 5 * floor 110 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_floor },
+    UGen {
+        name: "floor",
+        category: Category::Math,
+        description: "Round toward −∞.",
+        examples: &["1 phasor 5 * floor 110 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_floor,
+    },
     // ceil ( x -- ⌈x⌉ )
-    UGen { name: "ceil", category: Category::Math, description: "Round toward +∞.",
-           examples: &["1 phasor 4 * ceil 110 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_ceil },
+    UGen {
+        name: "ceil",
+        category: Category::Math,
+        description: "Round toward +∞.",
+        examples: &["1 phasor 4 * ceil 110 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_ceil,
+    },
     // round ( x -- y )   nearest integer, ties to even.
-    UGen { name: "round", category: Category::Math, description: "Round to nearest integer (ties to even).",
-           examples: &["440 sine 4 * round 4 / 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_round },
+    UGen {
+        name: "round",
+        category: Category::Math,
+        description: "Round to nearest integer (ties to even).",
+        examples: &["440 sine 4 * round 4 / 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_round,
+    },
     // trunc ( x -- y )   round toward zero.
-    UGen { name: "trunc", category: Category::Math, description: "Round toward zero (drop the fraction).",
-           examples: &["1 phasor 8 * trunc 55 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_trunc },
+    UGen {
+        name: "trunc",
+        category: Category::Math,
+        description: "Round toward zero (drop the fraction).",
+        examples: &["1 phasor 8 * trunc 55 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_trunc,
+    },
     // exp ( x -- e^x )
-    UGen { name: "exp", category: Category::Math, description: "Exponential e^x.",
-           examples: &["4 impulse 0.2 perc neg exp 0.4 *  440 sine *  0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_exp },
-
+    UGen {
+        name: "exp",
+        category: Category::Math,
+        description: "Exponential e^x.",
+        examples: &["4 impulse 0.2 perc neg exp 0.4 *  440 sine *  0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_exp,
+    },
     // --- trig (radians) --------------------------------------------------------
     // sin ( x -- sin x )   the plain function (waveshaping/panning laws), not the oscillator.
-    UGen { name: "sin", category: Category::Math, description: "Sine of x (radians).",
-           examples: &["440 sine 3 * sin 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_sin },
+    UGen {
+        name: "sin",
+        category: Category::Math,
+        description: "Sine of x (radians).",
+        examples: &["440 sine 3 * sin 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_sin,
+    },
     // cos ( x -- cos x )
-    UGen { name: "cos", category: Category::Math, description: "Cosine of x (radians).",
-           examples: &["440 sine 3 * cos 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_cos },
+    UGen {
+        name: "cos",
+        category: Category::Math,
+        description: "Cosine of x (radians).",
+        examples: &["440 sine 3 * cos 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_cos,
+    },
     // tan ( x -- tan x )   IEEE: unbounded near odd multiples of π/2.
-    UGen { name: "tan", category: Category::Math, description: "Tangent of x (radians).",
-           examples: &["440 sine tan -1 1 clip 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_tan },
+    UGen {
+        name: "tan",
+        category: Category::Math,
+        description: "Tangent of x (radians).",
+        examples: &["440 sine tan -1 1 clip 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_tan,
+    },
     // atan ( x -- atan x )   bounded ±π/2 — a gentle soft-clip curve.
-    UGen { name: "atan", category: Category::Math, description: "Arctangent of x (radians, bounded ±π/2).",
-           examples: &["110 saw 5 * atan 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_atan },
-
+    UGen {
+        name: "atan",
+        category: Category::Math,
+        description: "Arctangent of x (radians, bounded ±π/2).",
+        examples: &["110 saw 5 * atan 0.3 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_atan,
+    },
     // --- range & interpolation -----------------------------------------------
     // linlin ( x ilo ihi olo ohi -- y )   map x linearly from [ilo,ihi] onto [olo,ohi].
-    UGen { name: "linlin", category: Category::Math, description: "Linearly map x from [ilo,ihi] to [olo,ohi].",
-           examples: &["3 sine  -1 1 200 800 linlin  220 saw swap lpf  0.3 * out", "0.5 0 1 0 10 linlin out"], arity: Arity::Fixed(5),
-           inputs: &[signal("x"), signal("ilo"), signal("ihi"), signal("olo"), signal("ohi")],
-           outputs: 1, state_slots: 0, buffer_len: 0, cost: 5, tick: tick_linlin },
+    UGen {
+        name: "linlin",
+        category: Category::Math,
+        description: "Linearly map x from [ilo,ihi] to [olo,ohi].",
+        examples: &[
+            "3 sine  -1 1 200 800 linlin  220 saw swap lpf  0.3 * out",
+            "0.5 0 1 0 10 linlin out",
+        ],
+        arity: Arity::Fixed(5),
+        inputs: &[
+            signal("x"),
+            signal("ilo"),
+            signal("ihi"),
+            signal("olo"),
+            signal("ohi"),
+        ],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 5,
+        tick: tick_linlin,
+    },
     // range ( x lo hi -- y )   map a bipolar -1..1 signal (e.g. an LFO) onto [lo,hi].
-    UGen { name: "range", category: Category::Math, description: "Map a bipolar -1..1 signal onto [lo,hi].",
-           examples: &["110 saw  1 sine 0 1800 range  0.8 bpf  0.3 * out", "0.2 sine 200 500 range sine 0.2 * out"], arity: Arity::Fixed(3), inputs: &[signal("x"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 4, tick: tick_range },
+    UGen {
+        name: "range",
+        category: Category::Math,
+        description: "Map a bipolar -1..1 signal onto [lo,hi].",
+        examples: &[
+            "110 saw  1 sine 0 1800 range  0.8 bpf  0.3 * out",
+            "0.2 sine 200 500 range sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("x"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_range,
+    },
     // lerp ( a b t -- y )   linear crossfade a→b by t.
-    UGen { name: "lerp", category: Category::Math, description: "Linear interpolate a→b by t.",
-           examples: &["220 440  0.5 sine uni  lerp sine 0.2 * out", "10 20 0.5 lerp out"], arity: Arity::Fixed(3), inputs: &[signal("a"), signal("b"), signal("t")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 3, tick: tick_lerp },
+    UGen {
+        name: "lerp",
+        category: Category::Math,
+        description: "Linear interpolate a→b by t.",
+        examples: &[
+            "220 440  0.5 sine uni  lerp sine 0.2 * out",
+            "10 20 0.5 lerp out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("a"), signal("b"), signal("t")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 3,
+        tick: tick_lerp,
+    },
     // xfade ( a b t -- y )   equal-power crossfade a→b by t in 0..1 (each leg −3 dB at 0.5).
-    UGen { name: "xfade", category: Category::Math, description: "Equal-power crossfade a→b by t (0..1).",
-           examples: &["220 sine  noise  0.1 sine uni  xfade  0.3 * out"], arity: Arity::Fixed(3), inputs: &[signal("a"), signal("b"), signal("t")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_xfade },
+    UGen {
+        name: "xfade",
+        category: Category::Math,
+        description: "Equal-power crossfade a→b by t (0..1).",
+        examples: &["220 sine  noise  0.1 sine uni  xfade  0.3 * out"],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("a"), signal("b"), signal("t")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_xfade,
+    },
     // curve ( x amount -- y )   bend a 0..1 signal: 0 = identity, >0 slow start (exponential-ish),
     // <0 fast start (logarithmic-ish) — makes any ramp or envelope (perc, line, phasor) curvable.
-    UGen { name: "curve", category: Category::Math, description: "Bend a 0..1 signal — `amount` 0 is linear, positive starts slow (exp-like), negative starts fast (log-like).",
-           examples: &["4 impulse 0.3 perc 3 curve 440 sine * 0.3 * out", "1 phasor -2 curve 400 * 100 + sine 0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("x"), signal("amount")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 22, tick: tick_curve },
+    UGen {
+        name: "curve",
+        category: Category::Math,
+        description: "Bend a 0..1 signal — `amount` 0 is linear, positive starts slow (exp-like), negative starts fast (log-like).",
+        examples: &[
+            "4 impulse 0.3 perc 3 curve 440 sine * 0.3 * out",
+            "1 phasor -2 curve 400 * 100 + sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("x"), signal("amount")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 22,
+        tick: tick_curve,
+    },
     // uni ( x -- y )   bipolar -1..1 → unipolar 0..1.
-    UGen { name: "uni", category: Category::Math, description: "Bipolar -1..1 to unipolar 0..1.",
-           examples: &["440 sine  5 sine uni *  0.2 * out", "0.15 tri uni 400 * 500 + sine 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 2, tick: tick_uni },
+    UGen {
+        name: "uni",
+        category: Category::Math,
+        description: "Bipolar -1..1 to unipolar 0..1.",
+        examples: &[
+            "440 sine  5 sine uni *  0.2 * out",
+            "0.15 tri uni 400 * 500 + sine 0.3 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 2,
+        tick: tick_uni,
+    },
     // bi ( x -- y )   unipolar 0..1 → bipolar -1..1.
-    UGen { name: "bi", category: Category::Math, description: "Unipolar 0..1 to bipolar -1..1.",
-           examples: &["1 phasor bi 200 * 400 + sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 2, tick: tick_bi },
-
+    UGen {
+        name: "bi",
+        category: Category::Math,
+        description: "Unipolar 0..1 to bipolar -1..1.",
+        examples: &["1 phasor bi 200 * 400 + sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 2,
+        tick: tick_bi,
+    },
     // --- transcendentals & wrapping -------------------------------------------
     // pow ( x y -- x^y )
-    UGen { name: "pow", category: Category::Math, description: "Raise x to the power y.",
-           examples: &["440 sine uni 2 pow bi 0.3 * out"], arity: Arity::Fixed(2), inputs: &[signal("x"), signal("y")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_pow },
+    UGen {
+        name: "pow",
+        category: Category::Math,
+        description: "Raise x to the power y.",
+        examples: &["440 sine uni 2 pow bi 0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("x"), signal("y")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_pow,
+    },
     // log ( x -- ln x )   natural logarithm (IEEE: log of ≤0 is NaN/-inf).
-    UGen { name: "log", category: Category::Math, description: "Natural logarithm ln(x).",
-           examples: &["2.718281828 log 440 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_log },
+    UGen {
+        name: "log",
+        category: Category::Math,
+        description: "Natural logarithm ln(x).",
+        examples: &["2.718281828 log 440 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_log,
+    },
     // log2 ( x -- log2 x )
-    UGen { name: "log2", category: Category::Math, description: "Base-2 logarithm.",
-           examples: &["880 440 / log2 440 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_log2 },
+    UGen {
+        name: "log2",
+        category: Category::Math,
+        description: "Base-2 logarithm.",
+        examples: &["880 440 / log2 440 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_log2,
+    },
     // log10 ( x -- log10 x )
-    UGen { name: "log10", category: Category::Math, description: "Base-10 logarithm.",
-           examples: &["1000 log10 220 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("x")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_log10 },
+    UGen {
+        name: "log10",
+        category: Category::Math,
+        description: "Base-10 logarithm.",
+        examples: &["1000 log10 220 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("x")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_log10,
+    },
     // mod ( a b -- y )   euclidean remainder: the result has b's sign convention and is never
     // negative for b>0 (unlike `%`), so it is safe for phase/counter wrapping.
-    UGen { name: "mod", category: Category::Math, description: "Euclidean remainder a mod b (never negative for b>0).",
-           examples: &["1 phasor 4 *  1 mod  bi 200 * 400 + sine 0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 4, tick: tick_mod },
+    UGen {
+        name: "mod",
+        category: Category::Math,
+        description: "Euclidean remainder a mod b (never negative for b>0).",
+        examples: &["1 phasor 4 *  1 mod  bi 200 * 400 + sine 0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_mod,
+    },
     // wrap ( x lo hi -- y )   wrap x into the half-open range [lo, hi).
-    UGen { name: "wrap", category: Category::Math, description: "Wrap x into the range [lo, hi).",
-           examples: &["220 sine 1.5 *  -0.4 0.4 wrap  0.5 * out"], arity: Arity::Fixed(3), inputs: &[signal("x"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 5, tick: tick_wrap },
+    UGen {
+        name: "wrap",
+        category: Category::Math,
+        description: "Wrap x into the range [lo, hi).",
+        examples: &["220 sine 1.5 *  -0.4 0.4 wrap  0.5 * out"],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("x"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 5,
+        tick: tick_wrap,
+    },
     // fold ( x lo hi -- y )   reflect x back and forth within [lo, hi] (a wavefolder).
-    UGen { name: "fold", category: Category::Math, description: "Reflect x into [lo, hi] (wavefolder).",
-           examples: &["220 sine 3 *  -0.4 0.4 fold  0.5 * out"], arity: Arity::Fixed(3), inputs: &[signal("x"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 6, tick: tick_fold },
+    UGen {
+        name: "fold",
+        category: Category::Math,
+        description: "Reflect x into [lo, hi] (wavefolder).",
+        examples: &["220 sine 3 *  -0.4 0.4 fold  0.5 * out"],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("x"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_fold,
+    },
     // linexp ( x ilo ihi olo ohi -- y )   map x linearly from [ilo,ihi] onto an exponential
     // [olo,ohi] (olo,ohi > 0) — the natural curve for frequency/amplitude control.
-    UGen { name: "linexp", category: Category::Math, description: "Map x from [ilo,ihi] to an exponential [olo,ohi].",
-           examples: &["1 phasor 0 1 55 880 linexp sine 0.2 * out", "0.2 sine uni 0 1 200 2000 linexp 220 saw swap lpf 0.3 * out"], arity: Arity::Fixed(5),
-           inputs: &[signal("x"), signal("ilo"), signal("ihi"), signal("olo"), signal("ohi")],
-           outputs: 1, state_slots: 0, buffer_len: 0, cost: 12, tick: tick_linexp },
-
+    UGen {
+        name: "linexp",
+        category: Category::Math,
+        description: "Map x from [ilo,ihi] to an exponential [olo,ohi].",
+        examples: &[
+            "1 phasor 0 1 55 880 linexp sine 0.2 * out",
+            "0.2 sine uni 0 1 200 2000 linexp 220 saw swap lpf 0.3 * out",
+        ],
+        arity: Arity::Fixed(5),
+        inputs: &[
+            signal("x"),
+            signal("ilo"),
+            signal("ihi"),
+            signal("olo"),
+            signal("ohi"),
+        ],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_linexp,
+    },
     // --- unit conversions -------------------------------------------------------
     // mtof ( m -- hz )   MIDI note → Hz (A4 = 69 = 440 Hz), via powf(2, ·).
-    UGen { name: "mtof", category: Category::Math, description: "MIDI note number to frequency in Hz (69 = 440).",
-           examples: &["60 mtof sine 0.2 * out", "4 impulse [ 60 63 67 70 ] seq mtof saw 600 lpf 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("m")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_mtof },
+    UGen {
+        name: "mtof",
+        category: Category::Math,
+        description: "MIDI note number to frequency in Hz (69 = 440).",
+        examples: &[
+            "60 mtof sine 0.2 * out",
+            "4 impulse [ 60 63 67 70 ] seq mtof saw 600 lpf 0.2 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("m")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_mtof,
+    },
     // ftom ( hz -- m )   Hz → MIDI note (IEEE: hz ≤ 0 is NaN/-inf, like log2).
-    UGen { name: "ftom", category: Category::Math, description: "Frequency in Hz to MIDI note number (440 = 69).",
-           examples: &["440 ftom round mtof sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("hz")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_ftom },
+    UGen {
+        name: "ftom",
+        category: Category::Math,
+        description: "Frequency in Hz to MIDI note number (440 = 69).",
+        examples: &["440 ftom round mtof sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("hz")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_ftom,
+    },
     // dbamp ( db -- amp )   decibels → linear gain (0 dB = 1).
-    UGen { name: "dbamp", category: Category::Math, description: "Decibels to linear amplitude (0 dB = 1).",
-           examples: &["440 sine  -12 dbamp *  out"], arity: Arity::Fixed(1), inputs: &[signal("db")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_dbamp },
+    UGen {
+        name: "dbamp",
+        category: Category::Math,
+        description: "Decibels to linear amplitude (0 dB = 1).",
+        examples: &["440 sine  -12 dbamp *  out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("db")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_dbamp,
+    },
     // ampdb ( amp -- db )   linear gain → decibels (IEEE: amp ≤ 0 is NaN/-inf, like log10).
-    UGen { name: "ampdb", category: Category::Math, description: "Linear amplitude to decibels (1 = 0 dB).",
-           examples: &["0.5 ampdb -60 / 220 * sine 0.2 * out"], arity: Arity::Fixed(1), inputs: &[signal("amp")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 10, tick: tick_ampdb },
-
+    UGen {
+        name: "ampdb",
+        category: Category::Math,
+        description: "Linear amplitude to decibels (1 = 0 dB).",
+        examples: &["0.5 ampdb -60 / 220 * sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("amp")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_ampdb,
+    },
     // --- comparators -----------------------------------------------------------
     // Each outputs 1.0 when the relation holds, 0.0 otherwise. Ordered IEEE compares
     // (NaN ⇒ 0.0) — except `!=`, which is unordered like Rust's `!=` (NaN ⇒ 1.0).
     // < ( a b -- a<b )
-    UGen { name: "<", category: Category::Math, description: "1 if a < b, else 0.",
-           examples: &["1 phasor 0.5 <  440 sine *  0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_lt },
+    UGen {
+        name: "<",
+        category: Category::Math,
+        description: "1 if a < b, else 0.",
+        examples: &["1 phasor 0.5 <  440 sine *  0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_lt,
+    },
     // > ( a b -- a>b )
-    UGen { name: ">", category: Category::Math, description: "1 if a > b, else 0.",
-           examples: &["2 sine 0 >  110 saw *  0.3 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_gt },
+    UGen {
+        name: ">",
+        category: Category::Math,
+        description: "1 if a > b, else 0.",
+        examples: &["2 sine 0 >  110 saw *  0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_gt,
+    },
     // <= ( a b -- a<=b )
-    UGen { name: "<=", category: Category::Math, description: "1 if a <= b, else 0.",
-           examples: &["1 phasor 0.25 <=  440 sine *  0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_le },
+    UGen {
+        name: "<=",
+        category: Category::Math,
+        description: "1 if a <= b, else 0.",
+        examples: &["1 phasor 0.25 <=  440 sine *  0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_le,
+    },
     // >= ( a b -- a>=b )
-    UGen { name: ">=", category: Category::Math, description: "1 if a >= b, else 0.",
-           examples: &["1 phasor 0.5 >=  220 saw *  0.3 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_ge },
+    UGen {
+        name: ">=",
+        category: Category::Math,
+        description: "1 if a >= b, else 0.",
+        examples: &["1 phasor 0.5 >=  220 saw *  0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_ge,
+    },
     // == ( a b -- a==b )
-    UGen { name: "==", category: Category::Math, description: "1 if a equals b, else 0.",
-           examples: &["1 phasor 8 * floor  0 ==  440 sine *  0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_eq },
+    UGen {
+        name: "==",
+        category: Category::Math,
+        description: "1 if a equals b, else 0.",
+        examples: &["1 phasor 8 * floor  0 ==  440 sine *  0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_eq,
+    },
     // != ( a b -- a!=b )
-    UGen { name: "!=", category: Category::Math, description: "1 if a differs from b, else 0.",
-           examples: &["1 phasor 4 * floor  0 !=  220 saw *  0.3 * out"], arity: Arity::Fixed(2), inputs: &[signal("a"), signal("b")], outputs: 1,
-           state_slots: 0, buffer_len: 0, cost: 1, tick: tick_ne },
+    UGen {
+        name: "!=",
+        category: Category::Math,
+        description: "1 if a differs from b, else 0.",
+        examples: &["1 phasor 4 * floor  0 !=  220 saw *  0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("a"), signal("b")],
+        outputs: 1,
+        state_slots: 0,
+        buffer_len: 0,
+        cost: 1,
+        tick: tick_ne,
+    },
 ];
 
 fn tick_add(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -342,7 +855,13 @@ fn tick_atan(ctx: &mut TickCtx, out: &mut [f32]) {
 }
 
 fn tick_linlin(ctx: &mut TickCtx, out: &mut [f32]) {
-    let [x, ilo, ihi, olo, ohi] = [ctx.inputs[0], ctx.inputs[1], ctx.inputs[2], ctx.inputs[3], ctx.inputs[4]];
+    let [x, ilo, ihi, olo, ohi] = [
+        ctx.inputs[0],
+        ctx.inputs[1],
+        ctx.inputs[2],
+        ctx.inputs[3],
+        ctx.inputs[4],
+    ];
     out[0] = olo + (x - ilo) * (ohi - olo) / (ihi - ilo);
 }
 
@@ -372,7 +891,11 @@ fn tick_curve(ctx: &mut TickCtx, out: &mut [f32]) {
     #[allow(clippy::manual_clamp)]
     let k = ctx.inputs[1].max(-30.0).min(30.0);
     let x = ctx.inputs[0];
-    out[0] = if k.abs() < 1e-3 { x } else { (expf(k * x) - 1.0) / (expf(k) - 1.0) };
+    out[0] = if k.abs() < 1e-3 {
+        x
+    } else {
+        (expf(k * x) - 1.0) / (expf(k) - 1.0)
+    };
 }
 
 fn tick_uni(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -403,7 +926,11 @@ fn tick_log2(ctx: &mut TickCtx, out: &mut [f32]) {
 
 fn tick_log10(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
-    out[0] = if x > 0.0 { log2f(x) * LOG10_2 } else { x.log10() };
+    out[0] = if x > 0.0 {
+        log2f(x) * LOG10_2
+    } else {
+        x.log10()
+    };
 }
 
 fn tick_mod(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -426,7 +953,13 @@ fn tick_fold(ctx: &mut TickCtx, out: &mut [f32]) {
 }
 
 fn tick_linexp(ctx: &mut TickCtx, out: &mut [f32]) {
-    let [x, ilo, ihi, olo, ohi] = [ctx.inputs[0], ctx.inputs[1], ctx.inputs[2], ctx.inputs[3], ctx.inputs[4]];
+    let [x, ilo, ihi, olo, ohi] = [
+        ctx.inputs[0],
+        ctx.inputs[1],
+        ctx.inputs[2],
+        ctx.inputs[3],
+        ctx.inputs[4],
+    ];
     out[0] = powf(ohi / olo, (x - ilo) / (ihi - ilo)) * olo;
 }
 
@@ -446,30 +979,58 @@ fn tick_dbamp(ctx: &mut TickCtx, out: &mut [f32]) {
 
 fn tick_ampdb(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
-    out[0] = if x > 0.0 { 20.0 * (log2f(x) * LOG10_2) } else { 20.0 * x.log10() };
+    out[0] = if x > 0.0 {
+        20.0 * (log2f(x) * LOG10_2)
+    } else {
+        20.0 * x.log10()
+    };
 }
 
 // Ordered compares (NaN ⇒ 0.0); `!=` is unordered (NaN ⇒ 1.0), like Rust's `!=`.
 fn tick_lt(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] < ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] < ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn tick_gt(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] > ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] > ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn tick_le(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] <= ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] <= ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn tick_ge(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] >= ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] >= ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn tick_eq(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] == ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] == ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }
 
 fn tick_ne(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = if ctx.inputs[0] != ctx.inputs[1] { 1.0 } else { 0.0 };
+    out[0] = if ctx.inputs[0] != ctx.inputs[1] {
+        1.0
+    } else {
+        0.0
+    };
 }

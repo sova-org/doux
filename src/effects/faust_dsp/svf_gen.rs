@@ -150,7 +150,7 @@ impl SvfDsp {
 		let mut iSlow1: i32 = (iSlow0 == 0) as i32;
 		let mut iSlow2: i32 = (iSlow0 == 1) as i32;
 		let mut fSlow3: F32 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider1, self.fConst2)));
-		let mut fSlow4: F32 = 1.0 / (3e+01 * self.fHslider2 + 0.5);
+		let mut fSlow4: F32 = 1.0 / (3e+01 * F32::max(0.0, F32::min(1.0, self.fHslider2)) + 0.5);
 		let mut fSlow5: F32 = fSlow3 * (fSlow3 + fSlow4) + 1.0;
 		let mut fSlow6: F32 = 2.0 / fSlow5;
 		let mut fSlow7: F32 = fSlow3 / fSlow5;

@@ -112,7 +112,12 @@ pub struct InputDescriptor {
 /// A signal input carrying no specific unit (e.g. the thing fed into `lpf`/`delay`/`+`).
 /// Private to the `ugen` module tree; the category submodules reach it via `super::signal`.
 const fn signal(name: &'static str) -> InputDescriptor {
-    InputDescriptor { name, unit: Unit::None, range: (-1.0, 1.0), default: 0.0 }
+    InputDescriptor {
+        name,
+        unit: Unit::None,
+        range: (-1.0, 1.0),
+        default: 0.0,
+    }
 }
 
 /// Wrap a phase into `[0, 1)`: `x − ⌊x⌋`. Matches `rem_euclid(1.0)` bit-for-bit over the
@@ -182,7 +187,9 @@ pub enum Arity {
     /// `Variadic` with a leading mono operand: it is popped from *below* the channel-list and
     /// becomes input 0, the list becoming inputs 1.. . Backs the triggered list-walkers, whose
     /// `tick` reads `inputs[0]` as the trigger/index; `shape` constrains the list length.
-    VariadicLed { shape: ListShape },
+    VariadicLed {
+        shape: ListShape,
+    },
 }
 
 /// The list-length law a [`Arity::VariadicLed`] generator imposes on its channel-list.
@@ -276,7 +283,9 @@ pub struct UGen {
 // `#[derive(Debug)]` available to the IR, whose ops carry `&'static UGen`.
 impl std::fmt::Debug for UGen {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("UGen").field("name", &self.name).finish_non_exhaustive()
+        f.debug_struct("UGen")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -340,7 +349,11 @@ mod tests {
             match u.arity {
                 // A fixed row's descriptors are the documented signature as data: one per input.
                 Arity::Fixed(n) => {
-                    assert!(n <= MAX_ARITY, "`{}` arity {n} exceeds MAX_ARITY {MAX_ARITY}", u.name);
+                    assert!(
+                        n <= MAX_ARITY,
+                        "`{}` arity {n} exceeds MAX_ARITY {MAX_ARITY}",
+                        u.name
+                    );
                     assert_eq!(
                         u.inputs.len(),
                         n,
@@ -383,7 +396,12 @@ mod tests {
             // runnability proof is `ugen_examples_evaluate` in cagire's
             // `crates/arf-forth/tests/harness.rs`.
             assert!(!u.examples.is_empty(), "`{}` has no examples", u.name);
-            assert!(u.examples.len() <= 3, "`{}` has {} examples (max 3)", u.name, u.examples.len());
+            assert!(
+                u.examples.len() <= 3,
+                "`{}` has {} examples (max 3)",
+                u.name,
+                u.examples.len()
+            );
             for ex in u.examples {
                 assert!(!ex.trim().is_empty(), "`{}` has an empty example", u.name);
                 assert!(

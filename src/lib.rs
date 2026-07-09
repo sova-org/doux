@@ -70,6 +70,7 @@ use orbit::Orbit;
 /// to their own `Cargo.toml`.
 #[cfg(feature = "native")]
 pub use arc_swap;
+use patch::PatchRegistry;
 #[cfg(feature = "native")]
 use recorder::Recorder;
 #[cfg(feature = "native")]
@@ -81,7 +82,6 @@ pub use sampling::SampleLoader;
 pub use sampling::{SampleData, SampleRegistry};
 #[cfg(not(feature = "native"))]
 use sampling::{SampleInfo, SamplePool};
-use patch::PatchRegistry;
 use schedule::Schedule;
 use std::sync::Arc;
 #[cfg(feature = "native")]
@@ -869,9 +869,7 @@ impl Engine {
         let has_web_sample = event.file_pcm.is_some() && event.file_frames.is_some();
         if let Some(ref sound_str) = event.sound {
             if !has_web_sample && sound_str.parse::<Source>().is_err() {
-                if let Some(entry) =
-                    self.patch_registry.get(sound_str).filter(|e| e.is_source())
-                {
+                if let Some(entry) = self.patch_registry.get(sound_str).filter(|e| e.is_source()) {
                     // A bare name resolves to a source patch first, then falls
                     // to a sample folder below (the `else`). An effect-role
                     // patch of this name is filtered out here and falls through
@@ -1185,8 +1183,7 @@ impl Engine {
                     if let Some(old) = orbit.patch.take() {
                         self.patch_registry.retire(old);
                     }
-                } else if let Some(entry) =
-                    self.patch_registry.get(name).filter(|e| e.is_effect())
+                } else if let Some(entry) = self.patch_registry.get(name).filter(|e| e.is_effect())
                 {
                     let same = orbit
                         .patch
@@ -1637,7 +1634,14 @@ impl Engine {
             phasersweep,
             phasercenter
         );
-        copy_opt!(event, v.params, flanger, flangerdepth, flangerfeedback, flangermode);
+        copy_opt!(
+            event,
+            v.params,
+            flanger,
+            flangerdepth,
+            flangerfeedback,
+            flangermode
+        );
         copy_opt!(event, v.params, fshift);
         copy_opt!(event, v.params, pshift, pshiftwin);
         copy_opt!(event, v.params, wah, wahpeak, wahsens, wahmanual);
@@ -1652,7 +1656,14 @@ impl Engine {
             chorustype
         );
         copy_opt_some!(event, v.params, coarse, crush, fold, wrap, distort);
-        copy_opt!(event, v.params, distortvol, distortmode, distortasym, foldmode);
+        copy_opt!(
+            event,
+            v.params,
+            distortvol,
+            distortmode,
+            distortasym,
+            foldmode
+        );
         copy_opt!(event, v.params, width, haas);
         copy_opt_some!(event, v.params, superpan);
         copy_opt!(event, v.params, superwidth);
@@ -2045,6 +2056,10 @@ impl Engine {
             let frame = &mut output[base_idx..base_idx + output_channels];
             let mut peak = 0.0_f32;
             for (c, s) in frame.iter_mut().enumerate() {
+                // non-finite in => zero: else master_dc latches NaN forever (silent till restart).
+                if !s.is_finite() {
+                    *s = 0.0;
+                }
                 // One-pole HP: track the low band in state, subtract. DC is
                 // removed before peak detection so offset doesn't eat limiter
                 // headroom or bias the tanh asymmetrically.
@@ -2445,8 +2460,7 @@ mod tests {
         engine.evaluate("sound/sine/note/36/fm/10/fmh/1/fm2/10/fm2h/7/fmfb/1/fmloop/1/gate/2");
 
         let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
-        let blocks =
-            (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+        let blocks = (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
         let mut peak = 0.0_f32;
         for _ in 0..blocks {
             engine.process_block(&mut out, &[], &[]);
@@ -2456,6 +2470,137 @@ mod tests {
             }
         }
         assert!(peak > 0.0, "voice should be audible");
+    }
+
+    // A voice through the SVF lowpass with negative resonance must stay finite
+    // and audible. Pre-fix, an unclamped q made Q = 0.5 + q*30 <= 0 (a divide by
+    // ~0 plus an unstable filter), poisoning the master DC-blocker and silencing
+    // the engine until restart. The .dsp now clamps q, so the last block must
+    // still carry signal (filter stayed stable, not zeroed by the master guard
+    // after diverging to NaN).
+    #[cfg(feature = "native")]
+    #[test]
+    fn negative_resonance_stays_finite_and_audible() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.evaluate("sound/sine/note/48/lpf/1000/lpq/-0.5/gate/2");
+
+        let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
+        let blocks = (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+        let mut last_peak = 0.0_f32;
+        for b in 0..blocks {
+            engine.process_block(&mut out, &[], &[]);
+            let mut peak = 0.0_f32;
+            for &s in &out {
+                assert!(
+                    s.is_finite(),
+                    "negative resonance produced a non-finite sample"
+                );
+                peak = peak.max(s.abs());
+            }
+            if b == blocks - 1 {
+                last_peak = peak;
+            }
+        }
+        assert!(
+            last_peak > 0.0,
+            "filter should stay stable and audible under negative resonance"
+        );
+    }
+
+    // A voice through the 3-band EQ with a zero mid-Q must stay finite and
+    // audible. Pre-fix, eq.dsp divided by `q * sin(...)`, so q = 0 (typed or
+    // modulated) gave 1/0 in the mid-peak coefficients, poisoning the master
+    // DC-blocker and silencing the engine until restart. The .dsp now clamps q
+    // (and the band freqs), so the last block must still carry signal.
+    #[cfg(feature = "native")]
+    #[test]
+    fn eq_zero_q_stays_finite_and_audible() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.evaluate("sound/sine/note/48/eqmid/6/eqmidq/0/gate/2");
+
+        let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
+        let blocks = (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+        let mut last_peak = 0.0_f32;
+        for b in 0..blocks {
+            engine.process_block(&mut out, &[], &[]);
+            let mut peak = 0.0_f32;
+            for &s in &out {
+                assert!(s.is_finite(), "zero mid-Q produced a non-finite sample");
+                peak = peak.max(s.abs());
+            }
+            if b == blocks - 1 {
+                last_peak = peak;
+            }
+        }
+        assert!(
+            last_peak > 0.0,
+            "EQ should stay stable and audible under a zero mid-Q"
+        );
+    }
+
+    // Every Faust effect with a user-controllable frequency / Q / feedback /
+    // window must clamp it internally: an out-of-range value (typed or modulated)
+    // used to divide by ~0 or drive an unstable recursion diverges to NaN, which
+    // latches the master DC-blocker and silences the engine until restart. Each
+    // patch drives one effect past its pre-fix singularity; post-fix every sample
+    // stays finite and the note stays audible.
+    #[cfg(feature = "native")]
+    #[test]
+    fn faust_effects_clamp_pathological_params() {
+        // (what it exercises, patch that hit the pre-fix singularity)
+        let cases = [
+            (
+                "wah negative resonance",
+                "sound/saw/note/48/wah/1/wahpeak/-0.5/gate/2",
+            ),
+            (
+                "smear negative freq (tan(t)+1=0)",
+                "sound/sine/note/48/smear/1/smearfreq/-12000/gate/2",
+            ),
+            (
+                "phaser feedback >= 1",
+                "sound/sine/note/48/phaser/1/phaserdepth/1.5/gate/2",
+            ),
+            (
+                "flanger large-negative feedback",
+                "sound/sine/note/48/flanger/1/flangerfeedback/-5/gate/2",
+            ),
+            (
+                "pshift zero window (divide by window)",
+                "sound/sine/note/48/pshift/12/pshiftwin/0/gate/2",
+            ),
+            (
+                "comb damp > 1 (pole outside unit circle)",
+                "sound/sine/note/48/comb/0.8/combfreq/200/combdamp/5/gate/2",
+            ),
+            (
+                "feedback damp > 1 (pole outside unit circle)",
+                "sound/sine/note/48/feedback/0.8/fbdamp/5/gate/2",
+            ),
+        ];
+        for (name, patch) in cases {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.evaluate(patch);
+
+            let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
+            let blocks = (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+            let mut last_peak = 0.0_f32;
+            for b in 0..blocks {
+                engine.process_block(&mut out, &[], &[]);
+                let mut peak = 0.0_f32;
+                for &s in &out {
+                    assert!(s.is_finite(), "{name}: produced a non-finite sample");
+                    peak = peak.max(s.abs());
+                }
+                if b == blocks - 1 {
+                    last_peak = peak;
+                }
+            }
+            assert!(
+                last_peak > 0.0,
+                "{name}: effect should stay stable and audible"
+            );
+        }
     }
 
     // Named patch params: a note starts from the declared defaults, an event's
@@ -2474,7 +2619,11 @@ mod tests {
             }
         }
         fn lane(engine: &Engine, voice: usize, lane: usize) -> f32 {
-            engine.voices[voice].patch.as_ref().expect("voice holds a patch").control[lane]
+            engine.voices[voice]
+                .patch
+                .as_ref()
+                .expect("voice holds a patch")
+                .control[lane]
         }
 
         let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
@@ -2488,7 +2637,10 @@ mod tests {
         let filt = g.ugen(arf::ugen::lookup("lpf").unwrap(), vec![saw, cut]);
         g.set_outputs(vec![filt]);
         let json = serde_json::to_string(&g).unwrap();
-        engine.patch_registry.install_graph("pp", &json, 48_000.0).unwrap();
+        engine
+            .patch_registry
+            .install_graph("pp", &json, 48_000.0)
+            .unwrap();
 
         // A note with a static write reaches the lane; an unknown name is ignored.
         engine.evaluate("sound/pp/voice/0/gate/0/p:cutoff/2000/p:nope/1");
@@ -2511,6 +2663,9 @@ mod tests {
         engine.evaluate("sound/pp/voice/0/gate/0/p:cutoff/3000~5000:2");
         render(&mut engine, 0.05);
         let v = lane(&engine, 0, PARAM_BASE);
-        assert!((3000.0..=5000.0).contains(&v), "chain did not tick the lane: {v}");
+        assert!(
+            (3000.0..=5000.0).contains(&v),
+            "chain did not tick the lane: {v}"
+        );
     }
 }

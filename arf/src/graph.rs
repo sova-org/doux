@@ -53,7 +53,11 @@ pub enum Node {
     /// A unit generator applied to its inputs (in source order). `buffer` names the shared
     /// sample-memory region it reads/writes, if any (`play`/`record`); `None` means the
     /// generator uses its own anonymous per-instance buffer (`delay`) or no buffer at all.
-    Ugen { ugen: UGenId, inputs: Vec<NodeId>, buffer: Option<BufId> },
+    Ugen {
+        ugen: UGenId,
+        inputs: Vec<NodeId>,
+        buffer: Option<BufId>,
+    },
     /// A read of feedback bus `bus`, delayed one sample. It is a leaf: its value is the
     /// bus's previous-sample state, so it carries no graph input and breaks the cycle.
     FbRead { bus: BusId },
@@ -116,12 +120,20 @@ impl Graph {
     /// Apply a unit generator to `inputs` (in source order). The arity is the caller's
     /// responsibility — the Forth front-end reads it from the contract table.
     pub fn ugen(&mut self, ugen: UGenId, inputs: Vec<NodeId>) -> NodeId {
-        self.push(Node::Ugen { ugen, inputs, buffer: None })
+        self.push(Node::Ugen {
+            ugen,
+            inputs,
+            buffer: None,
+        })
     }
 
     /// Apply a unit generator that reads/writes a named `buffer` (e.g. `play`/`record`).
     pub fn ugen_buf(&mut self, ugen: UGenId, inputs: Vec<NodeId>, buffer: BufId) -> NodeId {
-        self.push(Node::Ugen { ugen, inputs, buffer: Some(buffer) })
+        self.push(Node::Ugen {
+            ugen,
+            inputs,
+            buffer: Some(buffer),
+        })
     }
 
     /// Declare a named buffer of `seconds`, returning its handle. The compiler sizes it at the

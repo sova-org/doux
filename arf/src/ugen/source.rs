@@ -5,85 +5,280 @@
 //! [`noise_sample`] counter hash, so it is deterministic per seed with no RNG state of its
 //! own — exactly like `noise`.
 
-use super::{signal, wrap01, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use super::{Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit, signal, wrap01};
 use crate::fastmath::powf;
 
 pub(super) static UGENS: &[UGen] = &[
     // noise ( -- sig )   state: [sample counter]   full-scale white noise in [-1, 1)
-    UGen { name: "noise", category: Category::Noise, description: "White-noise source — full-scale, in [-1, 1).",
-           examples: &["noise 0.2 * out", "noise 2000 lpf 0.3 * out", "noise  0.5 sine 1500 * 2000 +  lpf 0.3 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 6, tick: tick_noise },
+    UGen {
+        name: "noise",
+        category: Category::Noise,
+        description: "White-noise source — full-scale, in [-1, 1).",
+        examples: &[
+            "noise 0.2 * out",
+            "noise 2000 lpf 0.3 * out",
+            "noise  0.5 sine 1500 * 2000 +  lpf 0.3 * out",
+        ],
+        arity: Arity::Fixed(0),
+        inputs: &[],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_noise,
+    },
     // pink ( -- sig )   state: [b0..b6, counter]   Paul Kellet "refined" pink filter on white
-    UGen { name: "pink", category: Category::Noise, description: "Pink noise — equal power per octave (−3 dB/oct).",
-           examples: &["pink 0.4 * out", "pink 0.5 sine 0.5 * 0.5 + * 0.4 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
-           state_slots: 8, buffer_len: 0, cost: 18, tick: tick_pink },
+    UGen {
+        name: "pink",
+        category: Category::Noise,
+        description: "Pink noise — equal power per octave (−3 dB/oct).",
+        examples: &["pink 0.4 * out", "pink 0.5 sine 0.5 * 0.5 + * 0.4 * out"],
+        arity: Arity::Fixed(0),
+        inputs: &[],
+        outputs: 1,
+        state_slots: 8,
+        buffer_len: 0,
+        cost: 18,
+        tick: tick_pink,
+    },
     // brown ( -- sig )   state: [z, counter]   reflected random walk, bounded in [-1, 1]
-    UGen { name: "brown", category: Category::Noise, description: "Brown noise — a bounded random walk (−6 dB/oct).",
-           examples: &["brown 0.4 * out", "brown 1200 lpf 0.4 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 10, tick: tick_brown },
+    UGen {
+        name: "brown",
+        category: Category::Noise,
+        description: "Brown noise — a bounded random walk (−6 dB/oct).",
+        examples: &["brown 0.4 * out", "brown 1200 lpf 0.4 * out"],
+        arity: Arity::Fixed(0),
+        inputs: &[],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_brown,
+    },
     // clipnoise ( -- sig )   state: [counter]   two-level white: the sign of the white sample
-    UGen { name: "clipnoise", category: Category::Noise, description: "Clipped white noise — randomly +1 or −1.",
-           examples: &["clipnoise 0.15 * out", "clipnoise 1500 lpf 0.2 * out"], arity: Arity::Fixed(0), inputs: &[], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 7, tick: tick_clipnoise },
+    UGen {
+        name: "clipnoise",
+        category: Category::Noise,
+        description: "Clipped white noise — randomly +1 or −1.",
+        examples: &["clipnoise 0.15 * out", "clipnoise 1500 lpf 0.2 * out"],
+        arity: Arity::Fixed(0),
+        inputs: &[],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 7,
+        tick: tick_clipnoise,
+    },
     // dust ( density -- sig )   state: [counter]   unipolar random impulses
-    UGen { name: "dust", category: Category::Noise, description: "Random impulses — unipolar [0, 1), `density` events per second.",
-           examples: &["20 dust 0.3 * out", "200 dust 0.2 * out", "12 dust 0.05 perc 440 sine * 0.3 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "density", unit: Unit::Hz, range: (0.0, 5_000.0), default: 100.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 8, tick: tick_dust },
+    UGen {
+        name: "dust",
+        category: Category::Noise,
+        description: "Random impulses — unipolar [0, 1), `density` events per second.",
+        examples: &[
+            "20 dust 0.3 * out",
+            "200 dust 0.2 * out",
+            "12 dust 0.05 perc 440 sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "density",
+            unit: Unit::Hz,
+            range: (0.0, 5_000.0),
+            default: 100.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_dust,
+    },
     // dust2 ( density -- sig )   state: [counter]   bipolar random impulses
-    UGen { name: "dust2", category: Category::Noise, description: "Random impulses — bipolar [−1, 1), `density` events per second.",
-           examples: &["30 dust2 0.3 * out", "300 dust2 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "density", unit: Unit::Hz, range: (0.0, 5_000.0), default: 100.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 8, tick: tick_dust2 },
+    UGen {
+        name: "dust2",
+        category: Category::Noise,
+        description: "Random impulses — bipolar [−1, 1), `density` events per second.",
+        examples: &["30 dust2 0.3 * out", "300 dust2 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "density",
+            unit: Unit::Hz,
+            range: (0.0, 5_000.0),
+            default: 100.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_dust2,
+    },
     // noiseh ( freq -- sig )   state: [phase, value, counter]   stepped sample-and-hold noise
-    UGen { name: "noiseh", category: Category::Noise, description: "Stepped noise — holds a random value, jumping at `freq` Hz (sample-and-hold).",
-           examples: &["8 noiseh 0.3 * out", "10 noiseh 400 * 600 + sine 0.2 * out", "8000 noiseh 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (0.0, 20_000.0), default: 8.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 8, tick: tick_noiseh },
+    UGen {
+        name: "noiseh",
+        category: Category::Noise,
+        description: "Stepped noise — holds a random value, jumping at `freq` Hz (sample-and-hold).",
+        examples: &[
+            "8 noiseh 0.3 * out",
+            "10 noiseh 400 * 600 + sine 0.2 * out",
+            "8000 noiseh 0.2 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 8.0,
+        }],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_noiseh,
+    },
     // noisei ( freq -- sig )   state: [phase, prev, next, counter]   linearly-interpolated noise
-    UGen { name: "noisei", category: Category::Noise, description: "Ramped noise — linearly interpolates between random values at `freq` Hz.",
-           examples: &["6 noisei 0.3 * out", "5 noisei 300 * 500 + sine 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (0.0, 20_000.0), default: 8.0 }],
-           outputs: 1, state_slots: 4, buffer_len: 0, cost: 10, tick: tick_noisei },
+    UGen {
+        name: "noisei",
+        category: Category::Noise,
+        description: "Ramped noise — linearly interpolates between random values at `freq` Hz.",
+        examples: &["6 noisei 0.3 * out", "5 noisei 300 * 500 + sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 8.0,
+        }],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_noisei,
+    },
     // rand ( lo hi -- sig )   state: [counter]   uniform draw, constant per instance: the counter
     // is read but never advanced, so the value holds for the note's whole life.
-    UGen { name: "rand", category: Category::Noise, description: "Random constant — a uniform draw in [lo, hi), held for the life of the note.",
-           examples: &["200 800 rand sine 0.2 * out", "220 saw 400 2000 rand lpf 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 6, tick: tick_rand },
+    UGen {
+        name: "rand",
+        category: Category::Noise,
+        description: "Random constant — a uniform draw in [lo, hi), held for the life of the note.",
+        examples: &[
+            "200 800 rand sine 0.2 * out",
+            "220 saw 400 2000 rand lpf 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_rand,
+    },
     // exprand ( lo hi -- sig )   state: [counter]   per-note draw, exponential bias toward lo
-    UGen { name: "exprand", category: Category::Noise, description: "Random constant, biased low — lo·(hi/lo)^u, held for the note; args must be positive.",
-           examples: &["200 4000 exprand sine 0.2 * out", "110 saw 300 6000 exprand lpf 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 14, tick: tick_exprand },
+    UGen {
+        name: "exprand",
+        category: Category::Noise,
+        description: "Random constant, biased low — lo·(hi/lo)^u, held for the note; args must be positive.",
+        examples: &[
+            "200 4000 exprand sine 0.2 * out",
+            "110 saw 300 6000 exprand lpf 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 14,
+        tick: tick_exprand,
+    },
     // logrand ( lo hi -- sig )   state: [counter]   per-note draw, exponential bias toward hi
-    UGen { name: "logrand", category: Category::Noise, description: "Random constant, biased high — hi·(lo/hi)^u, held for the note; args must be positive.",
-           examples: &["200 4000 logrand sine 0.2 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 14, tick: tick_logrand },
+    UGen {
+        name: "logrand",
+        category: Category::Noise,
+        description: "Random constant, biased high — hi·(lo/hi)^u, held for the note; args must be positive.",
+        examples: &["200 4000 logrand sine 0.2 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 14,
+        tick: tick_logrand,
+    },
     // trand ( trig lo hi -- sig )   state: [held, prev, armed, counter]   uniform redraw on each
     // rising edge; draws once at the first sample so it never rests outside [lo, hi)
-    UGen { name: "trand", category: Category::Noise, description: "Triggered random — holds a uniform draw in [lo, hi), redrawn on each rising trigger edge (draws at note start).",
-           examples: &["8 impulse 200 800 trand sine 0.2 * out", "2 sine trig 300 600 trand sine 0.2 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("trig"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 8, tick: tick_trand },
+    UGen {
+        name: "trand",
+        category: Category::Noise,
+        description: "Triggered random — holds a uniform draw in [lo, hi), redrawn on each rising trigger edge (draws at note start).",
+        examples: &[
+            "8 impulse 200 800 trand sine 0.2 * out",
+            "2 sine trig 300 600 trand sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("trig"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_trand,
+    },
     // texprand ( trig lo hi -- sig )   state: [held, prev, armed, counter]   exponential redraw
-    UGen { name: "texprand", category: Category::Noise, description: "Triggered random, biased low — lo·(hi/lo)^u per rising trigger edge; args must be positive.",
-           examples: &["8 impulse 200 3200 texprand sine 0.2 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("trig"), signal("lo"), signal("hi")], outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 16, tick: tick_texprand },
+    UGen {
+        name: "texprand",
+        category: Category::Noise,
+        description: "Triggered random, biased low — lo·(hi/lo)^u per rising trigger edge; args must be positive.",
+        examples: &["8 impulse 200 3200 texprand sine 0.2 * out"],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("trig"), signal("lo"), signal("hi")],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_texprand,
+    },
     // coin ( trig prob -- trig )   state: [prev, counter]   probability gate for triggers
-    UGen { name: "coin", category: Category::Trigger, description: "Probability gate — passes each rising trigger edge with probability `prob`, swallows it otherwise.",
-           examples: &["8 clock 0.6 coin 0.04 perc noise * 0.3 * out", "8 impulse 0.5 coin 0.05 perc 440 sine * 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("trig"),
-                     InputDescriptor { name: "prob", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5 }],
-           outputs: 1, state_slots: 2, buffer_len: 0, cost: 6, tick: tick_coin },
+    UGen {
+        name: "coin",
+        category: Category::Trigger,
+        description: "Probability gate — passes each rising trigger edge with probability `prob`, swallows it otherwise.",
+        examples: &[
+            "8 clock 0.6 coin 0.04 perc noise * 0.3 * out",
+            "8 impulse 0.5 coin 0.05 perc 440 sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("trig"),
+            InputDescriptor {
+                name: "prob",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.5,
+            },
+        ],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_coin,
+    },
     // tchoose ( trig [v0 v1 …] -- val )   state: [index, prev, armed, counter]   the random `seq`:
     // built by a front-end's `VariadicLed` arm — inputs[0] is the trigger, inputs[1..] the values.
-    UGen { name: "tchoose", category: Category::Trigger, description: "Random choice — holds a uniformly picked value from the list, repicking on each trigger (picks at note start).",
-           examples: &["4 impulse [ 220 330 440 660 ] tchoose sine 0.2 * out", "8 impulse [ 60 63 67 70 ] tchoose mtof saw 800 lpf 0.2 * out"], arity: Arity::VariadicLed { shape: ListShape::Any },
-           inputs: &[signal("trig")], outputs: 1,
-           state_slots: 4, buffer_len: 0, cost: 6, tick: tick_tchoose },
+    UGen {
+        name: "tchoose",
+        category: Category::Trigger,
+        description: "Random choice — holds a uniformly picked value from the list, repicking on each trigger (picks at note start).",
+        examples: &[
+            "4 impulse [ 220 330 440 660 ] tchoose sine 0.2 * out",
+            "8 impulse [ 60 63 67 70 ] tchoose mtof saw 800 lpf 0.2 * out",
+        ],
+        arity: Arity::VariadicLed {
+            shape: ListShape::Any,
+        },
+        inputs: &[signal("trig")],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_tchoose,
+    },
 ];
 
 /// Wellons' `lowbias32` integer hash — the avalanche shared by [`noise_sample`] (the white-noise
@@ -155,7 +350,9 @@ fn advance_counter(c: u32) -> u32 {
 // constant) for white in [-1, 1).
 const PINK_COEFFS: [f32; 6] = [0.99886, 0.99332, 0.96900, 0.86650, 0.55000, -0.7616];
 #[allow(clippy::excessive_precision)] // Kellet's published constants, kept verbatim
-const PINK_GAINS: [f32; 6] = [0.0555179, 0.0750759, 0.1538520, 0.3104856, 0.5329522, -0.0168980];
+const PINK_GAINS: [f32; 6] = [
+    0.0555179, 0.0750759, 0.1538520, 0.3104856, 0.5329522, -0.0168980,
+];
 const PINK_B6_GAIN: f32 = 0.115926;
 const PINK_WHITE_GAIN: f32 = 0.5362;
 const PINK_SCALE: f32 = 0.11;
@@ -191,8 +388,16 @@ fn tick_brown(ctx: &mut TickCtx, out: &mut [f32]) {
     let counter = ctx.state[1] as u32;
     let w = noise_sample(counter);
     let stepped = ctx.state[0] + w * 0.125;
-    let folded_hi = if stepped > 1.0 { 2.0 - stepped } else { stepped };
-    let z = if folded_hi < -1.0 { -2.0 - folded_hi } else { folded_hi };
+    let folded_hi = if stepped > 1.0 {
+        2.0 - stepped
+    } else {
+        stepped
+    };
+    let z = if folded_hi < -1.0 {
+        -2.0 - folded_hi
+    } else {
+        folded_hi
+    };
     ctx.state[0] = z;
     out[0] = z;
     ctx.state[1] = advance_counter(counter) as f32;
@@ -223,7 +428,11 @@ fn tick_dust2(ctx: &mut TickCtx, out: &mut [f32]) {
     let w = noise_sample(counter);
     let u = w * 0.5 + 0.5;
     let thresh = density / ctx.sr;
-    out[0] = if u < thresh { 2.0 * (u / thresh) - 1.0 } else { 0.0 };
+    out[0] = if u < thresh {
+        2.0 * (u / thresh) - 1.0
+    } else {
+        0.0
+    };
     ctx.state[0] = advance_counter(counter) as f32;
 }
 
@@ -327,7 +536,11 @@ fn trand_core(ctx: &mut TickCtx, map: fn(f32, f32, f32) -> f32) -> f32 {
     ctx.state[0] = held;
     ctx.state[1] = trig;
     ctx.state[2] = 1.0;
-    ctx.state[3] = (if draw { advance_counter(counter) } else { counter }) as f32;
+    ctx.state[3] = (if draw {
+        advance_counter(counter)
+    } else {
+        counter
+    }) as f32;
     held
 }
 
@@ -336,7 +549,9 @@ fn tick_trand(ctx: &mut TickCtx, out: &mut [f32]) {
 }
 
 fn tick_texprand(ctx: &mut TickCtx, out: &mut [f32]) {
-    out[0] = trand_core(ctx, |lo, hi, u| positive(lo) * powf(positive(hi) / positive(lo), u));
+    out[0] = trand_core(ctx, |lo, hi, u| {
+        positive(lo) * powf(positive(hi) / positive(lo), u)
+    });
 }
 
 fn tick_coin(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -346,9 +561,17 @@ fn tick_coin(ctx: &mut TickCtx, out: &mut [f32]) {
     let trig = ctx.inputs[0];
     let edge = ctx.state[0] <= 0.0 && trig > 0.0;
     let counter = ctx.state[1] as u32;
-    out[0] = if edge && unit_draw(counter) < ctx.inputs[1] { trig } else { 0.0 };
+    out[0] = if edge && unit_draw(counter) < ctx.inputs[1] {
+        trig
+    } else {
+        0.0
+    };
     ctx.state[0] = trig;
-    ctx.state[1] = (if edge { advance_counter(counter) } else { counter }) as f32;
+    ctx.state[1] = (if edge {
+        advance_counter(counter)
+    } else {
+        counter
+    }) as f32;
 }
 
 fn tick_tchoose(ctx: &mut TickCtx, out: &mut [f32]) {
@@ -367,6 +590,10 @@ fn tick_tchoose(ctx: &mut TickCtx, out: &mut [f32]) {
     ctx.state[0] = index;
     ctx.state[1] = trig;
     ctx.state[2] = 1.0;
-    ctx.state[3] = (if draw { advance_counter(counter) } else { counter }) as f32;
+    ctx.state[3] = (if draw {
+        advance_counter(counter)
+    } else {
+        counter
+    }) as f32;
     out[0] = ctx.inputs[1 + index as usize];
 }

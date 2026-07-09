@@ -13,10 +13,13 @@ b_peak   = hslider("b_peak", 0.5, 0, 1, 0.001);
 c_sens   = hslider("c_sens", 0.5, 0, 1, 0.001);
 d_manual = hslider("d_manual", 400, 100, 4000, 0.1);
 
-Q   = 2.0 + b_peak * 18.0;
-env = an.amp_follower(0.01); // 10 ms release envelope of |x|
-// Cutoff rides up from the manual base with the envelope, clamped below Nyquist.
-fc(x)  = min(0.45 * ma.SR, d_manual + env(x) * c_sens * 4000.0);
+// Clamp resonance to [0,1] and floor the cutoff above 0: svf.bp divides by Q and
+// by tan(pi*fc/SR), both singular at Q<=0 / fc<=0 (NaN latch till restart).
+b_pc = max(0.0, min(1.0, b_peak));
+Q    = 2.0 + b_pc * 18.0;
+env  = an.amp_follower(0.01); // 10 ms release envelope of |x|
+// Cutoff rides up from the manual base with the envelope, clamped into (0, Nyquist).
+fc(x)  = max(20.0, min(0.45 * ma.SR, d_manual + env(x) * c_sens * 4000.0));
 wet(x) = fi.svf.bp(fc(x), Q, x);
 
 process(x) = x * (1.0 - a_wah) + wet(x) * a_wah;

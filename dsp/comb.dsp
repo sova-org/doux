@@ -20,9 +20,11 @@ MAXD = 8192; // >= 50 ms at 96 kHz (native MAX_DELAY_MS), power of two
 
 fb = max(-0.99, min(0.99, b_fb));
 
-// One-pole damping in the feedback path: y = (1-c_damp)*x + c_damp*y'.
+// One-pole damping in the feedback path: y = (1-dampc)*x + dampc*y'.
 // c_damp = 0 reduces to identity, matching the native `if damp > 0` branch.
-damp(x) = (1.0 - c_damp) * x : fi.pole(c_damp);
+// Clamp < 1: fi.pole coeff >= 1 puts the pole on/outside the unit circle -> diverges.
+dampc = max(0.0, min(0.99, c_damp));
+damp(x) = (1.0 - dampc) * x : fi.pole(dampc);
 
 // wet[n] = fdelay(x[n] + fb*damp(wet[n-1])); the `~` supplies the loop's
 // one-sample delay (read-before-write of the hand-written version) and leaves

@@ -23,7 +23,7 @@ MAXSAMP = 1024; // >= 10 ms at 96 kHz, power of two
 span = (b_depth * b_depth) * (MAX_MS - MIN_MS);
 lfo = os.oscp(a_rate, 2.0 * ma.PI * d_phase) * 0.5 + 0.5; // unipolar 0..1
 dels = max(2.0, min(MAXSAMP - 3.0, (MIN_MS + span * lfo) * ma.SR / 1000.0));
-fb = min(0.95, c_fb);
+fb = max(0.0, min(0.95, c_fb)); // clamp both ends: large-negative fb runs the comb away
 
 // Feedback comb: wet[n] = fdelay(x[n] + fb*wet[n-1]); the `~` supplies the loop's
 // one-sample delay (matching the read-before-write of the hand-written version).

@@ -15,7 +15,8 @@ import("stdfaust.lib");
 a_shift  = hslider("a_shift", 0, -24, 24, 0.001);
 b_window = hslider("b_window", 40, 5, 200, 0.01);
 
-win = b_window * ma.SR / 1000.0; // grain window in samples
+winms = max(1.0, b_window);      // window > 0: ef.transpose divides by it (0 -> NaN)
+win = winms * ma.SR / 1000.0;    // grain window in samples
 xfd = win / 4.0;                 // crossfade in samples (quarter window)
 
 process = ef.transpose(win, xfd, a_shift);

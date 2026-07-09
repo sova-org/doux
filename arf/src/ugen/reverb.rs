@@ -13,15 +13,26 @@
 //! compare-and-reset, no `%`; the lengths are not powers of two and a shared counter would
 //! click on its wrap); the comb damping filters add eight more slots, 20 in all.
 
-use super::{flush, signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{Arity, Category, InputDescriptor, TickCtx, UGen, Unit, flush, signal};
 
 /// The classic Freeverb comb tunings (sample counts at 44.1 kHz) as seconds, longest last.
 const COMB_T: [f32; 8] = [
-    1116.0 / 44100.0, 1188.0 / 44100.0, 1277.0 / 44100.0, 1356.0 / 44100.0,
-    1422.0 / 44100.0, 1491.0 / 44100.0, 1557.0 / 44100.0, 1617.0 / 44100.0,
+    1116.0 / 44100.0,
+    1188.0 / 44100.0,
+    1277.0 / 44100.0,
+    1356.0 / 44100.0,
+    1422.0 / 44100.0,
+    1491.0 / 44100.0,
+    1557.0 / 44100.0,
+    1617.0 / 44100.0,
 ];
 /// The classic Freeverb allpass tunings (sample counts at 44.1 kHz) as seconds.
-const AP_T: [f32; 4] = [556.0 / 44100.0, 441.0 / 44100.0, 341.0 / 44100.0, 225.0 / 44100.0];
+const AP_T: [f32; 4] = [
+    556.0 / 44100.0,
+    441.0 / 44100.0,
+    341.0 / 44100.0,
+    225.0 / 44100.0,
+];
 
 /// Per-comb region capacity at `sr`: the longest comb tuning, ceiled, at least one sample,
 /// rounded to a power of two so `C/2` stays exact.
@@ -40,13 +51,43 @@ pub(super) static UGENS: &[UGen] = &[
     // verb ( in mix room damp -- sig )  state: [8 comb heads, 8 damp memories, 4 ap heads]
     // The row's buffer_len is the documented 192 kHz worst case; the compiler supersedes it
     // per program via `tank_len` (see `sized_buffer_len`).
-    UGen { name: "verb", category: Category::Delay, description: "Freeverb-style mono reverb — 8 damped feedback combs into 4 series allpasses; `mix` blends dry→wet.",
-           examples: &["2 impulse 0.05 perc 440 sine * 0.3 *  0.4 0.9 0.5 verb  0.5 * out", "110 saw 0.2 *  0.3 0.7 0.5 verb  out", "4 impulse 0.02 perc noise *  0.6 0.95 0.2 verb  0.4 * out"], arity: Arity::Fixed(4),
-           inputs: &[signal("in"),
-                     InputDescriptor { name: "mix", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.3 },
-                     InputDescriptor { name: "room", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.7 },
-                     InputDescriptor { name: "damp", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.5 }],
-           outputs: 1, state_slots: 20, buffer_len: 1 << 17, cost: 80, tick: tick_verb },
+    UGen {
+        name: "verb",
+        category: Category::Delay,
+        description: "Freeverb-style mono reverb — 8 damped feedback combs into 4 series allpasses; `mix` blends dry→wet.",
+        examples: &[
+            "2 impulse 0.05 perc 440 sine * 0.3 *  0.4 0.9 0.5 verb  0.5 * out",
+            "110 saw 0.2 *  0.3 0.7 0.5 verb  out",
+            "4 impulse 0.02 perc noise *  0.6 0.95 0.2 verb  0.4 * out",
+        ],
+        arity: Arity::Fixed(4),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "mix",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.3,
+            },
+            InputDescriptor {
+                name: "room",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.7,
+            },
+            InputDescriptor {
+                name: "damp",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.5,
+            },
+        ],
+        outputs: 1,
+        state_slots: 20,
+        buffer_len: 1 << 17,
+        cost: 80,
+        tick: tick_verb,
+    },
 ];
 
 // Not `.clamp()`: `.max().min()` suppresses NaN (`clamp` propagates it), so a NaN mix/room/damp

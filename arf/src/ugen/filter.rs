@@ -15,108 +15,379 @@
 
 use core::f32::consts::{PI, SQRT_2, TAU};
 
-use super::{flush, signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{Arity, Category, InputDescriptor, TickCtx, UGen, Unit, flush, signal};
 use crate::fastmath::{cosf, expf, fast_tan, fast_tanh_f32, pow10, powf, sinf};
 
 pub(super) static UGENS: &[UGen] = &[
     // lpf  ( in cutoff -- sig )  state: [z1, key, a]
-    UGen { name: "lpf", category: Category::Filter, description: "One-pole low-pass — attenuates above the cutoff.",
-           examples: &["110 saw 800 lpf 0.3 * out", "noise 1200 lpf 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_lpf },
+    UGen {
+        name: "lpf",
+        category: Category::Filter,
+        description: "One-pole low-pass — attenuates above the cutoff.",
+        examples: &["110 saw 800 lpf 0.3 * out", "noise 1200 lpf 0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "cutoff",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 1_000.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_lpf,
+    },
     // hpf  ( in cutoff -- sig )  state: [z1, key, a]   one-pole high-pass = in − lpf(in)
-    UGen { name: "hpf", category: Category::Filter, description: "One-pole high-pass — the residual of the low-pass; attenuates below the cutoff.",
-           examples: &["110 saw 1500 hpf 0.3 * out", "noise 4000 hpf 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_hpf },
+    UGen {
+        name: "hpf",
+        category: Category::Filter,
+        description: "One-pole high-pass — the residual of the low-pass; attenuates below the cutoff.",
+        examples: &["110 saw 1500 hpf 0.3 * out", "noise 4000 hpf 0.3 * out"],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "cutoff",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 1_000.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_hpf,
+    },
     // lpf2  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF low-pass tap
-    UGen { name: "lpf2", category: Category::Filter, description: "Resonant two-pole low-pass (state-variable).",
-           examples: &["110 saw 600 0.8 lpf2 0.3 * out", "110 saw  2 sine 200 2000 range  0.8 lpf2 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_lpf2 },
+    UGen {
+        name: "lpf2",
+        category: Category::Filter,
+        description: "Resonant two-pole low-pass (state-variable).",
+        examples: &[
+            "110 saw 600 0.8 lpf2 0.3 * out",
+            "110 saw  2 sine 200 2000 range  0.8 lpf2 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 1,
+        state_slots: SVF_SLOTS,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_lpf2,
+    },
     // hpf2  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF high-pass tap
-    UGen { name: "hpf2", category: Category::Filter, description: "Resonant two-pole high-pass (state-variable).",
-           examples: &["noise 1200 0.8 hpf2 0.3 * out", "110 saw 1500 0.7 hpf2 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_hpf2 },
+    UGen {
+        name: "hpf2",
+        category: Category::Filter,
+        description: "Resonant two-pole high-pass (state-variable).",
+        examples: &[
+            "noise 1200 0.8 hpf2 0.3 * out",
+            "110 saw 1500 0.7 hpf2 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 1,
+        state_slots: SVF_SLOTS,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_hpf2,
+    },
     // bpf  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF band-pass tap
-    UGen { name: "bpf", category: Category::Filter, description: "Resonant two-pole band-pass (state-variable).",
-           examples: &["noise 1000 0.8 bpf 0.4 * out", "110 saw  1 sine 300 1800 range  0.8 bpf 0.4 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_bpf },
+    UGen {
+        name: "bpf",
+        category: Category::Filter,
+        description: "Resonant two-pole band-pass (state-variable).",
+        examples: &[
+            "noise 1000 0.8 bpf 0.4 * out",
+            "110 saw  1 sine 300 1800 range  0.8 bpf 0.4 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 1,
+        state_slots: SVF_SLOTS,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_bpf,
+    },
     // notch  ( in cutoff res -- sig )  state: [ic1 ic2 + svf cache]   resonant SVF notch (low + high)
-    UGen { name: "notch", category: Category::Filter, description: "Resonant two-pole band-reject / notch (state-variable).",
-           examples: &["noise 1000 0.7 notch 0.3 * out", "110 saw 800 0.8 notch 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_notch },
+    UGen {
+        name: "notch",
+        category: Category::Filter,
+        description: "Resonant two-pole band-reject / notch (state-variable).",
+        examples: &[
+            "noise 1000 0.7 notch 0.3 * out",
+            "110 saw 800 0.8 notch 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 1,
+        state_slots: SVF_SLOTS,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_notch,
+    },
     // svf  ( in cutoff res -- lp bp hp notch )   the shared core tapped four ways at once: one
     // instance, one pair of integrators, four correlated outputs (vs four separate filters).
-    UGen { name: "svf", category: Category::Filter, description: "State-variable filter core — low-, band-, high-pass and notch taps at once.",
-           examples: &["[ 110 saw 800 0.7 svf ] 0 nth 0.3 * out", "[ noise 1500 0.8 svf ] 2 nth 0.3 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 4,
-           state_slots: SVF_SLOTS, buffer_len: 0, cost: 16, tick: tick_svf },
+    UGen {
+        name: "svf",
+        category: Category::Filter,
+        description: "State-variable filter core — low-, band-, high-pass and notch taps at once.",
+        examples: &[
+            "[ 110 saw 800 0.7 svf ] 0 nth 0.3 * out",
+            "[ noise 1500 0.8 svf ] 2 nth 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 4,
+        state_slots: SVF_SLOTS,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_svf,
+    },
     // lag  ( in time -- sig )  state: [z1]   one-pole slew limiter; `time` is the smoothing
     // time constant in seconds (0 ⇒ pass-through). Smooths control signals (portamento).
-    UGen { name: "lag", category: Category::Filter, description: "One-pole slew — eases a signal toward its target over `time` seconds (portamento; 0 = passthrough).",
-           examples: &["noise 0.002 lag 300 * 400 +  sine 0.2 * out", "2 impulse 0.1 lag 440 sine * 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.1 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_lag },
+    UGen {
+        name: "lag",
+        category: Category::Filter,
+        description: "One-pole slew — eases a signal toward its target over `time` seconds (portamento; 0 = passthrough).",
+        examples: &[
+            "noise 0.002 lag 300 * 400 +  sine 0.2 * out",
+            "2 impulse 0.1 lag 440 sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "time",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.1,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_lag,
+    },
     // apf  ( in cutoff -- sig )  state: [w1]   first-order allpass: unity magnitude, frequency-
     // dependent phase. Diffuses transients and builds phasers when summed with the dry signal.
-    UGen { name: "apf", category: Category::Filter, description: "First-order allpass — flat magnitude, frequency-dependent phase (phasers, diffusion).",
-           examples: &["110 saw 0.3 *  dup 600 apf  +  0.5 * out", "2 impulse  ( 700 apf ) 8 times  0.4 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_apf },
+    UGen {
+        name: "apf",
+        category: Category::Filter,
+        description: "First-order allpass — flat magnitude, frequency-dependent phase (phasers, diffusion).",
+        examples: &[
+            "110 saw 0.3 *  dup 600 apf  +  0.5 * out",
+            "2 impulse  ( 700 apf ) 8 times  0.4 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "cutoff",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 1_000.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_apf,
+    },
     // moog  ( in cutoff res -- sig )  state: [y1 y2 y3 y4, key, a]   four cascaded one-poles with
     // tanh-bounded feedback from the last stage — the classic ladder slope, self-oscillating
     // toward res 1, unconditionally stable.
-    UGen { name: "moog", category: Category::Filter, description: "Moog-style ladder low-pass — four cascaded poles with resonant feedback; self-oscillates as `res` nears 1.",
-           examples: &["110 saw 800 0.6 moog 0.3 * out", "110 saw  0.3 sine 2000 * 2500 +  0.7 moog 0.2 * out"], arity: Arity::Fixed(3), inputs: SVF_INPUTS, outputs: 1,
-           state_slots: 6, buffer_len: 0, cost: 24, tick: tick_moog },
+    UGen {
+        name: "moog",
+        category: Category::Filter,
+        description: "Moog-style ladder low-pass — four cascaded poles with resonant feedback; self-oscillates as `res` nears 1.",
+        examples: &[
+            "110 saw 800 0.6 moog 0.3 * out",
+            "110 saw  0.3 sine 2000 * 2500 +  0.7 moog 0.2 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: SVF_INPUTS,
+        outputs: 1,
+        state_slots: 6,
+        buffer_len: 0,
+        cost: 24,
+        tick: tick_moog,
+    },
     // ringz  ( in freq decay -- sig )  state: [y1 y2]   two-pole ringing resonator: every
     // input sample strikes a damped sinusoid at `freq` ringing 60 dB down over `decay` seconds.
-    UGen { name: "ringz", category: Category::Filter, description: "Ringing resonator — strikes a damped sinusoid at `freq`, ringing out over `decay` seconds (mallets, modal bodies).",
-           examples: &["4 impulse 880 0.3 ringz 0.5 * out", "noise 1200 0.2 ringz 0.1 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"),
-                     InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 440.0 },
-                     InputDescriptor { name: "decay", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.3 }],
-           outputs: 1, state_slots: 6, buffer_len: 0, cost: 20, tick: tick_ringz },
+    UGen {
+        name: "ringz",
+        category: Category::Filter,
+        description: "Ringing resonator — strikes a damped sinusoid at `freq`, ringing out over `decay` seconds (mallets, modal bodies).",
+        examples: &[
+            "4 impulse 880 0.3 ringz 0.5 * out",
+            "noise 1200 0.2 ringz 0.1 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 440.0,
+            },
+            InputDescriptor {
+                name: "decay",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.3,
+            },
+        ],
+        outputs: 1,
+        state_slots: 6,
+        buffer_len: 0,
+        cost: 20,
+        tick: tick_ringz,
+    },
     // slew  ( in up down -- sig )  state: [y1]   rate limiter: the output chases the input,
     // rising at most `up` and falling at most `down` units per second (lag's linear cousin).
-    UGen { name: "slew", category: Category::Filter, description: "Slew limiter — the output chases the input, bounded to `up`/`down` units per second.",
-           examples: &["8 impulse 4 4 slew 440 sine * 0.3 * out", "noise 8 8 slew 0.3 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"),
-                     InputDescriptor { name: "up", unit: Unit::Ratio, range: (0.0, 10_000.0), default: 100.0 },
-                     InputDescriptor { name: "down", unit: Unit::Ratio, range: (0.0, 10_000.0), default: 100.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 4, tick: tick_slew },
+    UGen {
+        name: "slew",
+        category: Category::Filter,
+        description: "Slew limiter — the output chases the input, bounded to `up`/`down` units per second.",
+        examples: &[
+            "8 impulse 4 4 slew 440 sine * 0.3 * out",
+            "noise 8 8 slew 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "up",
+                unit: Unit::Ratio,
+                range: (0.0, 10_000.0),
+                default: 100.0,
+            },
+            InputDescriptor {
+                name: "down",
+                unit: Unit::Ratio,
+                range: (0.0, 10_000.0),
+                default: 100.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_slew,
+    },
     // dcblock  ( in -- sig )  state: [x1 y1]   one-zero/one-pole DC blocker with a fixed
     // ~10 Hz pole — removes the offset a unipolar modulator or asymmetric waveshaper leaves.
-    UGen { name: "dcblock", category: Category::Filter, description: "DC blocker — removes the constant offset, leaving the audio band untouched.",
-           examples: &["110 saw 0.5 * 0.3 + dcblock 0.3 * out", "noise abs dcblock 0.5 * out"], arity: Arity::Fixed(1), inputs: &[signal("in")], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 4, tick: tick_dcblock },
+    UGen {
+        name: "dcblock",
+        category: Category::Filter,
+        description: "DC blocker — removes the constant offset, leaving the audio band untouched.",
+        examples: &[
+            "110 saw 0.5 * 0.3 + dcblock 0.3 * out",
+            "noise abs dcblock 0.5 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("in")],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_dcblock,
+    },
     // peak ( in freq gain q -- sig )  state: [z1 z2, keys f/gain/q, b0 neg2cw b2 a2]
-    UGen { name: "peak", category: Category::Filter, description: "Peaking EQ — boosts or cuts a band by `gain` dB at `freq`, width set by `q` (RBJ biquad).",
-           examples: &["noise 0.3 *  1200 6 2 peak  0.5 * out", "440 sine 0.3 *  600 -12 3 peak  out"], arity: Arity::Fixed(4),
-           inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT, Q_INPUT], outputs: 1,
-           state_slots: 9, buffer_len: 0, cost: 28, tick: tick_peak },
+    UGen {
+        name: "peak",
+        category: Category::Filter,
+        description: "Peaking EQ — boosts or cuts a band by `gain` dB at `freq`, width set by `q` (RBJ biquad).",
+        examples: &[
+            "noise 0.3 *  1200 6 2 peak  0.5 * out",
+            "440 sine 0.3 *  600 -12 3 peak  out",
+        ],
+        arity: Arity::Fixed(4),
+        inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT, Q_INPUT],
+        outputs: 1,
+        state_slots: 9,
+        buffer_len: 0,
+        cost: 28,
+        tick: tick_peak,
+    },
     // lowshelf ( in freq gain -- sig )  state: [z1 z2, keys f/gain, b0 b1 b2 a1 a2]
-    UGen { name: "lowshelf", category: Category::Filter, description: "Low shelf — lifts or dips everything below `freq` by `gain` dB (RBJ biquad, fixed slope).",
-           examples: &["110 saw 0.3 *  200 9 lowshelf  out", "noise 0.2 *  400 -12 lowshelf  0.5 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT], outputs: 1,
-           state_slots: 9, buffer_len: 0, cost: 30, tick: tick_lowshelf },
+    UGen {
+        name: "lowshelf",
+        category: Category::Filter,
+        description: "Low shelf — lifts or dips everything below `freq` by `gain` dB (RBJ biquad, fixed slope).",
+        examples: &[
+            "110 saw 0.3 *  200 9 lowshelf  out",
+            "noise 0.2 *  400 -12 lowshelf  0.5 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT],
+        outputs: 1,
+        state_slots: 9,
+        buffer_len: 0,
+        cost: 30,
+        tick: tick_lowshelf,
+    },
     // highshelf ( in freq gain -- sig )  state: [z1 z2, keys f/gain, b0 b1 b2 a1 a2]
-    UGen { name: "highshelf", category: Category::Filter, description: "High shelf — lifts or dips everything above `freq` by `gain` dB (RBJ biquad, fixed slope).",
-           examples: &["110 saw 0.3 *  3000 9 highshelf  out", "noise 0.2 *  5000 -18 highshelf  out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT], outputs: 1,
-           state_slots: 9, buffer_len: 0, cost: 30, tick: tick_highshelf },
+    UGen {
+        name: "highshelf",
+        category: Category::Filter,
+        description: "High shelf — lifts or dips everything above `freq` by `gain` dB (RBJ biquad, fixed slope).",
+        examples: &[
+            "110 saw 0.3 *  3000 9 highshelf  out",
+            "noise 0.2 *  5000 -18 highshelf  out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("in"), FREQ_INPUT, GAIN_INPUT],
+        outputs: 1,
+        state_slots: 9,
+        buffer_len: 0,
+        cost: 30,
+        tick: tick_highshelf,
+    },
     // reson ( in freq q -- sig )  state: [z1 z2, keys f/q, b0 a1 a2]   RBJ band-pass, Q-set
-    UGen { name: "reson", category: Category::Filter, description: "Resonant band-pass — a constant 0 dB peak at `freq`, sharpness set by `q` (RBJ biquad).",
-           examples: &["noise  1500 12 reson  0.3 * out", "110 saw  800 20 reson  0.4 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"), FREQ_INPUT, Q_INPUT], outputs: 1,
-           state_slots: 7, buffer_len: 0, cost: 26, tick: tick_reson },
+    UGen {
+        name: "reson",
+        category: Category::Filter,
+        description: "Resonant band-pass — a constant 0 dB peak at `freq`, sharpness set by `q` (RBJ biquad).",
+        examples: &[
+            "noise  1500 12 reson  0.3 * out",
+            "110 saw  800 20 reson  0.4 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[signal("in"), FREQ_INPUT, Q_INPUT],
+        outputs: 1,
+        state_slots: 7,
+        buffer_len: 0,
+        cost: 26,
+        tick: tick_reson,
+    },
 ];
 
 /// Shared signature for the resonant SVF family: a signal in, a cutoff in Hz, and
 /// resonance as a 0..1 ratio. Declared once so all four taps read the same source of truth.
 const SVF_INPUTS: &[InputDescriptor] = &[
     signal("in"),
-    InputDescriptor { name: "cutoff", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 },
-    InputDescriptor { name: "res", unit: Unit::Ratio, range: (0.0, 1.0), default: 0.3 },
+    InputDescriptor {
+        name: "cutoff",
+        unit: Unit::Hz,
+        range: (20.0, 20_000.0),
+        default: 1_000.0,
+    },
+    InputDescriptor {
+        name: "res",
+        unit: Unit::Ratio,
+        range: (0.0, 1.0),
+        default: 0.3,
+    },
 ];
 
 /// Upper clamp on the SVF coefficient `g = tan(π·fc/sr)`. `tan` blows toward ±∞ as the
@@ -131,14 +402,26 @@ const K_SPAN: f32 = SQRT_2 - K_MIN;
 const SVF_SLOTS: usize = 8;
 
 /// Shared `freq` input for the RBJ biquads (`peak`/`lowshelf`/`highshelf`/`reson`).
-const FREQ_INPUT: InputDescriptor =
-    InputDescriptor { name: "freq", unit: Unit::Hz, range: (20.0, 20_000.0), default: 1_000.0 };
+const FREQ_INPUT: InputDescriptor = InputDescriptor {
+    name: "freq",
+    unit: Unit::Hz,
+    range: (20.0, 20_000.0),
+    default: 1_000.0,
+};
 /// Boost/cut in decibels for `peak`/`lowshelf`/`highshelf` (0 dB = unity).
-const GAIN_INPUT: InputDescriptor =
-    InputDescriptor { name: "gain", unit: Unit::None, range: (-24.0, 24.0), default: 6.0 };
+const GAIN_INPUT: InputDescriptor = InputDescriptor {
+    name: "gain",
+    unit: Unit::None,
+    range: (-24.0, 24.0),
+    default: 6.0,
+};
 /// Resonance Q for `peak`/`reson` (higher = narrower); floored at `Q_MIN` in the tick.
-const Q_INPUT: InputDescriptor =
-    InputDescriptor { name: "q", unit: Unit::None, range: (0.1, 100.0), default: 1.0 };
+const Q_INPUT: InputDescriptor = InputDescriptor {
+    name: "q",
+    unit: Unit::None,
+    range: (0.1, 100.0),
+    default: 1.0,
+};
 
 /// RBJ biquads: lowest `q` — keeps `α = sin ω/(2q)` finite (q → 0 would give NaN coefficients).
 const Q_MIN: f32 = 0.1;
@@ -442,8 +725,13 @@ fn tick_lowshelf(ctx: &mut TickCtx, out: &mut [f32]) {
     let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * ctx.sr);
     let gain = ctx.inputs[2];
     shelf_coeffs(ctx.state, Shelf::Low, f, gain, ctx.sr);
-    let (b0, b1, b2, a1, a2) =
-        (ctx.state[4], ctx.state[5], ctx.state[6], ctx.state[7], ctx.state[8]);
+    let (b0, b1, b2, a1, a2) = (
+        ctx.state[4],
+        ctx.state[5],
+        ctx.state[6],
+        ctx.state[7],
+        ctx.state[8],
+    );
     out[0] = biquad_step(ctx, b0, b1, b2, a1, a2);
 }
 
@@ -452,8 +740,13 @@ fn tick_highshelf(ctx: &mut TickCtx, out: &mut [f32]) {
     let f = ctx.inputs[1].max(0.0).min(NYQ_FRAC * ctx.sr);
     let gain = ctx.inputs[2];
     shelf_coeffs(ctx.state, Shelf::High, f, gain, ctx.sr);
-    let (b0, b1, b2, a1, a2) =
-        (ctx.state[4], ctx.state[5], ctx.state[6], ctx.state[7], ctx.state[8]);
+    let (b0, b1, b2, a1, a2) = (
+        ctx.state[4],
+        ctx.state[5],
+        ctx.state[6],
+        ctx.state[7],
+        ctx.state[8],
+    );
     out[0] = biquad_step(ctx, b0, b1, b2, a1, a2);
 }
 

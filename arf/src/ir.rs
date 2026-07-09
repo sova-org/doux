@@ -89,20 +89,30 @@ pub enum Op {
     },
     /// An inlined binary arithmetic word (see [`BinKind`]): `regs[a] op regs[b]`, straight
     /// in the interpreter loop — no input arena, no state, no tick call.
-    Bin { kind: BinKind, a: Reg, b: Reg },
+    Bin {
+        kind: BinKind,
+        a: Reg,
+        b: Reg,
+    },
     /// Read a feedback bus: load `buses[slot]` (the value stored last sample). A leaf, so it
     /// can sit anywhere in topological order and breaks the feedback cycle. Buses live in
     /// their own arena (separate from per-UGen state), so `slot` is independent of UGen state
     /// layout — adding or removing a bus never shifts a UGen's `state_base`.
-    FbRead { slot: u32 },
+    FbRead {
+        slot: u32,
+    },
     /// Read audio input `channel` (the current frame's sample), supplied by the host. A
     /// leaf; `channel` is `< in_channels` by construction, so the read is always in range.
-    Input { channel: u32 },
+    Input {
+        channel: u32,
+    },
     /// Read control `lane` from the host's per-block control plane (a host-supplied value:
     /// the note's gate/notefreq/vel, the transport tempo, or a named parameter). A leaf, like
     /// [`Op::Input`], but frame-invariant: the plane is latched once per block, so the value is
     /// constant across the block. `lane` is `< control_len` by construction.
-    Control { lane: u32 },
+    Control {
+        lane: u32,
+    },
     /// Read the global sample clock as a signal: the current frame's absolute position,
     /// reduced into [`NOW_WINDOW`] (`(block_start_pos + frame) & (NOW_WINDOW - 1)`). A leaf,
     /// like [`Op::Input`] but supplied by the *executor*, not the host — frame-strided, so it

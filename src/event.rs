@@ -3,8 +3,8 @@
 use crate::orbit::OrbitParamId;
 use crate::superpan::SpeakerSet;
 use crate::types::{
-    midi2freq, ChorusType, DelayType, DistortMode, FlangerMode, FoldMode, GenericSlot, LfoShape,
-    ReverbType, Source, SubWave, SyncMode, VinylType,
+    ChorusType, DelayType, DistortMode, FlangerMode, FoldMode, GenericSlot, LfoShape, ReverbType,
+    Source, SubWave, SyncMode, VinylType, midi2freq,
 };
 use crate::voice::{ModChain, ParamId};
 
@@ -278,11 +278,15 @@ pub struct Event {
 
 impl Event {
     pub fn n_as_index(&self) -> usize {
-        self.n.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0)
+        self.n
+            .as_deref()
+            .and_then(Self::num)
+            .map(|f| f as usize)
+            .unwrap_or(0)
     }
 
     pub fn n_as_float(&self) -> f32 {
-        self.n.as_ref().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+        self.n.as_deref().and_then(Self::num).unwrap_or(0.0)
     }
 
     pub fn resolve_range(&self) -> (f32, f32) {
@@ -301,12 +305,22 @@ impl Event {
         }
     }
 
+    /// The single numeric parse for eval/OSC value tokens. Every value in the
+    /// Dirt protocol is conceptually a float; integer params floor it via `as`.
+    /// So "7", "7.0" and "7.3" all resolve to index 7 — no route rejects a
+    /// decimal. Timing (`tick`, `delta`) and JS-set PCM offsets (`file_pcm`,
+    /// `file_frames`) keep their own exact integer parse: they can exceed
+    /// f32's 2^24 exact range and are never fractional.
+    fn num(val: &str) -> Option<f32> {
+        val.parse::<f32>().ok()
+    }
+
     fn parse_usize(val: &str) -> Option<usize> {
-        val.parse::<f32>().ok().map(|f| f as usize)
+        Self::num(val).map(|f| f as usize)
     }
 
     fn parse_u8(val: &str) -> Option<u8> {
-        val.parse::<f32>().ok().map(|f| f as u8)
+        Self::num(val).map(|f| f as u8)
     }
 
     pub fn parse(input: &str, sr: f32) -> Self {
@@ -391,7 +405,7 @@ impl Event {
                 "sound" | "s" => event.sound = Some(val.to_string()),
                 "pw" => parse_param!(val, pw, ParamId::Pw),
                 "spread" => event.spread = val.parse().ok(),
-                "size" => event.size = val.parse().ok(),
+                "size" => event.size = Self::num(val).map(|f| f as u16),
                 "warp" => event.warp = val.parse().ok(),
                 "mirror" => parse_param!(val, mirror, ParamId::Mirror),
                 "harmonics" | "harm" => parse_param!(val, harmonics, ParamId::Harmonics),
@@ -412,7 +426,7 @@ impl Event {
                 "syncphase" | "syncph" => parse_param!(val, sync_phase, ParamId::SyncPhase),
                 "syncmode" => event.sync_mode = val.parse().ok(),
                 "scan" => parse_param!(val, scan, ParamId::Scan),
-                "wtlen" => event.wtlen = val.parse().ok(),
+                "wtlen" => event.wtlen = Self::num(val).map(|f| f as u32),
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = Self::parse_u8(val),
@@ -574,9 +588,13 @@ impl Event {
                         continue;
                     }
                     if let Some(chain) = ModChain::parse(val) {
-                        event.patch_params.push((name.to_string(), PatchParamValue::Chain(chain)));
+                        event
+                            .patch_params
+                            .push((name.to_string(), PatchParamValue::Chain(chain)));
                     } else if let Ok(v) = val.parse() {
-                        event.patch_params.push((name.to_string(), PatchParamValue::Value(v)));
+                        event
+                            .patch_params
+                            .push((name.to_string(), PatchParamValue::Value(v)));
                     }
                 }
                 // Per-source semantic names ("bright" on pluck, "drive" on

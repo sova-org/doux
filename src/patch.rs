@@ -220,7 +220,9 @@ impl PatchRegistry {
             ));
         }
         if name == "off" {
-            return Err("patch name \"off\" is reserved: `patch/off` and `fx/off` clear the slot".into());
+            return Err(
+                "patch name \"off\" is reserved: `patch/off` and `fx/off` clear the slot".into(),
+            );
         }
         let channels = program.audio_channels();
         if !(1..=2).contains(&channels) {
@@ -390,7 +392,10 @@ impl PatchRegistry {
         #[cfg(not(feature = "native"))]
         {
             let mut vm = vm;
-            vm.reset(&entry.program, self.next_seed.fetch_add(1, Ordering::Relaxed));
+            vm.reset(
+                &entry.program,
+                self.next_seed.fetch_add(1, Ordering::Relaxed),
+            );
             let _ = entry.pool.push(vm);
         }
     }
@@ -408,7 +413,10 @@ mod tests {
         let cut = g.control(lane);
         let nf = g.control(arf::graph::NOTEFREQ_LANE as u32);
         let saw = g.ugen(arf::ugen::lookup("saw").expect("saw is a ugen"), vec![nf]);
-        let filt = g.ugen(arf::ugen::lookup("lpf").expect("lpf is a ugen"), vec![saw, cut]);
+        let filt = g.ugen(
+            arf::ugen::lookup("lpf").expect("lpf is a ugen"),
+            vec![saw, cut],
+        );
         g.set_outputs(vec![filt]);
         g
     }
@@ -421,7 +429,10 @@ mod tests {
 
         let entry = registry.get("pp").unwrap();
         assert_eq!(entry.program().params(), &[("cutoff".to_string(), 400.0)]);
-        assert_eq!(entry.program().param_lane("cutoff"), Some(PARAM_BASE as u32));
+        assert_eq!(
+            entry.program().param_lane("cutoff"),
+            Some(PARAM_BASE as u32)
+        );
         assert_eq!(entry.program().param_lane("nope"), None);
 
         let vm = entry.take_vm().unwrap();

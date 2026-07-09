@@ -2,26 +2,84 @@
 //! the same asymmetric one-pole envelope — `lag`'s coefficient with separate attack and
 //! release time constants, picked per sample by whether the rectified input is rising.
 
-use super::{flush, signal, Arity, Category, InputDescriptor, TickCtx, UGen, Unit};
+use super::{Arity, Category, InputDescriptor, TickCtx, UGen, Unit, flush, signal};
 use crate::fastmath::{expf, powf};
 
 pub(super) static UGENS: &[UGen] = &[
     // follow ( in attack release -- env )  state: [env, keys, aa, ar]   rectify-and-smooth follower
-    UGen { name: "follow", category: Category::Dynamics, description: "Amplitude follower — tracks |in| with separate attack/release smoothing (a gate composes: `… follow 0.2 >`).",
-           examples: &["440 sine 0.5 *  0.01 0.1 follow  out", "noise 0.3 *  0.001 0.05 follow  440 sine *  0.4 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("in"),
-                     InputDescriptor { name: "attack", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.01 },
-                     InputDescriptor { name: "release", unit: Unit::Seconds, range: (0.0, 5.0), default: 0.1 }],
-           outputs: 1, state_slots: 5, buffer_len: 0, cost: 22, tick: tick_follow },
+    UGen {
+        name: "follow",
+        category: Category::Dynamics,
+        description: "Amplitude follower — tracks |in| with separate attack/release smoothing (a gate composes: `… follow 0.2 >`).",
+        examples: &[
+            "440 sine 0.5 *  0.01 0.1 follow  out",
+            "noise 0.3 *  0.001 0.05 follow  440 sine *  0.4 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "attack",
+                unit: Unit::Seconds,
+                range: (0.0, 1.0),
+                default: 0.01,
+            },
+            InputDescriptor {
+                name: "release",
+                unit: Unit::Seconds,
+                range: (0.0, 5.0),
+                default: 0.1,
+            },
+        ],
+        outputs: 1,
+        state_slots: 5,
+        buffer_len: 0,
+        cost: 22,
+        tick: tick_follow,
+    },
     // comp ( in thresh ratio attack release -- sig )  state: [env, keys, aa, ar]   feed-forward compressor
-    UGen { name: "comp", category: Category::Dynamics, description: "Compressor — reduces gain by `ratio` while the followed level exceeds `thresh`.",
-           examples: &["440 sine 0.8 *  0.3 4 0.01 0.1 comp  out", "noise 0.2 8 0.005 0.2 comp  0.5 * out"], arity: Arity::Fixed(5),
-           inputs: &[signal("in"),
-                     InputDescriptor { name: "thresh", unit: Unit::Amplitude, range: (0.0, 1.0), default: 0.3 },
-                     InputDescriptor { name: "ratio", unit: Unit::Ratio, range: (1.0, 20.0), default: 4.0 },
-                     InputDescriptor { name: "attack", unit: Unit::Seconds, range: (0.0, 1.0), default: 0.01 },
-                     InputDescriptor { name: "release", unit: Unit::Seconds, range: (0.0, 5.0), default: 0.1 }],
-           outputs: 1, state_slots: 5, buffer_len: 0, cost: 32, tick: tick_comp },
+    UGen {
+        name: "comp",
+        category: Category::Dynamics,
+        description: "Compressor — reduces gain by `ratio` while the followed level exceeds `thresh`.",
+        examples: &[
+            "440 sine 0.8 *  0.3 4 0.01 0.1 comp  out",
+            "noise 0.2 8 0.005 0.2 comp  0.5 * out",
+        ],
+        arity: Arity::Fixed(5),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "thresh",
+                unit: Unit::Amplitude,
+                range: (0.0, 1.0),
+                default: 0.3,
+            },
+            InputDescriptor {
+                name: "ratio",
+                unit: Unit::Ratio,
+                range: (1.0, 20.0),
+                default: 4.0,
+            },
+            InputDescriptor {
+                name: "attack",
+                unit: Unit::Seconds,
+                range: (0.0, 1.0),
+                default: 0.01,
+            },
+            InputDescriptor {
+                name: "release",
+                unit: Unit::Seconds,
+                range: (0.0, 5.0),
+                default: 0.1,
+            },
+        ],
+        outputs: 1,
+        state_slots: 5,
+        buffer_len: 0,
+        cost: 32,
+        tick: tick_comp,
+    },
 ];
 
 /// One step of the shared asymmetric follower: smooth `|x|` into `env` (`state[0]`) with
@@ -61,6 +119,10 @@ fn tick_comp(ctx: &mut TickCtx, out: &mut [f32]) {
     // pow finite for degenerate thresh/ratio (and de-NaN them, like every coefficient path).
     let t = ctx.inputs[1].max(0.001);
     let r = ctx.inputs[2].max(1.0);
-    let gain = if env > t { powf(env / t, 1.0 / r - 1.0) } else { 1.0 };
+    let gain = if env > t {
+        powf(env / t, 1.0 / r - 1.0)
+    } else {
+        1.0
+    };
     out[0] = x * gain;
 }

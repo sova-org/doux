@@ -11,7 +11,8 @@ b_q      = hslider("b_q", 0, 0, 1, 0.001);
 c_mode   = hslider("c_mode", 0, 0, 2, 1);
 
 fc = max(1.0, min(a_cutoff, ma.SR * 0.45));
-Qa = 0.5 + b_q * 30.0; // stage A: user resonance (same mapping as svf.dsp)
+b_qc = max(0.0, min(1.0, b_q));
+Qa = 0.5 + b_qc * 30.0; // stage A: user resonance (same mapping as svf.dsp)
 Qb = 0.707;            // stage B: Butterworth, clean 24 dB rolloff
 md = int(c_mode);
 

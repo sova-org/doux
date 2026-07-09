@@ -10,6 +10,7 @@ pub struct EqDsp {
 	fConst0: F32,
 	fConst1: F32,
 	fHslider0: F32,
+	fConst2: F32,
 	fHslider1: F32,
 	fHslider2: F32,
 	fVec0: [F32;2],
@@ -18,7 +19,7 @@ pub struct EqDsp {
 	fRec3: [F32;2],
 	fHslider4: F32,
 	fHslider5: F32,
-	fConst2: F32,
+	fConst3: F32,
 	fRec1: [F32;3],
 	fVec1: [F32;2],
 	fRec0: [F32;2],
@@ -51,6 +52,7 @@ impl EqDsp {
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fHslider0: 0.0,
+			fConst2: 0.0,
 			fHslider1: 0.0,
 			fHslider2: 0.0,
 			fVec0: [0.0;2],
@@ -59,7 +61,7 @@ impl EqDsp {
 			fRec3: [0.0;2],
 			fHslider4: 0.0,
 			fHslider5: 0.0,
-			fConst2: 0.0,
+			fConst3: 0.0,
 			fRec1: [0.0;3],
 			fVec1: [0.0;2],
 			fRec0: [0.0;2],
@@ -168,7 +170,8 @@ impl EqDsp {
 		self.fSampleRate = sample_rate;
 		self.fConst0 = F32::min(1.92e+05, F32::max(1.0, (self.fSampleRate) as F32));
 		self.fConst1 = 3.1415927 / self.fConst0;
-		self.fConst2 = 6.2831855 / self.fConst0;
+		self.fConst2 = 0.45 * self.fConst0;
+		self.fConst3 = 6.2831855 / self.fConst0;
 	}
 	pub fn instance_init(&mut self, sample_rate: i32) {
 		self.instance_constants(sample_rate);
@@ -234,21 +237,21 @@ impl EqDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = 1.0 / F32::tan(self.fConst1 * self.fHslider0);
+		let mut fSlow0: F32 = 1.0 / F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider0, self.fConst2)));
 		let mut fSlow1: F32 = 1.0 / (fSlow0 + 1.0);
 		let mut fSlow2: F32 = 1.0 - fSlow0;
-		let mut fSlow3: F32 = self.fHslider1;
+		let mut fSlow3: F32 = F32::max(1.0, F32::min(self.fHslider1, self.fConst2));
 		let mut fSlow4: F32 = F32::tan(self.fConst1 * fSlow3);
 		let mut fSlow5: F32 = 2.0 * (1.0 - 1.0 / EqDsp_faustpower2_f(fSlow4));
-		let mut fSlow6: F32 = 1.0 / F32::tan(self.fConst1 * self.fHslider2);
+		let mut fSlow6: F32 = 1.0 / F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider2, self.fConst2)));
 		let mut fSlow7: F32 = 1.0 / (fSlow6 + 1.0);
 		let mut fSlow8: F32 = 1.0 - fSlow6;
 		let mut fSlow9: F32 = F32::powf(1e+01, 0.05 * self.fHslider3);
 		let mut fSlow10: F32 = 1.0 / fSlow4;
 		let mut fSlow11: F32 = self.fHslider4;
 		let mut iSlow12: i32 = (fSlow11 > 0.0) as i32;
-		let mut fSlow13: F32 = self.fHslider5 * F32::sin(self.fConst2 * fSlow3);
-		let mut fSlow14: F32 = self.fConst1 * (fSlow3 * F32::powf(1e+01, 0.05 * F32::abs(fSlow11)) / fSlow13);
+		let mut fSlow13: F32 = F32::max(0.2, F32::min(8.0, self.fHslider5)) * F32::sin(self.fConst3 * fSlow3);
+		let mut fSlow14: F32 = self.fConst1 * (F32::powf(1e+01, 0.05 * F32::abs(fSlow11)) * fSlow3 / fSlow13);
 		let mut fSlow15: F32 = self.fConst1 * (fSlow3 / fSlow13);
 		let mut fSlow16: F32 = (if iSlow12 != 0 {fSlow15} else {fSlow14});
 		let mut fSlow17: F32 = fSlow10 * (fSlow10 - fSlow16) + 1.0;

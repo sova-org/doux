@@ -124,9 +124,9 @@ impl GmBank {
         let b = &self.buckets[bi];
         let lo = b.start as usize;
         let hi = lo + b.len as usize;
-        let z = self.zones[lo..hi].iter().find(|z| {
-            note >= z.key_lo && note <= z.key_hi && vel >= z.vel_lo && vel <= z.vel_hi
-        })?;
+        let z = self.zones[lo..hi]
+            .iter()
+            .find(|z| note >= z.key_lo && note <= z.key_hi && vel >= z.vel_lo && vel <= z.vel_hi)?;
 
         // Key-scale hold/decay (SF2 gens 39/40): tc' = tc + (60 - key) * coeff.
         let kn = 60i32 - note as i32;
@@ -532,7 +532,10 @@ pub fn load_sf2(path: &Path, device_sr: f32) -> Result<GmBank, String> {
             srcs.push(None);
             continue;
         }
-        let pcm: Vec<f32> = raw_i16[start..end].iter().map(|&s| s as f32 / 32768.0).collect();
+        let pcm: Vec<f32> = raw_i16[start..end]
+            .iter()
+            .map(|&s| s as f32 / 32768.0)
+            .collect();
         srcs.push(Some(SampleSrc {
             pcm,
             native_sr: hdr.sample_rate,

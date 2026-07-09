@@ -126,7 +126,14 @@ impl Vm {
                     };
                     reg_cursor += 1;
                 }
-                Op::Ugen { def, input_start, input_count, state_base, buffer_base, buffer_len } => {
+                Op::Ugen {
+                    def,
+                    input_start,
+                    input_count,
+                    state_base,
+                    buffer_base,
+                    buffer_len,
+                } => {
                     let start = input_start as usize;
                     let n_in = input_count as usize;
                     for (k, slot) in scratch[..n_in].iter_mut().enumerate() {
@@ -179,7 +186,13 @@ pub fn render_from(program: &Program, frames: usize, start_pos: u64) -> Vec<f32>
     let mut out = vec![0.0; frames * channels];
     for (f, frame) in out.chunks_mut(channels).enumerate() {
         let frame_pos = start_pos + f as u64;
-        vm.tick_frame(program, frame_pos, &input[f * in_ch..f * in_ch + in_ch], &control, frame);
+        vm.tick_frame(
+            program,
+            frame_pos,
+            &input[f * in_ch..f * in_ch + in_ch],
+            &control,
+            frame,
+        );
     }
     out
 }
@@ -226,11 +239,11 @@ mod tests {
         let p = program(&osc("sine", 440.0), sr);
         let out = render(&p, sr as usize); // one second
         // Count rising zero-crossings; for a 440 Hz tone over 1 s that is ~440.
-        let crossings = out
-            .windows(2)
-            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
-            .count();
-        assert!((crossings as i32 - 440).abs() <= 1, "crossings = {crossings}");
+        let crossings = out.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        assert!(
+            (crossings as i32 - 440).abs() <= 1,
+            "crossings = {crossings}"
+        );
     }
 
     #[test]
@@ -257,8 +270,14 @@ mod tests {
             sr,
         );
         let out = render(&p, 20);
-        assert!(out[..10].iter().all(|&s| s == 0.0), "empty line first: {out:?}");
-        assert!(out[10..].iter().all(|&s| s == 1.0), "then the signal: {out:?}");
+        assert!(
+            out[..10].iter().all(|&s| s == 0.0),
+            "empty line first: {out:?}"
+        );
+        assert!(
+            out[10..].iter().all(|&s| s == 1.0),
+            "then the signal: {out:?}"
+        );
     }
 
     #[test]
@@ -278,11 +297,19 @@ mod tests {
         let fresh = run(&mut vm);
         // Offset 0 restores the fresh stream bit-for-bit after the state advanced.
         vm.reset(&p, 0);
-        assert_eq!(run(&mut vm), fresh, "reset(0) must reproduce Vm::new exactly");
+        assert_eq!(
+            run(&mut vm),
+            fresh,
+            "reset(0) must reproduce Vm::new exactly"
+        );
         // A nonzero offset reseeds the counter, reading a different region of the
         // shared noise sequence — concurrent instances of one program decorrelate.
         vm.reset(&p, 1);
-        assert_ne!(run(&mut vm), fresh, "distinct offsets must yield distinct streams");
+        assert_ne!(
+            run(&mut vm),
+            fresh,
+            "distinct offsets must yield distinct streams"
+        );
     }
 
     #[test]

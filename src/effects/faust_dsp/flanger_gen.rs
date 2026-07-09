@@ -282,7 +282,7 @@ impl FlangerDsp {
 		let mut fSlow2: F32 = F32::cos(fSlow1);
 		let mut fSlow3: F32 = self.fConst2 * self.fHslider2;
 		let mut fSlow4: F32 = F32::sin(fSlow1);
-		let mut fSlow5: F32 = F32::min(0.95, self.fHslider3);
+		let mut fSlow5: F32 = F32::max(0.0, F32::min(0.95, self.fHslider3));
 		let mut iSlow6: i32 = (self.fHslider4) as i32;
 		let mut fSlow7: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 + 0.5)));
 		let mut fSlow8: F32 = fSlow7 + -1.499995;

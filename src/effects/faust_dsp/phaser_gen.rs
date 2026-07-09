@@ -221,10 +221,10 @@ impl PhaserDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = F32::max(2e+01, self.fHslider1);
+		let mut fSlow0: F32 = F32::max(0.0, F32::min(0.95, self.fHslider0));
+		let mut fSlow1: F32 = F32::max(2e+01, F32::min(self.fHslider1, self.fConst4));
 		let mut fSlow2: F32 = 6.2831855 * fSlow1;
-		let mut fSlow3: F32 = 3.1415927 * (fSlow1 - F32::min(self.fConst4, fSlow1 * F32::powf(2.0, 0.00083333335 * self.fHslider2)));
+		let mut fSlow3: F32 = 3.1415927 * (fSlow1 - F32::min(self.fConst4, F32::powf(2.0, 0.00083333335 * self.fHslider2) * fSlow1));
 		let mut fSlow4: F32 = self.fHslider3;
 		let mut fSlow5: F32 = self.fConst5 * self.fHslider4;
 		let mut fSlow6: F32 = F32::sin(fSlow5);

@@ -565,7 +565,10 @@ mod tests {
         for _ in 0..44100 {
             env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01);
         }
-        assert!(matches!(env.state, DahdsrState::Sustain), "should be holding");
+        assert!(
+            matches!(env.state, DahdsrState::Sustain),
+            "should be holding"
+        );
 
         // Retarget the gate to a length already elapsed: the next update releases.
         env.set_gate(0.1);
@@ -579,7 +582,10 @@ mod tests {
                 break;
             }
         }
-        assert!(reached_release, "set_gate(positive) should release a held voice");
+        assert!(
+            reached_release,
+            "set_gate(positive) should release a held voice"
+        );
         assert!(env.is_off(), "should fade out to Off");
     }
 

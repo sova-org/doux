@@ -20,87 +20,336 @@
 //! envelopes continue; a fresh instance starts from fresh state. Musical retriggering is done
 //! with trigger *signals* (above), not by re-evaluating the text.
 
-use super::{flush, signal, wrap01, Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit};
+use super::{
+    Arity, Category, InputDescriptor, ListShape, TickCtx, UGen, Unit, flush, signal, wrap01,
+};
 use crate::fastmath::powf;
 
 pub(super) static UGENS: &[UGen] = &[
     // impulse ( rate -- trig )   state: [phase]   one-sample 1 at each period end, else 0
-    UGen { name: "impulse", category: Category::Trigger, description: "Clock — fires a one-sample impulse at `rate` Hz.",
-           examples: &["4 impulse 0.3 * out", "8 impulse 0.05 perc 440 sine * 0.3 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "rate", unit: Unit::Hz, range: (0.0, 20_000.0), default: 1.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 5, tick: tick_impulse },
+    UGen {
+        name: "impulse",
+        category: Category::Trigger,
+        description: "Clock — fires a one-sample impulse at `rate` Hz.",
+        examples: &[
+            "4 impulse 0.3 * out",
+            "8 impulse 0.05 perc 440 sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "rate",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 1.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 5,
+        tick: tick_impulse,
+    },
     // trig ( in -- trig )   state: [prev]   1 on a rising edge (≤0 → >0), else 0
-    UGen { name: "trig", category: Category::Trigger, description: "Rising-edge detector — fires a one-sample impulse when the input crosses from ≤0 to >0.",
-           examples: &["2 sine trig 0.1 perc 440 sine * 0.3 * out", "4 impulse [ 1 0 1 1 ] seq trig 0.05 perc noise * 0.3 * out"], arity: Arity::Fixed(1), inputs: &[signal("in")], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 2, tick: tick_trig },
+    UGen {
+        name: "trig",
+        category: Category::Trigger,
+        description: "Rising-edge detector — fires a one-sample impulse when the input crosses from ≤0 to >0.",
+        examples: &[
+            "2 sine trig 0.1 perc 440 sine * 0.3 * out",
+            "4 impulse [ 1 0 1 1 ] seq trig 0.05 perc noise * 0.3 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[signal("in")],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 2,
+        tick: tick_trig,
+    },
     // perc ( trig time -- env )   state: [phase]   linear decay 1→0 over `time` s, reset on trig
-    UGen { name: "perc", category: Category::Envelope, description: "Percussive envelope — linear decay 1→0 over `time` seconds, reset by a trigger.",
-           examples: &["4 impulse 0.1 perc 440 sine * 0.3 * out", "2 impulse 0.3 perc noise * 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("trig"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.1 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 4, tick: tick_perc },
+    UGen {
+        name: "perc",
+        category: Category::Envelope,
+        description: "Percussive envelope — linear decay 1→0 over `time` seconds, reset by a trigger.",
+        examples: &[
+            "4 impulse 0.1 perc 440 sine * 0.3 * out",
+            "2 impulse 0.3 perc noise * 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("trig"),
+            InputDescriptor {
+                name: "time",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.1,
+            },
+        ],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 4,
+        tick: tick_perc,
+    },
     // seq ( trig [v0 v1 …] -- val )   state: [step]   step through the value-list on each trig.
     // Built by a front-end's `VariadicLed` arm: inputs[0] is the trigger, inputs[1..] the
     // values, so it is variadic. The read holds the current value between triggers.
-    UGen { name: "seq", category: Category::Trigger, description: "Step sequencer — holds a value from the list, advancing one step on each trigger.",
-           examples: &["4 impulse [ 220 330 440 550 ] seq sine 0.2 * out", "8 impulse [ 0 5 7 12 ] seq 60 + mtof sine 0.2 * out"], arity: Arity::VariadicLed { shape: ListShape::Any }, inputs: &[signal("trig")], outputs: 1,
-           state_slots: 1, buffer_len: 0, cost: 3, tick: tick_seq },
+    UGen {
+        name: "seq",
+        category: Category::Trigger,
+        description: "Step sequencer — holds a value from the list, advancing one step on each trigger.",
+        examples: &[
+            "4 impulse [ 220 330 440 550 ] seq sine 0.2 * out",
+            "8 impulse [ 0 5 7 12 ] seq 60 + mtof sine 0.2 * out",
+        ],
+        arity: Arity::VariadicLed {
+            shape: ListShape::Any,
+        },
+        inputs: &[signal("trig")],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 3,
+        tick: tick_seq,
+    },
     // line ( trig start end dur -- y )   state: [start, prev, armed]   linear travel start→end,
     // retriggered by an edge; rests at `start` until first triggered, holds `end` after
-    UGen { name: "line", category: Category::Envelope, description: "Linear line from `start` to `end` over `dur` seconds, (re)started by a trigger; holds `end`, rests at `start` until first triggered.",
-           examples: &["1 trig 110 550 0.5 line sine 0.2 * out", "2 impulse 0 1 0.3 line 220 sine * 0.3 * out"], arity: Arity::Fixed(4),
-           inputs: &[signal("trig"), signal("start"), signal("end"),
-                     InputDescriptor { name: "dur", unit: Unit::Seconds, range: (0.0, 60.0), default: 1.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 8, tick: tick_line },
+    UGen {
+        name: "line",
+        category: Category::Envelope,
+        description: "Linear line from `start` to `end` over `dur` seconds, (re)started by a trigger; holds `end`, rests at `start` until first triggered.",
+        examples: &[
+            "1 trig 110 550 0.5 line sine 0.2 * out",
+            "2 impulse 0 1 0.3 line 220 sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(4),
+        inputs: &[
+            signal("trig"),
+            signal("start"),
+            signal("end"),
+            InputDescriptor {
+                name: "dur",
+                unit: Unit::Seconds,
+                range: (0.0, 60.0),
+                default: 1.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_line,
+    },
     // xline ( trig start end dur -- y )   state: [start, prev, armed]   exponential travel
     // start→end (same sign, nonzero) — the natural curve for pitch and cutoff drops
-    UGen { name: "xline", category: Category::Envelope, description: "Exponential line from `start` to `end` over `dur` seconds (same sign, nonzero), (re)started by a trigger; holds `end`.",
-           examples: &["2 impulse 400 50 0.08 xline sine 0.3 * out", "1 trig 880 110 0.7 xline sine 0.2 * out"], arity: Arity::Fixed(4),
-           inputs: &[signal("trig"), signal("start"), signal("end"),
-                     InputDescriptor { name: "dur", unit: Unit::Seconds, range: (0.0, 60.0), default: 1.0 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 16, tick: tick_xline },
+    UGen {
+        name: "xline",
+        category: Category::Envelope,
+        description: "Exponential line from `start` to `end` over `dur` seconds (same sign, nonzero), (re)started by a trigger; holds `end`.",
+        examples: &[
+            "2 impulse 400 50 0.08 xline sine 0.3 * out",
+            "1 trig 880 110 0.7 xline sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(4),
+        inputs: &[
+            signal("trig"),
+            signal("start"),
+            signal("end"),
+            InputDescriptor {
+                name: "dur",
+                unit: Unit::Seconds,
+                range: (0.0, 60.0),
+                default: 1.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 16,
+        tick: tick_xline,
+    },
     // phasor ( freq -- phase )   state: [phase]   precise 0→1 ramp at `freq` Hz
-    UGen { name: "phasor", category: Category::Oscillator, description: "Ramp oscillator — a 0→1 phase ramp at `freq` Hz; the precise phase source for saws, LFOs, and tempo sync.",
-           examples: &["1 phasor 2 * 1 - 0.2 * out", "0.25 phasor 400 * 100 + sine 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "freq", unit: Unit::Hz, range: (0.0, 20_000.0), default: 1.0 }],
-           outputs: 1, state_slots: 1, buffer_len: 0, cost: 5, tick: tick_phasor },
+    UGen {
+        name: "phasor",
+        category: Category::Oscillator,
+        description: "Ramp oscillator — a 0→1 phase ramp at `freq` Hz; the precise phase source for saws, LFOs, and tempo sync.",
+        examples: &[
+            "1 phasor 2 * 1 - 0.2 * out",
+            "0.25 phasor 400 * 100 + sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 1.0,
+        }],
+        outputs: 1,
+        state_slots: 1,
+        buffer_len: 0,
+        cost: 5,
+        tick: tick_phasor,
+    },
     // clock ( rate -- trig )   state: [beat, started]   drift-free clock locked to the global `now`
-    UGen { name: "clock", category: Category::Trigger, description: "Clock locked to the global sample clock — fires at `rate` Hz with no drift; clocks at related rates stay sample-exact in sync.",
-           examples: &["4 clock 0.05 perc 440 sine * 0.3 * out", "[ 3 clock 4 clock ] 0.05 perc 330 sine * 0.2 * out"], arity: Arity::Fixed(1),
-           inputs: &[InputDescriptor { name: "rate", unit: Unit::Hz, range: (0.0, 20_000.0), default: 1.0 }],
-           outputs: 1, state_slots: 2, buffer_len: 0, cost: 6, tick: tick_clock },
+    UGen {
+        name: "clock",
+        category: Category::Trigger,
+        description: "Clock locked to the global sample clock — fires at `rate` Hz with no drift; clocks at related rates stay sample-exact in sync.",
+        examples: &[
+            "4 clock 0.05 perc 440 sine * 0.3 * out",
+            "[ 3 clock 4 clock ] 0.05 perc 330 sine * 0.2 * out",
+        ],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "rate",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 1.0,
+        }],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 6,
+        tick: tick_clock,
+    },
     // ar ( trig attack release -- y )   state: [start, prev, armed, captured]   triggered
     // attack-release; a retrigger rises from the captured current level (click-free)
-    UGen { name: "ar", category: Category::Envelope, description: "Attack-release envelope — rises to 1 over `attack` then falls to 0 over `release`, (re)started by a trigger; a retrigger rises from the current level (click-free).",
-           examples: &["2 impulse 0.01 0.3 ar 440 sine * 0.3 * out", "1 impulse 0.2 0.5 ar 110 saw 800 lpf * 0.3 * out"], arity: Arity::Fixed(3),
-           inputs: &[signal("trig"),
-                     InputDescriptor { name: "attack", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.01 },
-                     InputDescriptor { name: "release", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.2 }],
-           outputs: 1, state_slots: 4, buffer_len: 0, cost: 8, tick: tick_ar },
+    UGen {
+        name: "ar",
+        category: Category::Envelope,
+        description: "Attack-release envelope — rises to 1 over `attack` then falls to 0 over `release`, (re)started by a trigger; a retrigger rises from the current level (click-free).",
+        examples: &[
+            "2 impulse 0.01 0.3 ar 440 sine * 0.3 * out",
+            "1 impulse 0.2 0.5 ar 110 saw 800 lpf * 0.3 * out",
+        ],
+        arity: Arity::Fixed(3),
+        inputs: &[
+            signal("trig"),
+            InputDescriptor {
+                name: "attack",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.01,
+            },
+            InputDescriptor {
+                name: "release",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.2,
+            },
+        ],
+        outputs: 1,
+        state_slots: 4,
+        buffer_len: 0,
+        cost: 8,
+        tick: tick_ar,
+    },
     // adsr ( gate attack decay sustain release -- y )   state: [prev, atk_start, rel_start,
     // rel_level, atk_level]   gated; a re-gate rises from the captured release value (click-free)
-    UGen { name: "adsr", category: Category::Envelope, description: "Gated ADSR envelope — attack/decay to `sustain` while the gate is held, release to 0 when it drops; a re-gate rises from the current level (click-free).",
-           examples: &["2 sine 0 > 0.01 0.1 0.7 0.3 adsr 220 saw * 0.3 * out", "gate 0.05 0.2 0.6 0.4 adsr notefreq sine * 0.3 * out"], arity: Arity::Fixed(5),
-           inputs: &[signal("gate"),
-                     InputDescriptor { name: "attack", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.01 },
-                     InputDescriptor { name: "decay", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.1 },
-                     InputDescriptor { name: "sustain", unit: Unit::Amplitude, range: (0.0, 1.0), default: 0.7 },
-                     InputDescriptor { name: "release", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.3 }],
-           outputs: 1, state_slots: 5, buffer_len: 0, cost: 12, tick: tick_adsr },
+    UGen {
+        name: "adsr",
+        category: Category::Envelope,
+        description: "Gated ADSR envelope — attack/decay to `sustain` while the gate is held, release to 0 when it drops; a re-gate rises from the current level (click-free).",
+        examples: &[
+            "2 sine 0 > 0.01 0.1 0.7 0.3 adsr 220 saw * 0.3 * out",
+            "gate 0.05 0.2 0.6 0.4 adsr notefreq sine * 0.3 * out",
+        ],
+        arity: Arity::Fixed(5),
+        inputs: &[
+            signal("gate"),
+            InputDescriptor {
+                name: "attack",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.01,
+            },
+            InputDescriptor {
+                name: "decay",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.1,
+            },
+            InputDescriptor {
+                name: "sustain",
+                unit: Unit::Amplitude,
+                range: (0.0, 1.0),
+                default: 0.7,
+            },
+            InputDescriptor {
+                name: "release",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.3,
+            },
+        ],
+        outputs: 1,
+        state_slots: 5,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_adsr,
+    },
     // latch ( in trig -- held )   state: [held, prev]   sample & hold on a rising edge
-    UGen { name: "latch", category: Category::Trigger, description: "Sample & hold — captures the input on each rising trigger edge and holds it.",
-           examples: &["noise 8 impulse latch 400 * 500 + sine 0.2 * out", "noise 6 impulse latch 0.5 * 0.5 + 440 * sine 0.2 * out"], arity: Arity::Fixed(2), inputs: &[signal("in"), signal("trig")], outputs: 1,
-           state_slots: 2, buffer_len: 0, cost: 3, tick: tick_latch },
+    UGen {
+        name: "latch",
+        category: Category::Trigger,
+        description: "Sample & hold — captures the input on each rising trigger edge and holds it.",
+        examples: &[
+            "noise 8 impulse latch 400 * 500 + sine 0.2 * out",
+            "noise 6 impulse latch 0.5 * 0.5 + 440 * sine 0.2 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[signal("in"), signal("trig")],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 3,
+        tick: tick_latch,
+    },
     // decay ( in time -- env )   state: [y]   SC Decay: leaky integrator, 60 dB exp decay
-    UGen { name: "decay", category: Category::Envelope, description: "Exponential decay — each input impulse rings down 60 dB over `time` seconds; overlapping hits sum (SC Decay).",
-           examples: &["4 impulse 0.3 decay 440 sine * 0.3 * out", "8 impulse 0.1 decay noise * 0.3 * out"], arity: Arity::Fixed(2),
-           inputs: &[signal("in"), InputDescriptor { name: "time", unit: Unit::Seconds, range: (0.0, 10.0), default: 0.3 }],
-           outputs: 1, state_slots: 3, buffer_len: 0, cost: 12, tick: tick_decay },
+    UGen {
+        name: "decay",
+        category: Category::Envelope,
+        description: "Exponential decay — each input impulse rings down 60 dB over `time` seconds; overlapping hits sum (SC Decay).",
+        examples: &[
+            "4 impulse 0.3 decay 440 sine * 0.3 * out",
+            "8 impulse 0.1 decay noise * 0.3 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "time",
+                unit: Unit::Seconds,
+                range: (0.0, 10.0),
+                default: 0.3,
+            },
+        ],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_decay,
+    },
     // linseg ( trig [l0 t1 l1 t2 l2 …] -- y )   state: [start, prev, armed]   variadic breakpoint
     // envelope, built by a front-end's `VariadicLed` arm: input 0 is the trigger, inputs 1..
     // the flattened level/time list (start level l0, then (time, level) pairs). Clock-relative.
-    UGen { name: "linseg", category: Category::Envelope, description: "Multi-segment breakpoint envelope — ramps through a `[ l0 t1 l1 … ]` level/time list on each trigger, then holds the last level (the general form of perc/ar).",
-           examples: &["4 impulse [ 0 0.005 1 0.2 0 ] linseg 440 sine * 0.3 * out", "1 trig [ 0 0.5 1 0.5 0.3 ] linseg 200 * 200 + sine 0.2 * out"], arity: Arity::VariadicLed { shape: ListShape::OddAtLeastThree }, inputs: &[signal("trig")], outputs: 1,
-           state_slots: 3, buffer_len: 0, cost: 10, tick: tick_linseg },
+    UGen {
+        name: "linseg",
+        category: Category::Envelope,
+        description: "Multi-segment breakpoint envelope — ramps through a `[ l0 t1 l1 … ]` level/time list on each trigger, then holds the last level (the general form of perc/ar).",
+        examples: &[
+            "4 impulse [ 0 0.005 1 0.2 0 ] linseg 440 sine * 0.3 * out",
+            "1 trig [ 0 0.5 1 0.5 0.3 ] linseg 200 * 200 + sine 0.2 * out",
+        ],
+        arity: Arity::VariadicLed {
+            shape: ListShape::OddAtLeastThree,
+        },
+        inputs: &[signal("trig")],
+        outputs: 1,
+        state_slots: 3,
+        buffer_len: 0,
+        cost: 10,
+        tick: tick_linseg,
+    },
 ];
 
 /// Clamp to [0, 1] with `.max().min()`, not `f32::clamp`: max/min suppress NaN whereas `clamp`
@@ -120,7 +369,11 @@ fn tick_impulse(ctx: &mut TickCtx, out: &mut [f32]) {
 
 fn tick_trig(ctx: &mut TickCtx, out: &mut [f32]) {
     let x = ctx.inputs[0];
-    out[0] = if ctx.state[0] <= 0.0 && x > 0.0 { 1.0 } else { 0.0 };
+    out[0] = if ctx.state[0] <= 0.0 && x > 0.0 {
+        1.0
+    } else {
+        0.0
+    };
     ctx.state[0] = x;
 }
 

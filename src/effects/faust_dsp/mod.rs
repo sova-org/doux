@@ -685,7 +685,14 @@ impl FaustFreqShift {
     }
 
     #[inline]
-    pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ch: usize, shift: f32, sr: f32) {
+    pub fn process_block(
+        &mut self,
+        buf: &mut [StereoFrame],
+        n: usize,
+        ch: usize,
+        shift: f32,
+        sr: f32,
+    ) {
         self.ensure_sr(sr);
         self.dsp.set_param(Self::SHIFT, shift);
         run_block(&mut self.dsp, buf, n, ch);
