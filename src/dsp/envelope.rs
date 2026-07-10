@@ -135,6 +135,14 @@ impl Dahdsr {
         self.phase_time = 0.0;
     }
 
+    /// Override the decay/release curve exponent (default 2.0). At `sustain=0`
+    /// the decay branch outputs `(1−x)^c`, i.e. `20c·log10(1−x)` dB — so `c≈5`
+    /// gives a −30 dB midpoint, the linear-in-dB shape of a real exponential
+    /// tail. Drums set this in the spawn path; `reset` restores the default.
+    pub(crate) fn set_decay_curve(&mut self, c: f32) {
+        self.decay_curve = c;
+    }
+
     /// Retarget the gate of a sounding envelope. `gate` is total time from
     /// trigger (0 = infinite). Takes effect on the next `update`: if the new
     /// gate has already elapsed, the next `check_gate` releases the voice; a

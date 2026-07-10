@@ -1626,6 +1626,10 @@ impl Engine {
                 if event.freq.is_none() {
                     v.params.freq = d_freq;
                 }
+                // Exponential-feel VCA: a linear-in-dB tail so `dec` reads as
+                // "time to silence". Spawn-only; the Update branch leaves a
+                // sounding drum's curve alone, `reset` restores the 2.0 default.
+                v.dahdsr.set_decay_curve(5.0);
                 (
                     event.attack.or(Some(d_att)),
                     event.decay.or(Some(d_dec)),

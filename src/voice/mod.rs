@@ -1987,6 +1987,17 @@ impl Voice {
     fn trigger_envelopes(&mut self) {
         self.dahdsr.trigger(self.params.gate);
         self.sync_direction = 1.0;
+        // Per-hit phase variation for the drum metal cluster: `reset` pins the
+        // spread phasors at `i/7`, which clones the inharmonic stack on every
+        // hit. Randomizing them (the seed advances per hit) de-correlates the
+        // partials so repeated hats/cymbals shimmer instead of phasing
+        // identically. The main `phasor` stays at 0 — kick/tom/rim want a
+        // deterministic body attack.
+        if self.params.sound.drum_defaults().is_some() {
+            for i in 0..self.spread_phasors.len() {
+                self.spread_phasors[i].phase = self.rand();
+            }
+        }
         for i in 0..self.param_mod_count as usize {
             self.param_mods[i].1.trigger(self.params.gate);
         }

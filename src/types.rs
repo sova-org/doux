@@ -390,7 +390,7 @@ const INFO_KICK: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 55.0,
         attack: 0.001,
-        decay: 0.3,
+        decay: 0.45,
         sustain: 0.0,
         release: 0.005
     }),
@@ -439,7 +439,7 @@ const INFO_SNARE: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 180.0,
         attack: 0.001,
-        decay: 0.15,
+        decay: 0.22,
         sustain: 0.0,
         release: 0.005
     }),
@@ -478,7 +478,7 @@ const INFO_HAT: SourceInfo = source_info!(
     SourceCategory::Drum,
     "Phase-modulated metallic tone through a resonant lowpass",
     Some(DrumDefaults {
-        freq: 320.0,
+        freq: 205.0,
         attack: 0.001,
         decay: 0.08,
         sustain: 0.0,
@@ -521,7 +521,7 @@ const INFO_TOM: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 120.0,
         attack: 0.001,
-        decay: 0.25,
+        decay: 0.35,
         sustain: 0.0,
         release: 0.005
     }),
@@ -570,7 +570,7 @@ const INFO_RIM: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 400.0,
         attack: 0.001,
-        decay: 0.04,
+        decay: 0.05,
         sustain: 0.0,
         release: 0.005
     }),
@@ -619,7 +619,7 @@ const INFO_COWBELL: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 540.0,
         attack: 0.001,
-        decay: 0.12,
+        decay: 0.25,
         sustain: 0.0,
         release: 0.005
     }),
@@ -660,7 +660,7 @@ const INFO_CYMBAL: SourceInfo = source_info!(
     Some(DrumDefaults {
         freq: 420.0,
         attack: 0.001,
-        decay: 0.5,
+        decay: 2.0,
         sustain: 0.0,
         release: 0.005
     }),
