@@ -3,6 +3,7 @@
 pub mod delay_line;
 pub mod envelope;
 pub mod fft;
+pub mod modal;
 pub mod noise;
 pub mod oscillator;
 
@@ -11,7 +12,7 @@ pub mod oscillator;
 pub use arf::fastmath;
 
 pub use delay_line::DelayLine;
-pub use envelope::{init_envelope, Dahdsr, DahdsrState, EnvelopeParams};
+pub use envelope::{decay, init_envelope, Dahdsr, DahdsrState, EnvelopeParams};
 pub use fastmath::{
     atan2f, cosf, enable_flush_to_zero, exp2f, fast_tan, fast_tanh_f32, ftz, hermite4, log2f,
     modpi, ms_to_samples, par_cosf, par_sinf, pow10, pow1half, powf, sinf,

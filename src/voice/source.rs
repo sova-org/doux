@@ -298,13 +298,14 @@ impl Voice {
             | Source::Tom
             | Source::Rim
             | Source::Cowbell
-            | Source::Cymbal => {
-                self.nch = 1;
+            | Source::Cymbal
+            | Source::Clap => {
+                self.nch = 2;
                 for i in 0..n {
                     let freq = self.tick_pre(isr, i);
                     let s = self.run_drum(freq, isr);
-                    self.scratch[i][0] = s;
-                    self.scratch[i][1] = 0.0;
+                    self.scratch[i][0] = s[0];
+                    self.scratch[i][1] = s[1];
                     self.time += isr;
                 }
             }
@@ -499,13 +500,14 @@ impl Voice {
             | Source::Tom
             | Source::Rim
             | Source::Cowbell
-            | Source::Cymbal => {
-                self.nch = 1;
+            | Source::Cymbal
+            | Source::Clap => {
+                self.nch = 2;
                 for i in 0..n {
                     let freq = self.tick_pre(isr, i);
                     let s = self.run_drum(freq, isr);
-                    self.scratch[i][0] = s;
-                    self.scratch[i][1] = 0.0;
+                    self.scratch[i][0] = s[0];
+                    self.scratch[i][1] = s[1];
                     self.time += isr;
                 }
             }
@@ -703,7 +705,7 @@ impl Voice {
             Source::White => self.white() * 0.5,
             Source::Pink => {
                 let w = self.white();
-                self.pink_noise.next(w) * 0.5
+                self.pink_noise[0].next(w) * 0.5
             }
             Source::Brown => {
                 let w = self.white();

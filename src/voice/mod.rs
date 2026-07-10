@@ -12,6 +12,7 @@ use pluck::PluckState;
 
 use std::f32::consts::PI;
 
+use crate::dsp::modal::ModalBank;
 use crate::dsp::{cosf, exp2f, sinf, BrownNoise, Dahdsr, Phasor, PinkNoise, SvfMode};
 use crate::effects::{
     DcBlocker, FaustChorus, FaustCoarse, FaustCrush, FaustDistort, FaustEq, FaustFlanger,
@@ -242,7 +243,7 @@ pub struct Voice {
     pub(crate) shape_active: bool,
 
     // === Source-specific state (one variant active per voice) ===
-    pub pink_noise: PinkNoise,
+    pub pink_noise: [PinkNoise; CHANNELS],
     pub brown_noise: BrownNoise,
     #[cfg(not(feature = "native"))]
     pub file_source: Option<FileSource>,
@@ -271,8 +272,16 @@ pub struct Voice {
     /// Same, for the `fx/` insert: cleared atop `finish_block`, OR-ed per sample
     /// in `tick_fx_patch`.
     pub fx_patch_poisoned: bool,
-    pub(super) drum_svf: FaustSvf,
-    pub(super) drum_svf2: FaustSvf,
+    pub(super) drum_svf: [FaustSvf; CHANNELS],
+    pub(super) drum_svf2: [FaustSvf; CHANNELS],
+    /// Modal resonator bank for the metal drums (hat, cymbal). Boxed and
+    /// allocated once at construction — the 16×2 filter array never lands on the
+    /// audio thread by value; `reset()` zeroes it in place.
+    pub(super) modal: Box<ModalBank>,
+    /// Per-hit humanization for the pitched drums, drawn once at trigger:
+    /// `[0]` bends pitch, `[1]` bends decay, each in `[-1, 1)`. Fixed modest depth
+    /// read in the drum bodies so programmed patterns breathe.
+    pub(super) drum_jitter: [f32; 2],
     /// Karplus-Strong state for the `pluck` source. Boxed (~32 KB delay line)
     /// and allocated once at construction — never on the audio thread.
     pub(super) pluck: Box<PluckState>,
@@ -347,7 +356,7 @@ impl Default for Voice {
             tag: None,
             exclusive_class: 0,
             shape_active: false,
-            pink_noise: PinkNoise::default(),
+            pink_noise: std::array::from_fn(|_| PinkNoise::default()),
             brown_noise: BrownNoise::default(),
             #[cfg(not(feature = "native"))]
             file_source: None,
@@ -363,8 +372,10 @@ impl Default for Voice {
             fx_patch: None,
             patch_poisoned: false,
             fx_patch_poisoned: false,
-            drum_svf: FaustSvf::default(),
-            drum_svf2: FaustSvf::default(),
+            drum_svf: std::array::from_fn(|_| FaustSvf::default()),
+            drum_svf2: std::array::from_fn(|_| FaustSvf::default()),
+            modal: Box::new(ModalBank::default()),
+            drum_jitter: [0.0; 2],
             pluck: Box::new(PluckState::default()),
             param_mods: [(ParamId::Gain, ParamMod::default()); MAX_PARAM_MODS],
             param_mod_count: 0,
@@ -402,7 +413,7 @@ impl Voice {
         self.am_lfo = Phasor::default();
         self.rm_lfo = Phasor::default();
         self.current_freq = 330.0;
-        self.pink_noise = PinkNoise::default();
+        self.pink_noise = std::array::from_fn(|_| PinkNoise::default());
         self.brown_noise = BrownNoise::default();
         #[cfg(not(feature = "native"))]
         {
@@ -441,8 +452,10 @@ impl Voice {
         self.shape_active = false;
         self.sr = 44100.0;
         self.seed = 123456789;
-        self.drum_svf = FaustSvf::default();
-        self.drum_svf2 = FaustSvf::default();
+        self.drum_svf = std::array::from_fn(|_| FaustSvf::default());
+        self.drum_svf2 = std::array::from_fn(|_| FaustSvf::default());
+        self.modal.reset_in_place();
+        self.drum_jitter = [0.0; 2];
         // O(1): the 32 KB delay line is re-zeroed lazily by `run_pluck` on the
         // first sample of a pluck note, never here on every note-on.
         self.pluck.primed = false;
@@ -454,8 +467,14 @@ impl Voice {
 
     #[inline]
     pub(super) fn rand(&mut self) -> f32 {
-        self.seed = modulation::lcg(self.seed);
-        ((self.seed >> 16) & 0x7fff) as f32 / 32767.0
+        // xorshift32; guard the 0 fixed point (the rolling voice_seed can reach 0
+        // once in 2^32, and 0 is a fixed point of xorshift).
+        let mut x = if self.seed == 0 { 0x9E3779B9 } else { self.seed };
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.seed = x;
+        (x >> 8) as f32 / 16_777_216.0 // 24-bit, [0,1)
     }
 
     #[inline]
@@ -1987,16 +2006,17 @@ impl Voice {
     fn trigger_envelopes(&mut self) {
         self.dahdsr.trigger(self.params.gate);
         self.sync_direction = 1.0;
-        // Per-hit phase variation for the drum metal cluster: `reset` pins the
-        // spread phasors at `i/7`, which clones the inharmonic stack on every
-        // hit. Randomizing them (the seed advances per hit) de-correlates the
-        // partials so repeated hats/cymbals shimmer instead of phasing
-        // identically. The main `phasor` stays at 0 — kick/tom/rim want a
-        // deterministic body attack.
+        // Per-hit variation for the drums: `reset` pins the spread phasors at
+        // `i/7`, which clones the partial stack on every hit. Randomizing them
+        // (the seed advances per hit) de-correlates the partials so repeated hits
+        // vary instead of phasing identically. The two jitter values then bend
+        // pitch and decay per hit (read in the pitched drum bodies). The main
+        // `phasor` stays at 0 — kick/tom/rim want a deterministic body attack.
         if self.params.sound.drum_defaults().is_some() {
             for i in 0..self.spread_phasors.len() {
                 self.spread_phasors[i].phase = self.rand();
             }
+            self.drum_jitter = [self.rand() * 2.0 - 1.0, self.rand() * 2.0 - 1.0];
         }
         for i in 0..self.param_mod_count as usize {
             self.param_mods[i].1.trigger(self.params.gate);

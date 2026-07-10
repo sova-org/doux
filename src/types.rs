@@ -175,6 +175,7 @@ pub enum Source {
     Rim,
     Cowbell,
     Cymbal,
+    Clap,
     Gm,
     Sample,
     Wavetable,
@@ -185,7 +186,7 @@ pub enum Source {
     Arf,
 }
 
-const ALL_SOURCES: [Source; 24] = [
+const ALL_SOURCES: [Source; 25] = [
     Source::Tri,
     Source::Sine,
     Source::Saw,
@@ -204,6 +205,7 @@ const ALL_SOURCES: [Source; 24] = [
     Source::Rim,
     Source::Cowbell,
     Source::Cymbal,
+    Source::Clap,
     Source::Gm,
     Source::Sample,
     Source::Wavetable,
@@ -693,6 +695,47 @@ const INFO_CYMBAL: SourceInfo = source_info!(
     31
 );
 
+const INFO_CLAP: SourceInfo = source_info!(
+    "clap",
+    &["cp"],
+    SourceCategory::Drum,
+    "Multi-tap noise burst with diffuse tail",
+    Some(DrumDefaults {
+        freq: 900.0,
+        attack: 0.001,
+        decay: 0.20,
+        sustain: 0.0,
+        release: 0.01
+    }),
+    &[
+        ParamInfo {
+            name: "spread",
+            aliases: &["morph"],
+            description: "tap spacing / hand spread",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+        ParamInfo {
+            name: "tone",
+            aliases: &["harmonics", "harm"],
+            description: "bandpass center",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+        ParamInfo {
+            name: "tail",
+            aliases: &["timbre"],
+            description: "diffuse tail length",
+            default: "0.5",
+            min: 0.0,
+            max: 1.0
+        },
+    ],
+    35
+);
+
 const INFO_GM: SourceInfo = source_info!(
     "gm",
     &[],
@@ -869,6 +912,7 @@ impl Source {
             Self::Rim => &INFO_RIM,
             Self::Cowbell => &INFO_COWBELL,
             Self::Cymbal => &INFO_CYMBAL,
+            Self::Clap => &INFO_CLAP,
             Self::Gm => &INFO_GM,
             Self::Sample => &INFO_SAMPLE,
             Self::Wavetable => &INFO_WAVETABLE,

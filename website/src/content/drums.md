@@ -131,3 +131,19 @@ Inharmonic metallic wash with filtered noise. Aliases: `crash`, `cy`. Default fr
 <CodeEditor code={`/sound/crash/metal/0.7/decay/0.8`} rows={2} />
 
 </CommandEntry>
+
+<CommandEntry name="clap" type="source">
+
+Multi-tap noise burst with diffuse tail. Aliases: `cp`. Default freq: 900 Hz.
+
+<ParamTable params={[
+  { name: "spread", alias: "morph", range: "0–1", default: "0.5", mod: true, description: "tap spacing / hand spread" },
+  { name: "tone", alias: "harmonics, harm", range: "0–1", default: "0.5", mod: true, description: "bandpass center" },
+  { name: "tail", alias: "timbre", range: "0–1", default: "0.5", mod: true, description: "diffuse tail length" },
+]} />
+
+<CodeEditor code={`/sound/clap`} rows={2} />
+
+<CodeEditor code={`/sound/cp/spread/0.7/tail/0.6/decay/0.25`} rows={2} />
+
+</CommandEntry>

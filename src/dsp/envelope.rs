@@ -24,7 +24,17 @@
 //! parameters. Positive exponents create convex curves (slow start, fast finish),
 //! while negative exponents create concave curves (fast start, slow finish).
 
-use super::fastmath::powf;
+use std::f32::consts::LOG2_E;
+
+use super::fastmath::{exp2f, powf};
+
+/// Exponential decay `e^{-time·rate}`, expressed via base-2 [`exp2f`].
+///
+/// `rate` is the natural decay rate in nepers/second (≈ 1/τ); larger = shorter.
+#[inline]
+pub fn decay(time: f32, rate: f32) -> f32 {
+    exp2f(-time * rate * LOG2_E)
+}
 
 /// Attempt to scale the input `x` from range `[0, 1]` to range `[y0, y1]` with an exponent `exp`.
 ///
