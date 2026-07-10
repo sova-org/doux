@@ -3,6 +3,42 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Arf patch graphs**: user-defined DSP graphs installed by name, used as sources or effects. A host builds an `arf` graph, serialises it to JSON, installs it into the engine's `PatchRegistry`. `doux` compiles it at the device sample rate and owns polyphony (a per-patch `Vm` pool). `doux` never parses a patch language. The graph JSON is the whole boundary. New `arf` workspace crate, plus `pub mod patch` (`PatchRegistry`, `Engine::patch_registry()`).
+  - **As a source**: trigger an input-less graph with `s/arf:<name>`. Gate, note frequency and velocity go into the graph's control lanes per sample. Patches get the same vibrato, glide and mod-chain behaviour as native sources (`Source::Arf`).
+  - **As a voice insert**: `fx/<name>` inserts an input-reading graph into a voice's chain, serial, just before the envelope VCA. `fx/off` clears the slot.
+  - **As an orbit send**: `patch/<name>` attaches a graph as a parallel send at the end of the orbit FX chain, so it hears the built-in tails (comb → feedback → delay → reverb → patch). Sticky on the orbit. `patch/off` clears it. Send level is `patchlevel`/`plevel` (modulatable).
+  - **Named patch params**: address a graph's `param` lanes with `p:<name>/<value>` event keys. Values are static floats or full modulation chains. They ride the same per-sample ParamMod machinery as native params (e.g. `p:cutoff/2000/p:res/0.5~0.9:2`).
+  - Source vs. effect role comes from the graph's input channel count, enforced at each use-site. `off` is a reserved patch name, rejected at install.
+- `Engine::set_tempo(bps)`: sets the tempo patches read as `bps`, latched every block. Defaults to `2.0` (120 BPM).
+- `EngineConfig::patch_registry: Option<Arc<PatchRegistry>>`: lets a host share or persist a registry across engine rebuilds, like `sample_registry`.
+- REPL `.patch <name> <graph json>`: compiles and installs a patch, playable as `s/arf:<name>`.
+- `PatchRegistry::with_polyphony`/`remove`: build a registry with a chosen Vm-pool size, or evict an installed patch. A voice still sounding keeps its own `Arc` and plays out.
+- Website doc "Arf Patches" (`patch`, `patchlevel`, `fx`).
+
+### Changed
+
+- **[BREAKING]** `EngineConfig` gained a required `patch_registry` field. Every `EngineConfig { .. }` literal must now set it.
+- `arf` is now a workspace member and a required dependency. `arc_swap` moved from native-only optional to an unconditional dependency (the registry uses it on wasm too).
+- **Voice stealing at the polyphony ceiling**: a new note at max voices steals the quietest voice (min envelope, click-free takeover) instead of being dropped. Works on native and wasm. Native still honours the load gate. Events that used to be silently dropped now sound.
+- Default per-patch `Vm` pool raised from 8 to `max_voices` (64), so an arf source isn't more polyphony-limited than a native voice.
+- **Memory-layout optimization**: off-hot-path heap moves shrink the `Voice` struct and cut per-sample work. The pitch-shifter DSP, time-stretch state and per-orbit block scratch are now boxed. A detune ratio cache runs `exp2f` once per value, not per sample. Modulation runs block-rate unless a stage touches a modulated param. Faust block scratch only initialises the used `[..n]`, not the whole block. Output is bit-identical.
+- **[BREAKING]** `schedule::Schedule::push` now returns `Option<Event>` (the rejected event at capacity) instead of dropping it silently. It's `#[must_use]`.
+
+### Fixed
+
+- **RT-safety, event frees off the audio thread**: spent and rejected events go to a `doux-event-reaper` thread. Their `String`/`Vec` fields are freed off the real-time thread (native).
+- **Numeric-safety hardening across the DSP**: pathological params can no longer mint NaN/Inf.
+  - Every Faust effect clamps its user- and mod-controllable freqs, Q, feedback and windows inside the `.dsp` (SVF/SVF24 resonance, wah, phaser, smear, pitch-shift window, comb/feedback damping, flanger feedback, EQ band freqs and mid-Q). An out-of-range value can no longer divide by ~0 or drive a recursion to NaN.
+  - The master output flushes non-finite samples to 0 before the DC-blocker. Before, one NaN latched the blocker and silenced the engine until restart.
+  - The compressor sidechain duck-gain base is clamped to `≥ 0` before `powf`. An over-unity sidechain env used to mint a NaN into the master mix.
+  - Event and modulation parsing reject `nan`/`inf` tokens. A NaN period slipped past the `<= 0` guard and latched the param dead. `midi2freq`'s octave exponent is clamped, so a huge finite note stays finite.
+  - The orbit FX chain recovers if block energy goes non-finite. A patch `Vm` that latches non-finite self-heals by swapping in a fresh pooled `Vm`. Sticky user params survive. Sample decoders guard 0-channel and non-finite or ≤ 0 base frequency.
+- **Denormal / frozen-tail flush**: orbit FX tails (delay lines, reverb tanks, comb, feedback, compressor env) are zeroed at the silence-holdoff crossing (< −140 dB, inaudible) and on panic. This bounds the wasm per-sample denormal window.
+
 ## [0.0.42] - 2026-06-30
 
 ### Added
