@@ -1,5 +1,5 @@
 //! Noise sources: white (`noise`), colored (`pink`, `brown`), shaped (`clipnoise`), random
-//! impulses (`dust`, `dust2`), low-frequency modulation noise (`noiseh`, `noisei`), random
+//! impulses (`dust`, `dust2`), low-frequency modulation noise (`noiseh`, `noisei`, `noiseq`), random
 //! values (`rand`, `exprand`, `logrand` per note; `trand`, `texprand` per trigger), and the
 //! stochastic trigger words (`coin`, `tchoose`). Every one draws its randomness from the shared
 //! [`noise_sample`] counter hash, so it is deterministic per seed with no RNG state of its
@@ -152,6 +152,25 @@ pub(super) static UGENS: &[UGen] = &[
         buffer_len: 0,
         cost: 10,
         tick: tick_noisei,
+    },
+    // noiseq ( freq -- sig )   state: [phase, a, b, c, counter]   quadratically-interpolated noise
+    UGen {
+        name: "noiseq",
+        category: Category::Noise,
+        description: "Smooth noise — quadratically interpolates between random values at `freq` Hz.",
+        examples: &["6 noiseq 0.3 * out", "5 noiseq 300 * 500 + sine 0.2 * out"],
+        arity: Arity::Fixed(1),
+        inputs: &[InputDescriptor {
+            name: "freq",
+            unit: Unit::Hz,
+            range: (0.0, 20_000.0),
+            default: 8.0,
+        }],
+        outputs: 1,
+        state_slots: 5,
+        buffer_len: 0,
+        cost: 12,
+        tick: tick_noiseq,
     },
     // rand ( lo hi -- sig )   state: [counter]   uniform draw, constant per instance: the counter
     // is read but never advanced, so the value holds for the note's whole life.
@@ -321,6 +340,7 @@ pub(crate) fn seed_slot(name: &str) -> Option<u8> {
         "brown" | "coin" => Some(1),
         "noiseh" => Some(2),
         "noisei" | "trand" | "texprand" | "tchoose" => Some(3),
+        "noiseq" => Some(4),
         "pink" => Some(7),
         _ => None,
     }
@@ -468,6 +488,30 @@ fn tick_noisei(ctx: &mut TickCtx, out: &mut [f32]) {
     ctx.state[2] = next;
     ctx.state[3] = (if wrapped { next_counter } else { counter }) as f32;
     out[0] = prev + frac * (next - prev);
+}
+
+fn tick_noiseq(ctx: &mut TickCtx, out: &mut [f32]) {
+    // Like `noisei`, but a three-point quadratic B-spline instead of a line, so the wander is
+    // C1-continuous (no slope kinks at the nodes). On a wrap the window slides a←b, b←c, and a
+    // fresh draw enters c; otherwise all three hold. The blend weights at f = wrap01(phase) are
+    // a partition of unity, non-negative on [0, 1], so the output is a convex mix of the three
+    // draws and stays inside [-1, 1). Starts at 0 until the pipeline fills.
+    let counter = ctx.state[4] as u32;
+    let next_counter = advance_counter(counter);
+    let draw = noise_sample(next_counter);
+    let phase = ctx.state[0] + ctx.inputs[0].max(0.0) / ctx.sr;
+    let wrapped = phase >= 1.0;
+    let a = if wrapped { ctx.state[2] } else { ctx.state[1] };
+    let b = if wrapped { ctx.state[3] } else { ctx.state[2] };
+    let c = if wrapped { draw } else { ctx.state[3] };
+    let f = wrap01(phase);
+    ctx.state[0] = f;
+    ctx.state[1] = a;
+    ctx.state[2] = b;
+    ctx.state[3] = c;
+    ctx.state[4] = (if wrapped { next_counter } else { counter }) as f32;
+    let om = 1.0 - f;
+    out[0] = 0.5 * om * om * a + (0.5 + f - f * f) * b + 0.5 * f * f * c;
 }
 
 /// The unit draw every random-value source maps from: the counter's white sample folded

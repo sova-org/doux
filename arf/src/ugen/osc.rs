@@ -1,4 +1,4 @@
-//! Oscillators: `sine` (a pure partial), plus the band-limited `saw`, `pulse` (variable
+//! Oscillators: `sine` (a pure partial) and its feedback twin `sinefb`, plus the band-limited `saw`, `pulse` (variable
 //! `width`), `tri`, `varsaw` (saw↔triangle morph), and `blip` (impulse train). Each holds its
 //! phase in `[0, 1)` in one state slot; the edge/corner shapes add a polyBLEP/polyBLAMP residual
 //! ([`poly_blep`] for value steps, [`poly_blamp`] for slope corners) to the naive waveform to
@@ -32,6 +32,36 @@ pub(super) static UGENS: &[UGen] = &[
         buffer_len: 0,
         cost: 12,
         tick: tick_sine,
+    },
+    // sinefb ( freq fb -- sig )   state: [phase 0..1, prev]   phase-feedback sine (SC SinOscFB)
+    UGen {
+        name: "sinefb",
+        category: Category::Oscillator,
+        description: "Feedback sine — the previous sample bends the phase; `fb` 0 (pure) … π (noise) (SC SinOscFB).",
+        examples: &[
+            "220 1 sinefb 0.2 * out",
+            "110  0.5 phasor 3 *  sinefb 0.2 * out",
+        ],
+        arity: Arity::Fixed(2),
+        inputs: &[
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 440.0,
+            },
+            InputDescriptor {
+                name: "fb",
+                unit: Unit::Ratio,
+                range: (0.0, 3.14),
+                default: 0.0,
+            },
+        ],
+        outputs: 1,
+        state_slots: 2,
+        buffer_len: 0,
+        cost: 14,
+        tick: tick_sinefb,
     },
     // saw  ( freq -- sig )   state: [phase 0..1]
     UGen {
@@ -200,6 +230,18 @@ fn poly_blamp(t: f32, dt: f32) -> f32 {
 fn tick_sine(ctx: &mut TickCtx, out: &mut [f32]) {
     let p = ctx.state[0];
     out[0] = sinf(p * TAU);
+    ctx.state[0] = wrap01(p + ctx.inputs[0] / ctx.sr);
+}
+
+// Not `.clamp()`: `.max().min()` suppresses a NaN `fb` to a bound (`clamp` propagates it), so a
+// NaN can never latch through the feedback path and silence the voice (pan2's convention).
+#[allow(clippy::manual_clamp)]
+fn tick_sinefb(ctx: &mut TickCtx, out: &mut [f32]) {
+    let p = ctx.state[0];
+    let fb = ctx.inputs[1].max(0.0).min(3.14); // phase feedback in radians, 0 = pure sine
+    let y = sinf(p * TAU + fb * ctx.state[1]);
+    out[0] = y;
+    ctx.state[1] = y; // this sample bends the next sample's phase
     ctx.state[0] = wrap01(p + ctx.inputs[0] / ctx.sr);
 }
 
