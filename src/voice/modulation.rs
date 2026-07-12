@@ -304,95 +304,124 @@ fn interpolate(from: f32, to: f32, t: f32, curve: ModCurve) -> f32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ParamId {
-    Freq,
-    Gain,
-    Postgain,
-    Pan,
-    Speed,
-    Stretch,
-    Detune,
-    Pw,
-    Wave,
-    Sub,
-    Harmonics,
-    Timbre,
-    Morph,
-    Scan,
-    Lpf,
-    Lpq,
-    Hpf,
-    Hpq,
-    Bpf,
-    Bpq,
-    Slpf,
-    Slpq,
-    Shpf,
-    Shpq,
-    Sbpf,
-    Sbpq,
-    Llpf,
-    Llpq,
-    Lhpf,
-    Lhpq,
-    Lbpf,
-    Lbpq,
-    Fm,
-    Fmh,
-    Fm2,
-    Fm2h,
-    Fmpivot,
-    Fmfb,
-    Fmloop,
-    Am,
-    Amdepth,
-    Rm,
-    Rmdepth,
-    Vib,
-    Vibmod,
-    Phaser,
-    Phaserdepth,
-    Phasersweep,
-    Phasercenter,
-    Flanger,
-    Flangerdepth,
-    Flangerfeedback,
-    Fshift,
-    Pshift,
-    Pshiftwin,
-    Smear,
-    Smearfreq,
-    Smearfb,
-    Chorus,
-    Chorusdepth,
-    Chorusdelay,
-    Fold,
-    Crush,
-    Coarse,
-    Distort,
-    Eqlo,
-    Eqmid,
-    Eqhi,
-    Tilt,
-    Width,
-    Haas,
-    Wrap,
-    EqLoFreq,
-    EqMidFreq,
-    EqMidQ,
-    EqHiFreq,
-    Mirror,
-    SyncRatio,
-    SyncPhase,
-    Superpan,
-    Superwidth,
-    /// A named param of the voice's arf source patch, addressed by its absolute
-    /// control lane (`PARAM_BASE + declaration index`). Rides the same ParamMod
-    /// machinery as the fixed params, so chains modulate patch lanes per sample.
-    PatchLane(u8),
+/// Single source of truth for the modulatable fixed-param surface, consumed by
+/// `ParamId`, `read_param`, `write_param`, and `param_in_stage`. Row grammar:
+///
+/// ```text
+/// Variant => [plain field | opt field = read_default] (, stage <Stage>)*;
+/// ```
+///
+/// The bracketed kind carries the backing `VoiceParams` field and, for `opt`
+/// (`Option<f32>`) params, the `unwrap_or` read default. Each `stage` tag names
+/// a [`Stage`] whose per-sample body reads the param. `Mirror` (nested
+/// `shape.mirror` + `shape_active` resync) and `PatchLane(u8)` (payload) are
+/// hand-written at every expansion site so exhaustiveness stays compiler-checked.
+///
+/// Params with no `ParamId` — wah, vinyl, spread, velocity, enum modes — cannot
+/// be modulated and are absent from this table.
+macro_rules! for_each_param {
+    ($apply:ident) => {
+        $apply! {
+            Freq            => [plain freq];
+            Gain            => [plain gain], stage PreGain;
+            Postgain        => [plain postgain], stage Vca, stage MonoStereo;
+            Pan             => [plain pan], stage Pan;
+            Speed           => [plain speed];
+            Stretch         => [plain stretch];
+            Detune          => [plain detune];
+            Pw              => [plain pw];
+            Wave            => [plain wave];
+            Sub             => [plain sub];
+            Harmonics       => [plain harmonics];
+            Timbre          => [plain timbre];
+            Morph           => [plain morph];
+            Scan            => [plain scan];
+            Lpf             => [opt lpf = 20000.0], stage Lpf;
+            Lpq             => [plain lpq], stage Lpf;
+            Hpf             => [opt hpf = 0.0], stage Hpf;
+            Hpq             => [plain hpq], stage Hpf;
+            Bpf             => [opt bpf = 1000.0], stage Bpf;
+            Bpq             => [plain bpq], stage Bpf;
+            Slpf            => [opt slpf = 20000.0], stage SteepLpf;
+            Slpq            => [plain slpq], stage SteepLpf;
+            Shpf            => [opt shpf = 0.0], stage SteepHpf;
+            Shpq            => [plain shpq], stage SteepHpf;
+            Sbpf            => [opt sbpf = 1000.0], stage SteepBpf;
+            Sbpq            => [plain sbpq], stage SteepBpf;
+            Llpf            => [opt llpf = 20000.0], stage LadderLp;
+            Llpq            => [plain llpq], stage LadderLp;
+            Lhpf            => [opt lhpf = 0.0], stage LadderHp;
+            Lhpq            => [plain lhpq], stage LadderHp;
+            Lbpf            => [opt lbpf = 1000.0], stage LadderBp;
+            Lbpq            => [plain lbpq], stage LadderBp;
+            Fm              => [plain fm];
+            Fmh             => [plain fmh];
+            Fm2             => [plain fm2];
+            Fm2h            => [plain fm2h];
+            Fmpivot         => [plain fmpivot];
+            Fmfb            => [plain fmfb];
+            Fmloop          => [plain fmloop];
+            Am              => [plain am], stage Am;
+            Amdepth         => [plain amdepth], stage Am;
+            Rm              => [plain rm], stage Rm;
+            Rmdepth         => [plain rmdepth], stage Rm;
+            Vib             => [plain vib];
+            Vibmod          => [plain vibmod];
+            Phaser          => [plain phaser], stage Phaser;
+            Phaserdepth     => [plain phaserdepth], stage Phaser;
+            Phasersweep     => [plain phasersweep], stage Phaser;
+            Phasercenter    => [plain phasercenter], stage Phaser;
+            Flanger         => [plain flanger], stage Flanger;
+            Flangerdepth    => [plain flangerdepth], stage Flanger;
+            Flangerfeedback => [plain flangerfeedback], stage Flanger;
+            Fshift          => [plain fshift], stage FreqShift;
+            Pshift          => [plain pshift], stage PitchShift;
+            Pshiftwin       => [plain pshiftwin], stage PitchShift;
+            Smear           => [plain smear], stage Smear;
+            Smearfreq       => [plain smearfreq], stage Smear;
+            Smearfb         => [plain smearfb], stage Smear;
+            Chorus          => [plain chorus], stage Chorus;
+            Chorusdepth     => [plain chorusdepth], stage Chorus;
+            Chorusdelay     => [plain chorusdelay], stage Chorus;
+            Fold            => [opt fold = 0.0], stage Fold;
+            Crush           => [opt crush = 0.0], stage Crush;
+            Coarse          => [opt coarse = 0.0], stage Coarse;
+            Distort         => [opt distort = 0.0], stage Distort;
+            Eqlo            => [plain eqlo], stage Eq;
+            Eqmid           => [plain eqmid], stage Eq;
+            Eqhi            => [plain eqhi], stage Eq;
+            Tilt            => [plain tilt], stage Tilt;
+            Width           => [plain width], stage Width;
+            Haas            => [plain haas], stage Haas;
+            Wrap            => [opt wrap = 0.0], stage Wrap;
+            EqLoFreq        => [plain eqlofreq], stage Eq;
+            EqMidFreq       => [plain eqmidfreq], stage Eq;
+            EqMidQ          => [plain eqmidq], stage Eq;
+            EqHiFreq        => [plain eqhifreq], stage Eq;
+            SyncRatio       => [plain sync_ratio];
+            SyncPhase       => [plain sync_phase];
+            Superpan        => [opt superpan = 0.0];
+            Superwidth      => [plain superwidth];
+        }
+    };
 }
+pub(crate) use for_each_param;
+
+macro_rules! define_param_ids {
+    ($($v:ident => [$($kind:tt)*] $(, stage $s:ident)* ;)*) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(u8)]
+        pub enum ParamId {
+            $($v,)*
+            Mirror,
+            /// A named param of the voice's arf source patch, addressed by its absolute
+            /// control lane (`PARAM_BASE + declaration index`). Rides the same ParamMod
+            /// machinery as the fixed params, so chains modulate patch lanes per sample.
+            PatchLane(u8),
+        }
+    };
+}
+for_each_param!(define_param_ids);
 
 #[derive(Clone, Copy)]
 pub struct ParamMod {

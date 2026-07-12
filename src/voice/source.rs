@@ -8,7 +8,7 @@ use crate::dsp::{exp2f, log2f};
 use crate::dsp::{PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
-use crate::types::{Source, SubWave, SyncMode, CHANNELS};
+use crate::types::{Source, SourceCategory, SubWave, SyncMode, CHANNELS};
 
 use super::Voice;
 
@@ -322,7 +322,13 @@ impl Voice {
             Source::Arf => self.run_arf_block(n, isr),
             _ => {
                 self.nch = 1;
-                let spread = self.params.spread;
+                // Spread superposes phase-driven oscillators via `osc_at`; noise
+                // has no phase, so it falls through to the single-osc path.
+                let spread = if matches!(self.params.sound.info().category, SourceCategory::Noise) {
+                    0.0
+                } else {
+                    self.params.spread
+                };
                 if spread > 0.0 {
                     for i in 0..n {
                         let freq = self.tick_pre(isr, i);
@@ -524,7 +530,13 @@ impl Voice {
             Source::Arf => self.run_arf_block(n, isr),
             _ => {
                 self.nch = 1;
-                let spread = self.params.spread;
+                // Spread superposes phase-driven oscillators via `osc_at`; noise
+                // has no phase, so it falls through to the single-osc path.
+                let spread = if matches!(self.params.sound.info().category, SourceCategory::Noise) {
+                    0.0
+                } else {
+                    self.params.spread
+                };
                 if spread > 0.0 {
                     for i in 0..n {
                         let freq = self.tick_pre(isr, i);

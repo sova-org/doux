@@ -7,6 +7,7 @@ mod pluck;
 mod source;
 
 pub use modulation::{ModChain, ParamId, ParamMod};
+use modulation::for_each_param;
 pub use params::VoiceParams;
 use pluck::PluckState;
 
@@ -91,6 +92,18 @@ pub(crate) enum Stage {
 /// filter stages are NOT mutually exclusive), 35 stages today; allocated
 /// inline on `Voice`.
 pub(crate) const MAX_STAGES: usize = 40;
+
+/// True iff `stage`'s per-sample body reads `id`, per the `stage` tags of the
+/// [`for_each_param`] table. `Mirror` and `PatchLane` carry no stage tag and so
+/// fall through to `false`.
+fn param_in_stage(id: ParamId, stage: Stage) -> bool {
+    macro_rules! stage_pairs {
+        ($($v:ident => [$($kind:tt)*] $(, stage $s:ident)* ;)*) => {
+            matches!((id, stage), $( $( | (ParamId::$v, Stage::$s) )* )* )
+        };
+    }
+    for_each_param!(stage_pairs)
+}
 
 /// Cold FX state — pre-allocated, heap-owned via [`Voice::fx`]. Pulling it
 /// out of [`Voice`] keeps the hot-voice working set inside L1d when scanning
@@ -554,95 +567,29 @@ impl Voice {
     }
 
     fn read_param(&self, id: ParamId) -> f32 {
-        match id {
-            ParamId::Freq => self.params.freq,
-            ParamId::Gain => self.params.gain,
-            ParamId::Postgain => self.params.postgain,
-            ParamId::Pan => self.params.pan,
-            ParamId::Speed => self.params.speed,
-            ParamId::Stretch => self.params.stretch,
-            ParamId::Detune => self.params.detune,
-            ParamId::Pw => self.params.pw,
-            ParamId::Wave => self.params.wave,
-            ParamId::Sub => self.params.sub,
-            ParamId::SyncRatio => self.params.sync_ratio,
-            ParamId::SyncPhase => self.params.sync_phase,
-            ParamId::Harmonics => self.params.harmonics,
-            ParamId::Timbre => self.params.timbre,
-            ParamId::Morph => self.params.morph,
-            ParamId::Scan => self.params.scan,
-            ParamId::Mirror => self.params.shape.mirror,
-            ParamId::Lpf => self.params.lpf.unwrap_or(20000.0),
-            ParamId::Lpq => self.params.lpq,
-            ParamId::Hpf => self.params.hpf.unwrap_or(0.0),
-            ParamId::Hpq => self.params.hpq,
-            ParamId::Bpf => self.params.bpf.unwrap_or(1000.0),
-            ParamId::Bpq => self.params.bpq,
-            ParamId::Slpf => self.params.slpf.unwrap_or(20000.0),
-            ParamId::Slpq => self.params.slpq,
-            ParamId::Shpf => self.params.shpf.unwrap_or(0.0),
-            ParamId::Shpq => self.params.shpq,
-            ParamId::Sbpf => self.params.sbpf.unwrap_or(1000.0),
-            ParamId::Sbpq => self.params.sbpq,
-            ParamId::Llpf => self.params.llpf.unwrap_or(20000.0),
-            ParamId::Llpq => self.params.llpq,
-            ParamId::Lhpf => self.params.lhpf.unwrap_or(0.0),
-            ParamId::Lhpq => self.params.lhpq,
-            ParamId::Lbpf => self.params.lbpf.unwrap_or(1000.0),
-            ParamId::Lbpq => self.params.lbpq,
-            ParamId::Fm => self.params.fm,
-            ParamId::Fmh => self.params.fmh,
-            ParamId::Fm2 => self.params.fm2,
-            ParamId::Fm2h => self.params.fm2h,
-            ParamId::Fmpivot => self.params.fmpivot,
-            ParamId::Fmfb => self.params.fmfb,
-            ParamId::Fmloop => self.params.fmloop,
-            ParamId::Am => self.params.am,
-            ParamId::Amdepth => self.params.amdepth,
-            ParamId::Rm => self.params.rm,
-            ParamId::Rmdepth => self.params.rmdepth,
-            ParamId::Vib => self.params.vib,
-            ParamId::Vibmod => self.params.vibmod,
-            ParamId::Phaser => self.params.phaser,
-            ParamId::Phaserdepth => self.params.phaserdepth,
-            ParamId::Phasersweep => self.params.phasersweep,
-            ParamId::Phasercenter => self.params.phasercenter,
-            ParamId::Flanger => self.params.flanger,
-            ParamId::Flangerdepth => self.params.flangerdepth,
-            ParamId::Flangerfeedback => self.params.flangerfeedback,
-            ParamId::Fshift => self.params.fshift,
-            ParamId::Pshift => self.params.pshift,
-            ParamId::Pshiftwin => self.params.pshiftwin,
-            ParamId::Smear => self.params.smear,
-            ParamId::Smearfreq => self.params.smearfreq,
-            ParamId::Smearfb => self.params.smearfb,
-            ParamId::Chorus => self.params.chorus,
-            ParamId::Chorusdepth => self.params.chorusdepth,
-            ParamId::Chorusdelay => self.params.chorusdelay,
-            ParamId::Fold => self.params.fold.unwrap_or(0.0),
-            ParamId::Crush => self.params.crush.unwrap_or(0.0),
-            ParamId::Coarse => self.params.coarse.unwrap_or(0.0),
-            ParamId::Distort => self.params.distort.unwrap_or(0.0),
-            ParamId::Wrap => self.params.wrap.unwrap_or(0.0),
-            ParamId::Eqlo => self.params.eqlo,
-            ParamId::Eqmid => self.params.eqmid,
-            ParamId::Eqhi => self.params.eqhi,
-            ParamId::Tilt => self.params.tilt,
-            ParamId::Width => self.params.width,
-            ParamId::Haas => self.params.haas,
-            ParamId::EqLoFreq => self.params.eqlofreq,
-            ParamId::EqMidFreq => self.params.eqmidfreq,
-            ParamId::EqMidQ => self.params.eqmidq,
-            ParamId::EqHiFreq => self.params.eqhifreq,
-            ParamId::Superpan => self.params.superpan.unwrap_or(0.0),
-            ParamId::Superwidth => self.params.superwidth,
-            // The current lane value: the declared default until something writes
-            // it (VoicePatch::new fills defaults), 0.0 with no source patch.
-            ParamId::PatchLane(lane) => self
-                .patch
-                .as_ref()
-                .map_or(0.0, |p| p.control[lane as usize]),
+        macro_rules! read_field {
+            (plain $f:ident, $recv:expr) => {
+                $recv.$f
+            };
+            (opt $f:ident = $d:expr, $recv:expr) => {
+                $recv.$f.unwrap_or($d)
+            };
         }
+        macro_rules! read_arms {
+            ($($v:ident => [$($kind:tt)*] $(, stage $s:ident)* ;)*) => {
+                match id {
+                    $(ParamId::$v => read_field!($($kind)* , self.params),)*
+                    ParamId::Mirror => self.params.shape.mirror,
+                    // The current lane value: the declared default until something writes
+                    // it (VoicePatch::new fills defaults), 0.0 with no source patch.
+                    ParamId::PatchLane(lane) => self
+                        .patch
+                        .as_ref()
+                        .map_or(0.0, |p| p.control[lane as usize]),
+                }
+            };
+        }
+        for_each_param!(read_arms)
     }
 
     /// True if any active `ParamMod` targets `id` (the stage's gate param).
@@ -656,53 +603,11 @@ impl Voice {
         false
     }
 
-    /// True if any active `ParamMod` targets a param `stage` consumes. The
-    /// per-stage lists mirror the `self.params.*` reads in [`Voice::tick_stage`]
-    /// / [`Voice::tick_stage_block`]; params without a `ParamId` (wah, vinyl,
-    /// spread, velocity, enum modes) cannot be modulated and are omitted.
+    /// True if any active `ParamMod` targets a param `stage` consumes, per the
+    /// `param_in_stage` table.
     fn stage_uses_modded_param(&self, stage: Stage) -> bool {
-        use ParamId as P;
-        let ids: &[ParamId] = match stage {
-            Stage::PreGain => &[P::Gain],
-            Stage::Lpf => &[P::Lpf, P::Lpq],
-            Stage::Hpf => &[P::Hpf, P::Hpq],
-            Stage::Bpf => &[P::Bpf, P::Bpq],
-            Stage::SteepLpf => &[P::Slpf, P::Slpq],
-            Stage::SteepHpf => &[P::Shpf, P::Shpq],
-            Stage::SteepBpf => &[P::Sbpf, P::Sbpq],
-            Stage::LadderLp => &[P::Llpf, P::Llpq],
-            Stage::LadderHp => &[P::Lhpf, P::Lhpq],
-            Stage::LadderBp => &[P::Lbpf, P::Lbpq],
-            Stage::Wah | Stage::DcBlock | Stage::Vinyl | Stage::FxPatch | Stage::Trim => &[],
-            Stage::Coarse => &[P::Coarse],
-            Stage::Crush => &[P::Crush],
-            Stage::Fold => &[P::Fold],
-            Stage::Wrap => &[P::Wrap],
-            Stage::Distort => &[P::Distort],
-            Stage::Am => &[P::Am, P::Amdepth],
-            Stage::Rm => &[P::Rm, P::Rmdepth],
-            Stage::Phaser => &[P::Phaser, P::Phaserdepth, P::Phasersweep, P::Phasercenter],
-            Stage::Flanger => &[P::Flanger, P::Flangerdepth, P::Flangerfeedback],
-            Stage::FreqShift => &[P::Fshift],
-            Stage::PitchShift => &[P::Pshift, P::Pshiftwin],
-            Stage::Eq => &[
-                P::Eqlo,
-                P::Eqmid,
-                P::Eqhi,
-                P::EqLoFreq,
-                P::EqMidFreq,
-                P::EqMidQ,
-                P::EqHiFreq,
-            ],
-            Stage::Tilt => &[P::Tilt],
-            Stage::Smear => &[P::Smear, P::Smearfreq, P::Smearfb],
-            Stage::Vca | Stage::MonoStereo => &[P::Postgain],
-            Stage::Chorus => &[P::Chorus, P::Chorusdepth, P::Chorusdelay],
-            Stage::Width => &[P::Width],
-            Stage::Haas => &[P::Haas],
-            Stage::Pan => &[P::Pan],
-        };
-        ids.iter().any(|&id| self.mod_targets(id))
+        (0..self.param_mod_count as usize)
+            .any(|k| param_in_stage(self.param_mods[k].0, stage))
     }
 
     /// Build the per-block stage program: a packed list of exactly the
@@ -1800,97 +1705,31 @@ impl Voice {
     }
 
     fn write_param(&mut self, id: ParamId, val: f32) {
-        match id {
-            ParamId::Freq => self.params.freq = val,
-            ParamId::Gain => self.params.gain = val,
-            ParamId::Postgain => self.params.postgain = val,
-            ParamId::Pan => self.params.pan = val,
-            ParamId::Speed => self.params.speed = val,
-            ParamId::Stretch => self.params.stretch = val,
-            ParamId::Detune => self.params.detune = val,
-            ParamId::Pw => self.params.pw = val,
-            ParamId::Wave => self.params.wave = val,
-            ParamId::Sub => self.params.sub = val,
-            ParamId::SyncRatio => self.params.sync_ratio = val,
-            ParamId::SyncPhase => self.params.sync_phase = val,
-            ParamId::Harmonics => self.params.harmonics = val,
-            ParamId::Timbre => self.params.timbre = val,
-            ParamId::Morph => self.params.morph = val,
-            ParamId::Scan => self.params.scan = val,
-            ParamId::Mirror => {
-                self.params.shape.mirror = val;
-                self.shape_active = self.params.shape.is_active();
-            }
-            ParamId::Lpf => self.params.lpf = Some(val),
-            ParamId::Lpq => self.params.lpq = val,
-            ParamId::Hpf => self.params.hpf = Some(val),
-            ParamId::Hpq => self.params.hpq = val,
-            ParamId::Bpf => self.params.bpf = Some(val),
-            ParamId::Bpq => self.params.bpq = val,
-            ParamId::Slpf => self.params.slpf = Some(val),
-            ParamId::Slpq => self.params.slpq = val,
-            ParamId::Shpf => self.params.shpf = Some(val),
-            ParamId::Shpq => self.params.shpq = val,
-            ParamId::Sbpf => self.params.sbpf = Some(val),
-            ParamId::Sbpq => self.params.sbpq = val,
-            ParamId::Llpf => self.params.llpf = Some(val),
-            ParamId::Llpq => self.params.llpq = val,
-            ParamId::Lhpf => self.params.lhpf = Some(val),
-            ParamId::Lhpq => self.params.lhpq = val,
-            ParamId::Lbpf => self.params.lbpf = Some(val),
-            ParamId::Lbpq => self.params.lbpq = val,
-            ParamId::Fm => self.params.fm = val,
-            ParamId::Fmh => self.params.fmh = val,
-            ParamId::Fm2 => self.params.fm2 = val,
-            ParamId::Fm2h => self.params.fm2h = val,
-            ParamId::Fmpivot => self.params.fmpivot = val,
-            ParamId::Fmfb => self.params.fmfb = val,
-            ParamId::Fmloop => self.params.fmloop = val,
-            ParamId::Am => self.params.am = val,
-            ParamId::Amdepth => self.params.amdepth = val,
-            ParamId::Rm => self.params.rm = val,
-            ParamId::Rmdepth => self.params.rmdepth = val,
-            ParamId::Vib => self.params.vib = val,
-            ParamId::Vibmod => self.params.vibmod = val,
-            ParamId::Phaser => self.params.phaser = val,
-            ParamId::Phaserdepth => self.params.phaserdepth = val,
-            ParamId::Phasersweep => self.params.phasersweep = val,
-            ParamId::Phasercenter => self.params.phasercenter = val,
-            ParamId::Flanger => self.params.flanger = val,
-            ParamId::Flangerdepth => self.params.flangerdepth = val,
-            ParamId::Flangerfeedback => self.params.flangerfeedback = val,
-            ParamId::Fshift => self.params.fshift = val,
-            ParamId::Pshift => self.params.pshift = val,
-            ParamId::Pshiftwin => self.params.pshiftwin = val,
-            ParamId::Smear => self.params.smear = val,
-            ParamId::Smearfreq => self.params.smearfreq = val,
-            ParamId::Smearfb => self.params.smearfb = val,
-            ParamId::Chorus => self.params.chorus = val,
-            ParamId::Chorusdepth => self.params.chorusdepth = val,
-            ParamId::Chorusdelay => self.params.chorusdelay = val,
-            ParamId::Fold => self.params.fold = Some(val),
-            ParamId::Crush => self.params.crush = Some(val),
-            ParamId::Coarse => self.params.coarse = Some(val),
-            ParamId::Distort => self.params.distort = Some(val),
-            ParamId::Wrap => self.params.wrap = Some(val),
-            ParamId::Eqlo => self.params.eqlo = val,
-            ParamId::Eqmid => self.params.eqmid = val,
-            ParamId::Eqhi => self.params.eqhi = val,
-            ParamId::Tilt => self.params.tilt = val,
-            ParamId::Width => self.params.width = val,
-            ParamId::Haas => self.params.haas = val,
-            ParamId::EqLoFreq => self.params.eqlofreq = val,
-            ParamId::EqMidFreq => self.params.eqmidfreq = val,
-            ParamId::EqMidQ => self.params.eqmidq = val,
-            ParamId::EqHiFreq => self.params.eqhifreq = val,
-            ParamId::Superpan => self.params.superpan = Some(val),
-            ParamId::Superwidth => self.params.superwidth = val,
-            ParamId::PatchLane(lane) => {
-                if let Some(p) = self.patch.as_mut() {
-                    p.control[lane as usize] = val;
-                }
-            }
+        macro_rules! write_field {
+            (plain $f:ident, $recv:expr, $val:expr) => {
+                $recv.$f = $val
+            };
+            (opt $f:ident = $d:expr, $recv:expr, $val:expr) => {
+                $recv.$f = Some($val)
+            };
         }
+        macro_rules! write_arms {
+            ($($v:ident => [$($kind:tt)*] $(, stage $s:ident)* ;)*) => {
+                match id {
+                    $(ParamId::$v => write_field!($($kind)* , self.params, val),)*
+                    ParamId::Mirror => {
+                        self.params.shape.mirror = val;
+                        self.shape_active = self.params.shape.is_active();
+                    }
+                    ParamId::PatchLane(lane) => {
+                        if let Some(p) = self.patch.as_mut() {
+                            p.control[lane as usize] = val;
+                        }
+                    }
+                }
+            };
+        }
+        for_each_param!(write_arms)
     }
 
     /// Per-sample carrier frequency: takes the pre-vib carrier (detune ×

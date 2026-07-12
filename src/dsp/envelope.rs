@@ -126,6 +126,11 @@ impl Dahdsr {
         matches!(self.state, DahdsrState::Release)
     }
 
+    #[inline]
+    pub(crate) fn state(&self) -> DahdsrState {
+        self.state
+    }
+
     /// Start the envelope. `gate` is the total time before release (0.0 = infinite).
     pub fn trigger(&mut self, gate: f32) {
         self.gate_time = gate;

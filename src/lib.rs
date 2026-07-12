@@ -60,7 +60,7 @@ pub enum AudioCmd {
     Panic,
 }
 
-use dsp::{fast_tanh_f32, ftz, init_envelope};
+use dsp::{fast_tanh_f32, ftz, init_envelope, DahdsrState};
 use event::{Event, PatchParamValue};
 
 use orbit::Orbit;
@@ -316,6 +316,17 @@ fn now_unix_micros() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
+}
+
+/// Steal preference class: releasing or dead voices first, established
+/// (post-attack) voices next, still-attacking voices last — a burst at the
+/// ceiling must not eat its own newest notes while a release tail survives.
+fn steal_class(v: &Voice) -> u8 {
+    match v.dahdsr.state() {
+        DahdsrState::Off | DahdsrState::Release => 0,
+        DahdsrState::Decay | DahdsrState::Sustain => 1,
+        DahdsrState::Delay | DahdsrState::Attack | DahdsrState::Hold => 2,
+    }
 }
 
 impl Engine {
@@ -864,17 +875,22 @@ impl Engine {
         Some(i)
     }
 
-    /// The slot of the voice nearest silence (minimum envelope value) — the
-    /// steal victim when a `New` event arrives at the polyphony ceiling. Mirrors
-    /// the overload shedder's scan; the minimum envelope naturally prefers
-    /// releasing voices. Only called when `active_voices >= max_voices ≥ 1`, so
-    /// the scan is non-empty and slot 0 is a valid default.
+    /// The steal victim when a `New` event arrives at the polyphony ceiling:
+    /// a lexicographic minimum over `(steal_class(v), dahdsr.current_val)`.
+    /// The class rank (releasing/dead, then established, then still-attacking)
+    /// dominates so a burst at the ceiling never eats its own newest notes while
+    /// a release tail survives; envelope value breaks ties within a class. Only
+    /// called when `active_voices >= max_voices ≥ 1`, so the scan is non-empty
+    /// and slot 0 is a valid default.
     fn steal_voice_slot(&self) -> usize {
         let mut min_idx = 0;
+        let mut min_class = u8::MAX;
         let mut min_val = f32::MAX;
         for i in 0..self.active_voices {
+            let class = steal_class(&self.voices[i]);
             let val = self.voices[i].dahdsr.current_val;
-            if val < min_val {
+            if class < min_class || (class == min_class && val < min_val) {
+                min_class = class;
                 min_val = val;
                 min_idx = i;
             }
