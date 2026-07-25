@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "svf"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn SvfDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ct 1 -cn SvfDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct SvfDsp {
@@ -18,6 +18,9 @@ pub struct SvfDsp {
 }
 
 pub type FaustFloat = F32;
+fn SvfDsp_faustpower2_f(value: F32) -> F32 {
+	return value * value;
+}
 fn remainder_f32(from: f32, to: f32) -> f32 {
 	from - to * (from / to).round_ties_even()
 }
@@ -47,14 +50,8 @@ impl SvfDsp {
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn SvfDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ct 1 -cn SvfDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("filename", r"svf.dsp");
-		m.declare("filters.lib/lowpass0_highpass1", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
-		m.declare("filters.lib/name", r"Faust Filters Library");
-		m.declare("filters.lib/svf:author", r"Oleg Nesterov");
-		m.declare("filters.lib/svf:copyright", r"Copyright (C) 2020 Oleg Nesterov <oleg@redhat.com>");
-		m.declare("filters.lib/svf:license", r"MIT-style STK-4.3 license");
-		m.declare("filters.lib/version", r"1.7.1");
 		m.declare("maths.lib/author", r"GRAME");
 		m.declare("maths.lib/copyright", r"GRAME");
 		m.declare("maths.lib/license", r"LGPL with exception");
@@ -63,8 +60,6 @@ impl SvfDsp {
 		m.declare("name", r"svf");
 		m.declare("platform.lib/name", r"Generic Platform Library");
 		m.declare("platform.lib/version", r"1.3.0");
-		m.declare("routes.lib/name", r"Faust Signal Routing Library");
-		m.declare("routes.lib/version", r"1.2.0");
 		m.declare("signals.lib/name", r"Faust Signal Routing Library");
 		m.declare("signals.lib/version", r"1.6.0");
 	}
@@ -150,21 +145,29 @@ impl SvfDsp {
 		let mut iSlow1: i32 = (iSlow0 == 0) as i32;
 		let mut iSlow2: i32 = (iSlow0 == 1) as i32;
 		let mut fSlow3: F32 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider1, self.fConst2)));
-		let mut fSlow4: F32 = 1.0 / (3e+01 * F32::max(0.0, F32::min(1.0, self.fHslider2)) + 0.5);
-		let mut fSlow5: F32 = fSlow3 * (fSlow3 + fSlow4) + 1.0;
-		let mut fSlow6: F32 = 2.0 / fSlow5;
-		let mut fSlow7: F32 = fSlow3 / fSlow5;
-		let mut fSlow8: F32 = 1.0 / fSlow5;
+		let mut fSlow4: F32 = F32::max(0.0, F32::min(1.0, self.fHslider2));
+		let mut fSlow5: F32 = 1.0 / (29.5 * SvfDsp_faustpower2_f(fSlow4) * F32::sqrt(fSlow4) + 0.5);
+		let mut fSlow6: F32 = fSlow3 * (fSlow5 + fSlow3) + 1.0;
+		let mut fSlow7: F32 = 1.0 / fSlow6;
+		let mut fSlow8: F32 = 1.0 - 0.5 * fSlow4;
+		let mut fSlow9: F32 = fSlow3 / fSlow6;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
-			let mut fTemp0: F32 = *input0;
+			let mut fTemp0: F32 = fSlow8 * *input0;
 			let mut fTemp1: F32 = self.fRec0[1] + fSlow3 * (fTemp0 - self.fRec1[1]);
-			self.fRec0[0] = fSlow6 * fTemp1 - self.fRec0[1];
-			let mut fTemp2: F32 = self.fRec1[1] + fSlow7 * fTemp1;
-			self.fRec1[0] = 2.0 * fTemp2 - self.fRec1[1];
-			let mut fRec2: F32 = fSlow8 * fTemp1;
-			let mut fRec3: F32 = fTemp2;
-			*output0 = (if iSlow1 != 0 {fRec3} else {(if iSlow2 != 0 {fTemp0 - (fRec3 + fSlow4 * fRec2)} else {fRec2})});
+			let mut fTemp2: F32 = F32::max(-3.0, F32::min(3.0, fSlow7 * fTemp1));
+			let mut fTemp3: F32 = SvfDsp_faustpower2_f(fTemp2);
+			let mut fTemp4: F32 = fTemp2 * (fTemp3 + 27.0) / (9.0 * fTemp3 + 27.0);
+			let mut fTemp5: F32 = 2.0 * fTemp4 - self.fRec0[1];
+			self.fRec0[0] = (if (F32::abs(fTemp5) > 1.1754944e-38) as i32 != 0 {fTemp5} else {0.0});
+			let mut fTemp6: F32 = self.fRec1[1] + fSlow9 * fTemp1;
+			let mut fTemp7: F32 = 2.0 * fTemp6 - self.fRec1[1];
+			self.fRec1[0] = (if (F32::abs(fTemp7) > 1.1754944e-38) as i32 != 0 {fTemp7} else {0.0});
+			let mut fRec2: F32 = (if (F32::abs(fTemp6) > 1.1754944e-38) as i32 != 0 {fTemp6} else {0.0});
+			let mut fTemp8: F32 = fTemp0 - (fTemp6 + fSlow5 * fTemp4);
+			let mut fRec3: F32 = (if (F32::abs(fTemp8) > 1.1754944e-38) as i32 != 0 {fTemp8} else {0.0});
+			let mut fRec4: F32 = (if (F32::abs(fTemp4) > 1.1754944e-38) as i32 != 0 {fTemp4} else {0.0});
+			*output0 = (if iSlow1 != 0 {fRec2} else {(if iSlow2 != 0 {fRec3} else {fRec4})});
 			self.fRec0[1] = self.fRec0[0];
 			self.fRec1[1] = self.fRec1[0];
 		}

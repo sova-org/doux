@@ -1296,14 +1296,15 @@ impl Voice {
                 }
             }
             Stage::Pan => {
-                if self.params.pan != 0.5 {
-                    let pan_pos = self.params.pan * PI / 2.0;
-                    let l = cosf(pan_pos);
-                    let r = sinf(pan_pos);
-                    for i in 0..n {
-                        self.scratch[i][0] *= l;
-                        self.scratch[i][1] *= r;
-                    }
+                // Applied unconditionally: skipping it at pan == 0.5 left centre
+                // 3 dB above every other position, a cliff between two adjacent
+                // float values that a modulated pan crosses as a step.
+                let pan_pos = self.params.pan * PI / 2.0;
+                let l = cosf(pan_pos);
+                let r = sinf(pan_pos);
+                for i in 0..n {
+                    self.scratch[i][0] *= l;
+                    self.scratch[i][1] *= r;
                 }
             }
             Stage::Trim => {
@@ -1660,13 +1661,11 @@ impl Voice {
                 }
             }
             Stage::Pan => {
-                if self.params.pan != 0.5 {
-                    let pan_pos = self.params.pan * PI / 2.0;
-                    let l = cosf(pan_pos);
-                    let r = sinf(pan_pos);
-                    self.scratch[i][0] *= l;
-                    self.scratch[i][1] *= r;
-                }
+                let pan_pos = self.params.pan * PI / 2.0;
+                let l = cosf(pan_pos);
+                let r = sinf(pan_pos);
+                self.scratch[i][0] *= l;
+                self.scratch[i][1] *= r;
             }
             Stage::Trim => {
                 for c in 0..CHANNELS {

@@ -207,11 +207,12 @@ pub(super) static UGENS: &[UGen] = &[
         cost: 14,
         tick: tick_exprand,
     },
-    // logrand ( lo hi -- sig )   state: [counter]   per-note draw, exponential bias toward hi
+    // logrand ( lo hi -- sig )   state: [counter]   per-note draw, exponential bias toward hi:
+    // exprand's curve reflected about the midpoint of [lo, hi]
     UGen {
         name: "logrand",
         category: Category::Noise,
-        description: "Random constant, biased high — hi·(lo/hi)^u, held for the note; args must be positive.",
+        description: "Random constant, biased high — lo+hi-lo·(hi/lo)^u, held for the note; args must be positive.",
         examples: &["200 4000 logrand sine 0.2 * out"],
         arity: Arity::Fixed(2),
         inputs: &[signal("lo"), signal("hi")],
@@ -552,6 +553,9 @@ fn tick_exprand(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = ctx.state[3];
 }
 
+// The high-biased twin has to mirror exprand in linear space. Reading the same log-uniform
+// draw from the other end, hi·(lo/hi)^u, only mirrors the value for a given seed: the
+// distribution stays identical to exprand's and still piles up near lo.
 fn tick_logrand(ctx: &mut TickCtx, out: &mut [f32]) {
     let lo = positive(ctx.inputs[0]);
     let hi = positive(ctx.inputs[1]);
@@ -559,7 +563,7 @@ fn tick_logrand(ctx: &mut TickCtx, out: &mut [f32]) {
         let u = unit_draw(ctx.state[0] as u32);
         ctx.state[1] = lo;
         ctx.state[2] = hi;
-        ctx.state[3] = hi * powf(lo / hi, u);
+        ctx.state[3] = lo + hi - lo * powf(hi / lo, u);
     }
     out[0] = ctx.state[3];
 }
