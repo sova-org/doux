@@ -532,7 +532,9 @@ impl Event {
                 "distort" => parse_param!(val, distort, ParamId::Distort),
                 "distortvol" => event.distortvol = Self::num(val),
                 "distortmode" | "dmode" => event.distortmode = val.parse().ok(),
-                "distortasym" | "dasym" => event.distortasym = Self::num(val),
+                "distortasym" | "dasym" => {
+                    parse_param!(val, distortasym, ParamId::Distortasym)
+                }
                 "foldmode" | "fmode" => event.foldmode = val.parse().ok(),
                 "width" => parse_param!(val, width, ParamId::Width),
                 "haas" => parse_param!(val, haas, ParamId::Haas),

@@ -387,6 +387,7 @@ macro_rules! for_each_param {
             Crush           => [opt crush = 0.0], stage Crush;
             Coarse          => [opt coarse = 0.0], stage Coarse;
             Distort         => [opt distort = 0.0], stage Distort;
+            Distortasym     => [plain distortasym], stage Distort;
             Eqlo            => [plain eqlo], stage Eq;
             Eqmid           => [plain eqmid], stage Eq;
             Eqhi            => [plain eqhi], stage Eq;
