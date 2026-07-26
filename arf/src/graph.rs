@@ -72,6 +72,11 @@ pub enum Node {
     /// by the executor: the current frame's absolute position windowed into `NOW_WINDOW`. The
     /// foundation of musical time — envelopes and oscillators read it (see [`crate::ir::Op::Now`]).
     Now,
+    /// The engine's sample rate as a value. A leaf that never reaches the VM: [`crate::compile`]
+    /// folds it to a [`Node::Const`]-equivalent op, because the rate is fixed for a program's
+    /// whole life. Keeps the serialized graph rate-agnostic (the boundary a front-end writes)
+    /// while still letting a patch convert [`Node::Now`]'s sample count into seconds.
+    SampleRate,
     /// A selection of one output `port` of multi-output `source` (a UGen node). A zero-cost
     /// proxy (SuperCollider's OutputProxy): it compiles to no op, just naming the register the
     /// `source` already produces — so a generator tapped several ways stays one shared instance.
@@ -189,6 +194,12 @@ impl Graph {
     /// A node that reads the global sample clock (the executor's windowed `now`).
     pub fn now(&mut self) -> NodeId {
         self.push(Node::Now)
+    }
+
+    /// A node carrying the compile-time sample rate, for turning `now`'s sample count into
+    /// seconds without baking a rate into the patch text.
+    pub fn sample_rate(&mut self) -> NodeId {
+        self.push(Node::SampleRate)
     }
 
     /// A node selecting output `port` of multi-output `source`.
@@ -356,7 +367,7 @@ impl Graph {
                         }
                     }
                 }
-                Node::Input { .. } | Node::Control { .. } | Node::Now => {}
+                Node::Input { .. } | Node::Control { .. } | Node::Now | Node::SampleRate => {}
             }
         }
 

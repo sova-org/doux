@@ -143,9 +143,10 @@ pub struct Orbit {
     // === Param modulation (ticked once per block in `apply_mods`) ===
     param_mods: [(OrbitParamId, ParamMod); MAX_ORBIT_MODS],
     param_mod_count: u8,
-    // Previous block's send level per FX, for the per-sample send-level ramp in
+    // Previous block's level per FX, for the per-sample ramp in
     // `process_block` (de-zippers a modulated send level — the staircase that
-    // lives in the native pre-scale, outside the Faust DSP).
+    // lives in the native pre-scale, outside the Faust DSP). `prev_patch_level`
+    // ramps a dry/wet mix rather than a send, same de-zippering job.
     prev_comb_level: f32,
     prev_fb_level: f32,
     prev_delay_level: f32,
@@ -183,8 +184,8 @@ impl Orbit {
             fb_level: 0.0,
             comp: Compressor::default(),
             comp_orbit: 0,
-            // 1.0 so `patch/<name>` is audible without an explicit
-            // patchlevel; sticky thereafter like every orbit param.
+            // 1.0 so `patch/<name>` inserts fully without an explicit
+            // patchlevel, matching `fx`; sticky like every orbit param.
             patch: None,
             patch_level: 1.0,
             patch_poisoned: false,
@@ -290,7 +291,8 @@ impl Orbit {
         }
     }
 
-    /// Send levels clamp at 0 (the `set_pos!` contract in lib.rs); the rest
+    /// Send levels clamp at 0 and `PatchLevel` to the unit range (the
+    /// `set_pos!` contract in lib.rs and its patchlevel exception); the rest
     /// write raw, matching the static `set!` path — each FX clamps at
     /// consumption (e.g. delay feedback 0..0.95, time to MAX_DELAY_SAMPLES).
     fn write_param(&mut self, id: OrbitParamId, v: f32) {
@@ -323,7 +325,9 @@ impl Orbit {
             OrbitParamId::FbCross => self.fb_params.cross = v,
             OrbitParamId::CompAttack => self.comp.params.attack = v,
             OrbitParamId::CompRelease => self.comp.params.release = v,
-            OrbitParamId::PatchLevel => self.patch_level = v.max(0.0),
+            // Unit range, not just positive: patch_level is a dry/wet mix, and
+            // above 1 the `1 - lvl` dry term would phase-invert the bus.
+            OrbitParamId::PatchLevel => self.patch_level = v.clamp(0.0, 1.0),
         }
     }
 
@@ -652,14 +656,21 @@ impl Orbit {
             }
         }
 
-        // arf patch (user effect) — closes the chain so it hears the full mix
-        // including every native send's wet. Parallel send like the rest:
-        // input = bus * level (ramped per sample from the previous block's
-        // value), wet summed back onto the bus, dry always passes. An
+        // arf patch (user effect) — a serial insert, the bus twin of the
+        // per-voice `fx` stage. Closes the chain so it hears the full mix
+        // including every native send's wet, then *replaces* it: `patch_level`
+        // is a dry/wet crossfade (ramped per sample from the previous block's
+        // value so a modulated mix does not stair-step). The patch always
+        // reads the bus unscaled — a mix control that doubled as a drive
+        // control would change a nonlinear patch's character as it faded. A
+        // patch that wants its own dry reads `in` and mixes by hand. An
         // effect's control plane carries only the transport lane (patch.rs
         // contract), latched per chunk; `frame_pos` only advances while the
         // orbit is awake — `now` is windowed, arf/src/vm.rs:106.
         self.patch_poisoned = false;
+        // The crossfade ramp that actually ran, read by the room recovery below
+        // to know how much raw dry survived the insert. `None` = no patch ran.
+        let mut patch_mix: Option<(f32, f32)> = None;
         if self.patch_level > 0.0 {
             if let Some(p) = self.patch.as_mut() {
                 let level = self.patch_level;
@@ -674,9 +685,9 @@ impl Orbit {
                     // C3 input rule: stereo patch reads the bus pair, mono
                     // patch reads its downmix.
                     let input = if in_ch == 2 {
-                        [frame[0] * lvl, frame[1] * lvl]
+                        [frame[0], frame[1]]
                     } else {
-                        [(frame[0] + frame[1]) * 0.5 * lvl, 0.0]
+                        [(frame[0] + frame[1]) * 0.5, 0.0]
                     };
                     let mut out = [0.0f32; CHANNELS];
                     p.vm.tick_frame(
@@ -691,27 +702,31 @@ impl Orbit {
                     // would poison the master DC blocker. No 0.7 headroom —
                     // `{ 2 inputs out }` at patchlevel 1 must be unity.
                     bad |= crate::patch::scrub_non_finite(&mut out);
-                    let (w0, w1) = (out[0], out[1]);
-                    if width == 2 {
-                        frame[0] += w0;
-                        frame[1] += w1;
-                    } else {
-                        frame[0] += w0;
-                        frame[1] += w0;
-                    }
+                    // A mono patch collapses the pair, the same width contract
+                    // `Voice::tick_fx_patch` has for the per-voice insert.
+                    let w0 = out[0];
+                    let w1 = if width == 2 { out[1] } else { w0 };
+                    let dry = 1.0 - lvl;
+                    frame[0] = frame[0] * dry + w0 * lvl;
+                    frame[1] = frame[1] * dry + w1 * lvl;
                 }
                 self.prev_patch_level = level;
                 self.patch_poisoned = bad;
+                patch_mix = Some((prev, step));
             }
         }
 
-        // Recover wet-only for the room: bus now holds dry+wet, fx_send holds the
-        // dry that was merged in, so the difference is the FX return. (When pan
-        // dry shares a room-active orbit — misuse — it leaks here; documented.)
+        // Recover wet-only for the room: fx_send holds the dry that was merged
+        // in at the top, and the insert kept only `1 - mix` of it, so that is
+        // what has to come back out. With no patch the scale is 1 and this is
+        // the plain bus-minus-dry difference. (When pan dry shares a
+        // room-active orbit — misuse — it leaks here; documented.)
         if dedicated {
+            let (prev, step) = patch_mix.unwrap_or((0.0, 0.0));
             for f in 0..n {
-                self.fx_wet[f][0] = self.bus[f][0] - self.fx_send[f][0];
-                self.fx_wet[f][1] = self.bus[f][1] - self.fx_send[f][1];
+                let dry = 1.0 - (prev + step * (f as f32 + 1.0));
+                self.fx_wet[f][0] = self.bus[f][0] - self.fx_send[f][0] * dry;
+                self.fx_wet[f][1] = self.bus[f][1] - self.fx_send[f][1] * dry;
             }
         }
 
@@ -739,5 +754,138 @@ impl Orbit {
         } else {
             self.silent_samples = 0;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::patch::{PatchRegistry, VoicePatch};
+
+    const SR: f32 = 48_000.0;
+    const N: usize = 8;
+
+    /// The effect patch `{ in <gain> * out }`: mono, reads the bus, scales it.
+    fn gain_patch(gain: f32) -> VoicePatch {
+        let mul = arf::ugen::lookup("*").expect("* ugen");
+        let mut g = arf::graph::Graph::new();
+        let input = g.input(0);
+        let k = g.constant(gain);
+        let scaled = g.ugen(mul, vec![input, k]);
+        g.set_outputs(vec![scaled]);
+        let registry = PatchRegistry::new();
+        registry
+            .install("gain", arf::compile::compile(&g, SR))
+            .expect("install");
+        let entry = registry.get("gain").expect("installed entry");
+        let vm = entry.take_vm().expect("pooled vm");
+        VoicePatch::new(entry, vm)
+    }
+
+    /// A plain stereo orbit carrying `patch` at `mix`, with `dry` on every frame.
+    /// `prev_patch_level` is pre-seeded to `mix` so the block runs at steady
+    /// state, isolating the crossfade from the de-zippering ramp.
+    fn orbit_with_patch(mix: f32, gain: f32, dry: f32) -> Orbit {
+        let mut o = Orbit::new(SR, 0);
+        o.patch = Some(gain_patch(gain));
+        o.patch_level = mix;
+        o.prev_patch_level = mix;
+        for f in 0..N {
+            o.bus[f] = [dry, dry];
+        }
+        o.bus_used = true;
+        o.has_pan_dry = true; // panned dry present, so room routing stays off
+        o
+    }
+
+    /// A room-routed orbit: a superpan voice fed `fx_send` and nothing panned dry.
+    fn room_orbit_with_patch(mix: f32, gain: f32, send: f32) -> Orbit {
+        let mut o = Orbit::new(SR, 0);
+        o.patch = Some(gain_patch(gain));
+        o.patch_level = mix;
+        o.prev_patch_level = mix;
+        for f in 0..N {
+            o.fx_send[f] = [send, send];
+        }
+        o.fx_send_used = true;
+        o.has_fx_send = true;
+        o
+    }
+
+    fn assert_all(actual: &[StereoFrame; MAX_BLOCK], want: f32) {
+        for (f, frame) in actual.iter().take(N).enumerate() {
+            assert!(
+                (frame[0] - want).abs() < 1e-6 && (frame[1] - want).abs() < 1e-6,
+                "frame {f}: {frame:?}, want {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn patch_replaces_the_bus_rather_than_adding_to_it() {
+        // The send era gave 1.0 + 0.5; an insert gives 0.5.
+        let mut o = orbit_with_patch(1.0, 0.5, 1.0);
+        o.process_block(N);
+        assert_all(&o.bus, 0.5);
+    }
+
+    #[test]
+    fn identity_patch_is_unity() {
+        // `{ 2 inputs out }` at patchlevel 1 must not change the bus.
+        let mut o = orbit_with_patch(1.0, 1.0, 0.25);
+        o.process_block(N);
+        assert_all(&o.bus, 0.25);
+    }
+
+    #[test]
+    fn patchlevel_crossfades_dry_to_wet() {
+        // Halfway between the 1.0 dry and the patch's 0.5 wet.
+        let mut o = orbit_with_patch(0.5, 0.5, 1.0);
+        o.process_block(N);
+        assert_all(&o.bus, 0.75);
+    }
+
+    #[test]
+    fn patchlevel_zero_is_transparent() {
+        let mut o = orbit_with_patch(0.0, 0.5, 1.0);
+        o.process_block(N);
+        assert_all(&o.bus, 1.0);
+    }
+
+    #[test]
+    fn patchlevel_clamps_to_the_unit_range() {
+        // Above 1 the `1 - lvl` dry term would phase-invert the bus.
+        let mut o = Orbit::new(SR, 0);
+        o.write_param(OrbitParamId::PatchLevel, 4.0);
+        assert_eq!(o.patch_level, 1.0);
+        o.write_param(OrbitParamId::PatchLevel, -1.0);
+        assert_eq!(o.patch_level, 0.0);
+    }
+
+    #[test]
+    fn room_recovery_keeps_the_insert_output() {
+        // The insert consumed the merged dry and emitted half of it. Subtracting
+        // the whole dry (the send-era identity) would hand the room -0.5.
+        let mut o = room_orbit_with_patch(1.0, 0.5, 1.0);
+        o.process_block(N);
+        assert!(o.room_active);
+        assert_all(&o.fx_wet, 0.5);
+    }
+
+    #[test]
+    fn room_recovery_subtracts_only_the_dry_that_bypassed_the_insert() {
+        // At mix 0.5 the bus is 0.5*1.0 + 0.5*0.5 = 0.75, of which 0.5 is raw dry
+        // that never entered the patch. The room gets the 0.25 the patch made.
+        let mut o = room_orbit_with_patch(0.5, 0.5, 1.0);
+        o.process_block(N);
+        assert_all(&o.fx_wet, 0.25);
+    }
+
+    #[test]
+    fn room_recovery_without_a_patch_strips_the_dry() {
+        let mut o = room_orbit_with_patch(0.0, 0.5, 1.0);
+        o.verb_level = 0.0;
+        o.process_block(N);
+        assert_all(&o.fx_wet, 0.0);
     }
 }

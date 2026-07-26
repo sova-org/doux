@@ -14,7 +14,7 @@
 //! off-RT and pushes it back into its pool.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -154,8 +154,11 @@ pub struct PatchRegistry {
     vm_return: Option<crossbeam_channel::Sender<Reap>>,
     /// Vms pre-built per installed patch — the per-patch polyphony ceiling.
     /// Sized to the engine's voice count so an arf source matches native
-    /// polyphony (see [`DEFAULT_POOL_VMS`]).
-    pool_vms: usize,
+    /// polyphony (see [`DEFAULT_POOL_VMS`]). Atomic because the host may
+    /// retune its voice ceiling live ([`PatchRegistry::set_polyphony`]); a
+    /// pool is sized once at install, so a change lands patch by patch as
+    /// each is next installed rather than resizing pools already in use.
+    pool_vms: AtomicUsize,
 }
 
 impl Default for PatchRegistry {
@@ -210,8 +213,16 @@ impl PatchRegistry {
             next_seed,
             #[cfg(feature = "native")]
             vm_return,
-            pool_vms,
+            pool_vms: AtomicUsize::new(pool_vms.max(1)),
         }
+    }
+
+    /// Retune the per-patch pool depth after construction — the path a host takes when the
+    /// user changes the voice ceiling mid-session. Pools are allocated at install, so this
+    /// governs installs from here on; patches already resident keep the depth they were
+    /// built with until something reinstalls them (any edit does).
+    pub fn set_polyphony(&self, pool_vms: usize) {
+        self.pool_vms.store(pool_vms.max(1), Ordering::Relaxed);
     }
 
     /// Validate `program` and publish it under `name` with a ready Vm pool.
@@ -319,8 +330,11 @@ impl PatchRegistry {
         }
 
         let program = Arc::new(program);
-        let pool = ArrayQueue::new(self.pool_vms);
-        for _ in 0..self.pool_vms {
+        // Latched once: the pool and the fill loop must agree even if the host retunes
+        // polyphony between the two.
+        let pool_vms = self.pool_vms.load(Ordering::Relaxed);
+        let pool = ArrayQueue::new(pool_vms);
+        for _ in 0..pool_vms {
             let mut vm = Vm::new(&program);
             vm.reset(&program, self.next_seed.fetch_add(1, Ordering::Relaxed));
             let _ = pool.push(vm);
@@ -449,6 +463,33 @@ mod tests {
         );
         g.set_outputs(vec![filt]);
         g
+    }
+
+    // The pool depth is the per-patch polyphony ceiling, so a host that retunes its voice
+    // count must be able to move it. It applies at install: the patch resident when the
+    // change lands keeps its depth, the next install gets the new one.
+    #[test]
+    fn set_polyphony_governs_pools_from_the_next_install() {
+        let registry = PatchRegistry::with_polyphony(2);
+        let json = serde_json::to_string(&param_graph()).unwrap();
+        registry.install_graph("small", &json, 48_000.0).unwrap();
+        let small = registry.get("small").unwrap();
+        assert!(small.take_vm().is_some());
+        assert!(small.take_vm().is_some());
+        assert!(small.take_vm().is_none(), "pool must hold exactly 2");
+
+        registry.set_polyphony(5);
+        registry.install_graph("big", &json, 48_000.0).unwrap();
+        let big = registry.get("big").unwrap();
+        assert_eq!(
+            std::iter::from_fn(|| big.take_vm()).count(),
+            5,
+            "the next install takes the new depth"
+        );
+        // A floor of 1, so a host that passes 0 still gets a playable patch.
+        registry.set_polyphony(0);
+        registry.install_graph("floor", &json, 48_000.0).unwrap();
+        assert!(registry.get("floor").unwrap().take_vm().is_some());
     }
 
     #[test]

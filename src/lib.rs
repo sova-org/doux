@@ -1228,7 +1228,11 @@ impl Engine {
             set!(compattack, orbit.comp.params.attack);
             set!(comprelease, orbit.comp.params.release);
             set!(comporbit, orbit.comp_orbit);
-            set_pos!(patchlevel, orbit.patch_level);
+            // Not `set_pos!`: patchlevel is a dry/wet mix, so it clamps to the
+            // unit range rather than just at 0 (see Orbit::write_param).
+            if let Some(x) = event.patchlevel {
+                orbit.patch_level = x.clamp(0.0, 1.0);
+            }
             // Orbit arf patch (sticky): `patch/off` returns the Vm home; a
             // new name swaps in a Vm from that entry's pool. Same-entry
             // re-sends are no-ops so cagire's per-cycle param loops don't

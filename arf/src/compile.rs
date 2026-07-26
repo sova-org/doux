@@ -156,7 +156,8 @@ impl Lowering<'_> {
                         | Node::FbRead { .. }
                         | Node::Input { .. }
                         | Node::Control { .. }
-                        | Node::Now => work.push(Step::Exit(id)),
+                        | Node::Now
+                        | Node::SampleRate => work.push(Step::Exit(id)),
                     }
                 }
                 Step::Exit(id) => {
@@ -186,6 +187,9 @@ impl Lowering<'_> {
                         }
                         // A leaf reading the executor's sample clock; no host plane to widen.
                         Node::Now => self.push_op(Op::Now),
+                        // Folded here: the rate is fixed for the program's life, so it costs
+                        // a constant rather than a per-sample read.
+                        Node::SampleRate => self.push_op(Op::Const(self.sample_rate)),
                         Node::Ugen {
                             ugen,
                             inputs,
@@ -304,6 +308,20 @@ mod tests {
         let program = compile(&graph, 48_000.0);
         assert_eq!(program.num_registers(), 3);
         assert_eq!(program.state_len(), 1); // one phase, shared
+    }
+
+    #[test]
+    fn sample_rate_folds_to_the_compile_rate() {
+        // The one node whose value the graph does not carry: the same graph compiled at two
+        // rates must yield two different constants, so a patch written against `sr` is portable.
+        let graph = graph_of(|g| vec![g.sample_rate()]);
+        for rate in [44_100.0, 48_000.0, 96_000.0] {
+            let program = compile(&graph, rate);
+            assert!(
+                matches!(program.ops(), [Op::Const(v)] if *v == rate),
+                "sample rate must fold to Const({rate})"
+            );
+        }
     }
 
     #[test]
