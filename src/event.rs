@@ -201,7 +201,11 @@ pub struct Event {
     pub comp: Option<f32>,
     pub compattack: Option<f32>,
     pub comprelease: Option<f32>,
-    pub comporbit: Option<usize>,
+    pub compthresh: Option<f32>,
+    pub compratio: Option<f32>,
+    /// `Some(None)` = explicitly reset to self-sidechain (a negative value on
+    /// the wire); `None` = the event did not mention it.
+    pub comporbit: Option<Option<usize>>,
 
     // Distortion
     pub coarse: Option<f32>,
@@ -524,7 +528,20 @@ impl Event {
                 "comprelease" | "crelease" => {
                     parse_orbit_param!(val, comprelease, OrbitParamId::CompRelease)
                 }
-                "comporbit" | "corbit" => event.comporbit = Self::parse_usize(val),
+                "compthresh" | "cthresh" => {
+                    parse_orbit_param!(val, compthresh, OrbitParamId::CompThresh)
+                }
+                "compratio" | "cratio" => {
+                    parse_orbit_param!(val, compratio, OrbitParamId::CompRatio)
+                }
+                // Negative selects self-sidechain (glue); the reset script uses
+                // -1 to put an orbit back to the default.
+                "comporbit" | "corbit" => {
+                    event.comporbit =
+                        val.parse::<f32>()
+                            .ok()
+                            .map(|v| if v < 0.0 { None } else { Some(v as usize) })
+                }
                 "coarse" => parse_param!(val, coarse, ParamId::Coarse),
                 "crush" => parse_param!(val, crush, ParamId::Crush),
                 "fold" => parse_param!(val, fold, ParamId::Fold),

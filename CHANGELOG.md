@@ -3,14 +3,39 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.44] - 2026-07-27
+
+### Added
+
+- **Master output level** — `Engine::set_master_gain(g)` / `master_gain()`, linear, clamped to `0..=MASTER_GAIN_MAX` (2.0, ~+6 dB). Applied before the limiter's peak detector and ramped across the chunk
+- **Limiter metering** — `EngineMetrics::limiter_gr()` reports the master limiter's peak gain reduction over the last block (0..1)
+- **`comp` is a real compressor** — new `compthresh`/`cthresh` (dB, default -20) and `compratio`/`cratio` (default 4), both modulatable. Feed-forward gain law `(env/t)^(1/ratio - 1)` above threshold, unity below; `comp` is the dry/wet on that gain. Previously threshold-less, so it ducked at every level
+- **Bass mono** — `Engine::set_bass_mono(hz)` / `bass_mono()` collapse the stereo image below a crossover corner (0 = off, capped at 300 Hz). Runs first in the master chain, per output pair
+- `distortasym`/`dasym` is now modulatable
+
+### Changed
+
+- **[BREAKING]** `patch/<name>` is a serial orbit insert, not a parallel send — the graph's output replaces the bus, so an orbit patch can subtract and a filter/gate/saturator does what its name says. `patchlevel`/`plevel` becomes the dry/wet mix (0 = untouched bus, 1 = patch alone) instead of a send level
+- **[BREAKING]** `comporbit` defaults to the orbit itself, not orbit 0, so a bare `comp` glues its own bus. Negative value resets to self. `Orbit::comp_orbit` is `Option<usize>`, `Event::comporbit` is `Option<Option<usize>>`
+- **[BREAKING]** `Orbit::set_mod` returns `bool` (chain installed or not) and is `#[must_use]`
+- Voice stealing ranks releasing/dead voices first, then established, then still-attacking, envelope value breaking ties — a burst at the ceiling no longer eats its own newest notes
+
+### Fixed
+
+- **SVF resonance no longer changes loudness** — `svf`/`svf24` rebuilt on a TPT core with a saturated resonance path, input pre-scaled by `1 - 0.5q`, Q curve remapped to `0.5 + 29.5·q^2.5` (the linear `fi.svf` wrapper passed Q=1500 by `q/0.9`, making the top third unusable). Restores the pre-Faust level discipline
+- **`comp` above 1 inverted the bus** — the dry/wet gain was only floor-clamped, so `2 comp` gave a phase-inverted, amplifying "compressor". Now clamped to unit range, and the static event path writes through the same `write_param` as the modulation path (also fixed `compratio`, `patchlevel`)
+- **Limiter readout missed events** — `limiter_gr` was stored once per block and polled less often; it now accumulates a maximum and clears on read (`take_limiter_gr`)
+- **Room-routed orbits lost their compressor and recorder** — the final mix skipped room orbits wholesale, so `comp` stopped working the moment a `superpan` voice latched the orbit into room mode. The gain law is now shared by the pair pass and the room spread
+- **Orbit modulation past the cap was silent** — the 17th distinct modulated param on an orbit was dropped with no signal; refusals are now counted in `EngineMetrics::dropped_orbit_mods`
+
+## [0.0.43] - 2026-07-11
 
 ### Added
 
 - **Arf patch graphs**: user-defined DSP graphs installed by name, used as sources or effects. A host builds an `arf` graph, serialises it to JSON, installs it into the engine's `PatchRegistry`. `doux` compiles it at the device sample rate and owns polyphony (a per-patch `Vm` pool). `doux` never parses a patch language. The graph JSON is the whole boundary. New `arf` workspace crate, plus `pub mod patch` (`PatchRegistry`, `Engine::patch_registry()`).
   - **As a source**: trigger an input-less graph with `s/arf:<name>`. Gate, note frequency and velocity go into the graph's control lanes per sample. Patches get the same vibrato, glide and mod-chain behaviour as native sources (`Source::Arf`).
   - **As a voice insert**: `fx/<name>` inserts an input-reading graph into a voice's chain, serial, just before the envelope VCA. `fx/off` clears the slot.
-  - **As an orbit insert**: `patch/<name>` attaches a graph at the end of the orbit FX chain, so it processes the built-in tails as well as the dry (comb → feedback → delay → reverb → patch). Serial like `fx/<name>`: the graph's output replaces the bus, so an orbit patch can subtract, and a filter, gate or saturator on the bus does what its name says. `patchlevel`/`plevel` is the dry/wet mix (0 = untouched bus, 1 = patch alone, modulatable). Sticky on the orbit. `patch/off` clears it.
+  - **As an orbit send**: `patch/<name>` attaches a graph as a parallel send at the end of the orbit FX chain, so it hears the built-in tails (comb → feedback → delay → reverb → patch). Sticky on the orbit. `patch/off` clears it. Send level is `patchlevel`/`plevel` (modulatable).
   - **Named patch params**: address a graph's `param` lanes with `p:<name>/<value>` event keys. Values are static floats or full modulation chains. They ride the same per-sample ParamMod machinery as native params (e.g. `p:cutoff/2000/p:res/0.5~0.9:2`).
   - Source vs. effect role comes from the graph's input channel count, enforced at each use-site. `off` is a reserved patch name, rejected at install.
 - `Engine::set_tempo(bps)`: sets the tempo patches read as `bps`, latched every block. Defaults to `2.0` (120 BPM).

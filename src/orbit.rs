@@ -44,6 +44,8 @@ pub enum OrbitParamId {
     FbCross,
     CompAttack,
     CompRelease,
+    CompThresh,
+    CompRatio,
     PatchLevel,
 }
 
@@ -128,7 +130,10 @@ pub struct Orbit {
     pub fb_params: FeedbackParams,
     pub fb_level: f32,
     pub comp: Compressor,
-    pub comp_orbit: usize,
+    /// Sidechain source orbit. `None` (the default) means this orbit itself, so
+    /// a bare `comp` glues instead of ducking from whatever orbit 0 happens to
+    /// be playing.
+    pub comp_orbit: Option<usize>,
     /// User arf effect (`patch/<name>`): a persistent Vm sticky on the orbit,
     /// swapped only by a `patch` event naming a different entry, returned to
     /// its pool on clear (`patch/off`) or engine drop.
@@ -183,7 +188,7 @@ impl Orbit {
             fb_params: FeedbackParams::default(),
             fb_level: 0.0,
             comp: Compressor::default(),
-            comp_orbit: 0,
+            comp_orbit: None,
             // 1.0 so `patch/<name>` inserts fully without an explicit
             // patchlevel, matching `fx`; sticky like every orbit param.
             patch: None,
@@ -209,7 +214,14 @@ impl Orbit {
     /// as the voice path. Envelope chains trigger on install: re-sending the
     /// param each event retriggers, giving per-event FX envelopes. `gate` is
     /// the envelope's total time before release in seconds (0.0 = hold).
-    pub fn set_mod(&mut self, id: OrbitParamId, chain: ModChain, gate: f32) {
+    ///
+    /// Returns `false` when the store is full and the chain was dropped, so the
+    /// caller can account for it. Replacing an existing `id` always succeeds;
+    /// only the 17th *distinct* param can be refused. Same contract as
+    /// `Schedule::push`, which hands the rejected event back rather than
+    /// swallowing it.
+    #[must_use]
+    pub fn set_mod(&mut self, id: OrbitParamId, chain: ModChain, gate: f32) -> bool {
         let chain = if let ModChain::Slew {
             target,
             freq,
@@ -231,16 +243,18 @@ impl Orbit {
                 self.param_mods[i].1 = ParamMod::new(chain, self.seed);
                 self.param_mods[i].1.trigger(gate);
                 self.seed = lcg(self.seed);
-                return;
+                return true;
             }
         }
-        if (self.param_mod_count as usize) < MAX_ORBIT_MODS {
-            let i = self.param_mod_count as usize;
-            self.param_mods[i] = (id, ParamMod::new(chain, self.seed));
-            self.param_mods[i].1.trigger(gate);
-            self.seed = lcg(self.seed);
-            self.param_mod_count += 1;
+        if (self.param_mod_count as usize) >= MAX_ORBIT_MODS {
+            return false;
         }
+        let i = self.param_mod_count as usize;
+        self.param_mods[i] = (id, ParamMod::new(chain, self.seed));
+        self.param_mods[i].1.trigger(gate);
+        self.seed = lcg(self.seed);
+        self.param_mod_count += 1;
+        true
     }
 
     /// Remove any active ModChain targeting `id` (swap-remove, no alloc).
@@ -287,6 +301,8 @@ impl Orbit {
             OrbitParamId::FbCross => self.fb_params.cross,
             OrbitParamId::CompAttack => self.comp.params.attack,
             OrbitParamId::CompRelease => self.comp.params.release,
+            OrbitParamId::CompThresh => self.comp.params.thresh_db,
+            OrbitParamId::CompRatio => self.comp.params.ratio,
             OrbitParamId::PatchLevel => self.patch_level,
         }
     }
@@ -295,13 +311,16 @@ impl Orbit {
     /// `set_pos!` contract in lib.rs and its patchlevel exception); the rest
     /// write raw, matching the static `set!` path — each FX clamps at
     /// consumption (e.g. delay feedback 0..0.95, time to MAX_DELAY_SAMPLES).
-    fn write_param(&mut self, id: OrbitParamId, v: f32) {
+    pub(crate) fn write_param(&mut self, id: OrbitParamId, v: f32) {
         match id {
             OrbitParamId::Delay => self.delay_level = v.max(0.0),
             OrbitParamId::Verb => self.verb_level = v.max(0.0),
             OrbitParamId::Comb => self.comb_level = v.max(0.0),
             OrbitParamId::Feedback => self.fb_level = v.max(0.0),
-            OrbitParamId::Comp => self.comp.params.amount = v.max(0.0),
+            // Unit range, not just positive: `amount` is a dry/wet on the gain,
+            // and `1 + amount*(g-1)` goes NEGATIVE above 1, which phase-inverts
+            // and amplifies the bus instead of compressing it.
+            OrbitParamId::Comp => self.comp.params.amount = v.clamp(0.0, 1.0),
             OrbitParamId::DelayTime => self.delay_params.time = v,
             OrbitParamId::DelayFeedback => self.delay_params.feedback = v,
             OrbitParamId::VerbDecay => self.reverb_params.decay = v,
@@ -325,6 +344,9 @@ impl Orbit {
             OrbitParamId::FbCross => self.fb_params.cross = v,
             OrbitParamId::CompAttack => self.comp.params.attack = v,
             OrbitParamId::CompRelease => self.comp.params.release = v,
+            OrbitParamId::CompThresh => self.comp.params.thresh_db = v.min(0.0),
+            // Below 1 the gain law would expand rather than compress.
+            OrbitParamId::CompRatio => self.comp.params.ratio = v.max(1.0),
             // Unit range, not just positive: patch_level is a dry/wet mix, and
             // above 1 the `1 - lvl` dry term would phase-invert the bus.
             OrbitParamId::PatchLevel => self.patch_level = v.clamp(0.0, 1.0),
@@ -879,6 +901,48 @@ mod tests {
         let mut o = room_orbit_with_patch(0.5, 0.5, 1.0);
         o.process_block(N);
         assert_all(&o.fx_wet, 0.25);
+    }
+
+    #[test]
+    fn set_mod_refuses_past_the_cap_and_says_so() {
+        use crate::voice::ModChain;
+        let mut o = Orbit::new(SR, 0);
+        // 29 OrbitParamIds exist but only MAX_ORBIT_MODS distinct ones fit.
+        let ids = [
+            OrbitParamId::Delay,
+            OrbitParamId::Verb,
+            OrbitParamId::Comb,
+            OrbitParamId::Feedback,
+            OrbitParamId::Comp,
+            OrbitParamId::DelayTime,
+            OrbitParamId::DelayFeedback,
+            OrbitParamId::VerbDecay,
+            OrbitParamId::VerbDamp,
+            OrbitParamId::VerbPredelay,
+            OrbitParamId::VerbDiff,
+            OrbitParamId::VerbSize,
+            OrbitParamId::VerbPrelow,
+            OrbitParamId::VerbPrehigh,
+            OrbitParamId::VerbLowcut,
+            OrbitParamId::VerbHighcut,
+            OrbitParamId::VerbLowgain,
+        ];
+        assert_eq!(ids.len(), MAX_ORBIT_MODS + 1);
+        let chain = || ModChain::Oscillate {
+            min: 0.0,
+            max: 1.0,
+            freq: 1.0,
+            shape: crate::voice::modulation::ModShape::Sine,
+        };
+        for id in ids.iter().take(MAX_ORBIT_MODS) {
+            assert!(o.set_mod(*id, chain(), 0.0), "{id:?} should fit");
+        }
+        assert!(
+            !o.set_mod(ids[MAX_ORBIT_MODS], chain(), 0.0),
+            "the 17th distinct param must be refused, not silently dropped"
+        );
+        // Replacing one already installed still succeeds at the cap.
+        assert!(o.set_mod(ids[0], chain(), 0.0), "replacement must not fail");
     }
 
     #[test]

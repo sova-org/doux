@@ -318,6 +318,16 @@ pub struct EngineMetrics {
     /// command queue was full. Incremented on whichever thread holds the
     /// sender (OSC receiver, REPL loop, sova receiver). Single relaxed add.
     pub dropped_cmds: AtomicU32,
+    /// Count of orbit ModChains refused because that orbit already held
+    /// `MAX_ORBIT_MODS` distinct modulated params. The chain is dropped, so a
+    /// dense modulation pattern can silently lose motion; this is how a host
+    /// finds out.
+    pub dropped_orbit_mods: AtomicU32,
+    /// Peak master-limiter gain reduction over the last block, as a 0..1
+    /// fraction in `LOAD_SCALE` fixed point (0 = the limiter never engaged).
+    /// The limiter is otherwise invisible, and a host that cannot show it
+    /// cannot tell a level problem from a mix problem.
+    pub limiter_gr: AtomicU32,
     /// Live recording state for host UIs. Written by the recorder on the RT
     /// thread (atomics + one small `Arc` store on start/stop); read anywhere.
     #[cfg(feature = "native")]
@@ -346,6 +356,8 @@ impl Default for EngineMetrics {
             time_bits: AtomicU64::new(0),
             dropped_events: AtomicU32::new(0),
             dropped_cmds: AtomicU32::new(0),
+            dropped_orbit_mods: AtomicU32::new(0),
+            limiter_gr: AtomicU32::new(0),
             #[cfg(feature = "native")]
             rec_active: AtomicBool::new(false),
             #[cfg(feature = "native")]
@@ -375,6 +387,25 @@ impl EngineMetrics {
 
     pub fn sample_pool_mb(&self) -> f32 {
         self.sample_pool_bytes.load(Ordering::Relaxed) as f32 / (1024.0 * 1024.0)
+    }
+
+    /// Report this block's peak limiter gain reduction (0..1 fraction).
+    ///
+    /// `fetch_max`, not `store`: the engine writes this once per host block
+    /// (hundreds per second) while a UI reads it per frame (tens), so a plain
+    /// store would drop nearly every limiting event between two reads. The
+    /// value accumulates the maximum until a reader takes it.
+    pub fn set_limiter_gr(&self, reduction: f32) {
+        self.limiter_gr.fetch_max(
+            (reduction.clamp(0.0, 1.0) * LOAD_SCALE) as u32,
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Peak limiter gain reduction since the last call, 0..1. Reading clears the
+    /// accumulator, so there is exactly one consumer: the host's per-frame poll.
+    pub fn take_limiter_gr(&self) -> f32 {
+        self.limiter_gr.swap(0, Ordering::Relaxed) as f32 / LOAD_SCALE
     }
 }
 

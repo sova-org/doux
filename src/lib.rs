@@ -157,6 +157,23 @@ struct GmResolved {
 pub const MAX_OUTPUT_CHANNELS: usize = 2 * superpan::MAX_SUPERPAN_NODES;
 /// Corner of the master DC-blocking one-pole high-pass.
 const MASTER_DC_HZ: f32 = 10.0;
+/// Ceiling on the master output level (~+6 dB). Boost is allowed because the
+/// gain lands before the limiter's peak detector, so it cannot escape the
+/// safety chain; the cap only stops a fat-fingered value from driving the
+/// limiter into permanent gain reduction.
+pub const MASTER_GAIN_MAX: f32 = 2.0;
+/// Ceiling on the bass-mono crossover corner. Club practice puts it near
+/// 100-120 Hz; past a few hundred the collapse is audible on the whole mix.
+pub const BASS_MONO_MAX_HZ: f32 = 300.0;
+
+/// The loudest sample the engine can emit, linear. The limiter holds the peak
+/// envelope at `LIMITER_THRESHOLD` and the safety clip after it rounds that
+/// down, so nothing above this reaches a host. Derived rather than written
+/// down: a host that scales a meter to the real ceiling must not have to
+/// restate the limiter threshold or the shape of the clip.
+pub fn master_ceiling() -> f32 {
+    soft_clip_sample(effects::LIMITER_THRESHOLD)
+}
 
 // Master safety clip, after the limiter: plain tanh. Identity slope at origin,
 // monotonic, bounded by ±1. The limiter holds peaks near LIMITER_THRESHOLD,
@@ -165,6 +182,56 @@ const MASTER_DC_HZ: f32 = 10.0;
 #[inline]
 fn soft_clip_sample(input: f32) -> f32 {
     fast_tanh_f32(input)
+}
+
+/// Fill `gains[..n]` with orbit `oi`'s compressor gain, advancing its envelope
+/// one sample per frame. Returns false when the compressor is disengaged, so
+/// the caller can skip the multiply entirely.
+///
+/// Split out because both consumers of an orbit's audio need it: the
+/// stereo-pair mix (Pass 1) and the room spread (Pass 3). A room-routed orbit
+/// that skipped this would freeze its envelope mid-flight and resume from a
+/// stale value when the room latch released.
+///
+/// Sidechain levels are staged through a stack scratch so reading another
+/// orbit's post-FX bus does not alias the mutable borrow of this one; that
+/// staging is also what makes `sc == oi` (self-compression) legal.
+fn orbit_comp_gains(
+    orbits: &mut [Orbit; MAX_ORBITS],
+    oi: usize,
+    isr: f32,
+    n: usize,
+    gains: &mut [f32; MAX_BLOCK],
+) -> bool {
+    let cp = orbits[oi].comp.params;
+    if cp.amount <= 0.0 {
+        return false;
+    }
+    // No `comporbit` means "this orbit", so a bare `comp` glues rather than
+    // ducking from whatever orbit 0 is playing.
+    let sc = cp_orbit_of(orbits, oi);
+    let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
+    let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
+    let mut sc_lv = [0.0f32; MAX_BLOCK];
+    for (slot, frame) in sc_lv.iter_mut().zip(orbits[sc].bus.iter()).take(n) {
+        *slot = frame[0].abs().max(frame[1].abs());
+    }
+    let (thresh, exponent) = cp.gain_coeffs();
+    let orbit = &mut orbits[oi];
+    for (f, &sc_level) in sc_lv.iter().enumerate().take(n) {
+        let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
+        gains[f] = cp.gain_for(env, thresh, exponent);
+    }
+    true
+}
+
+/// The orbit whose bus feeds `oi`'s detector: its own when `comporbit` is unset.
+#[inline]
+fn cp_orbit_of(orbits: &[Orbit; MAX_ORBITS], oi: usize) -> usize {
+    match orbits[oi].comp_orbit {
+        Some(sc) => sc % MAX_ORBITS,
+        None => oi,
+    }
 }
 
 /// Construction-time configuration for [`Engine`]. Every field is set
@@ -265,6 +332,11 @@ pub struct Engine {
     /// True when `superpan_acc` may hold nonzero data. Cleared flag guarantees
     /// the whole buffer is zero, so idle chunks skip both clear and mix-in.
     pub(crate) superpan_acc_used: bool,
+    /// Per-orbit compressor gain scratch, reused across orbits and chunks.
+    /// Boxed and persistent rather than a per-`gen_block` stack array: only an
+    /// engaged compressor writes it, and a stack array would memset 1 KB on
+    /// every chunk (~1500/s) for engines that never use `comp` at all.
+    comp_gains: Box<[f32; MAX_BLOCK]>,
     /// Master DC-blocker one-pole HP state, one slot per output channel.
     /// Persists across chunks — `gen_block` must never reset it.
     master_dc: [f32; MAX_OUTPUT_CHANNELS],
@@ -273,6 +345,19 @@ pub struct Engine {
     master_dc_coeff: f32,
     /// Master linked peak limiter (state persists across chunks).
     limiter: effects::Limiter,
+    /// Master output level, applied in the final mix *before* peak detection so
+    /// the limiter still protects a boosted master. `MASTER_GAIN_MAX` caps it.
+    master_gain: f32,
+    /// Previous chunk's master gain, for the per-sample ramp (de-zippers a live
+    /// level move; identical to the send-level ramps on the orbit).
+    prev_master_gain: f32,
+    /// Bass-mono crossover corner in Hz; 0 disables the stage entirely.
+    bass_mono_hz: f32,
+    /// One-pole coeff for `bass_mono_hz`, recomputed only when the corner moves.
+    bass_mono_coeff: f32,
+    /// Bass-mono low-band state, one slot per output channel. Persists across
+    /// chunks like `master_dc`.
+    bass_mono_lp: [f32; MAX_OUTPUT_CHANNELS],
     #[cfg(not(feature = "native"))]
     pub(crate) sample_pool: SamplePool,
     #[cfg(not(feature = "native"))]
@@ -403,6 +488,7 @@ impl Engine {
             output: vec![0.0; config.host_buffer_size * config.output_channels],
             superpan_acc: vec![0.0; MAX_BLOCK * config.output_channels],
             superpan_acc_used: false,
+            comp_gains: Box::new([1.0; MAX_BLOCK]),
             master_dc: [0.0; MAX_OUTPUT_CHANNELS],
             // Bilinear one-pole coeff: w = PI * f / sr, coeff = 2w / (1 + 2w).
             master_dc_coeff: {
@@ -410,6 +496,11 @@ impl Engine {
                 (2.0 * w) / (1.0 + 2.0 * w)
             },
             limiter: effects::Limiter::default(),
+            master_gain: 1.0,
+            prev_master_gain: 1.0,
+            bass_mono_hz: 0.0,
+            bass_mono_coeff: 0.0,
+            bass_mono_lp: [0.0; MAX_OUTPUT_CHANNELS],
             #[cfg(not(feature = "native"))]
             sample_pool: SamplePool::new(),
             #[cfg(not(feature = "native"))]
@@ -1192,6 +1283,16 @@ impl Engine {
                     }
                 };
             }
+            // For params whose range is enforced rather than merely documented:
+            // routes the static write through the same `write_param` the
+            // ModChain path uses, so one clamp governs both.
+            macro_rules! set_clamped {
+                ($evt:ident, $id:ident) => {
+                    if let Some(x) = event.$evt {
+                        orbit.write_param(orbit::OrbitParamId::$id, x);
+                    }
+                };
+            }
             // Statics displace any active ModChain on the same orbit param,
             // mirroring the voice-param semantics below.
             for &id in &event.orbit_static_ids {
@@ -1201,7 +1302,11 @@ impl Engine {
             set_pos!(verb, orbit.verb_level);
             set_pos!(comb, orbit.comb_level);
             set_pos!(feedback, orbit.fb_level);
-            set_pos!(comp, orbit.comp.params.amount);
+            // Params with a real range go through `write_param` so the static
+            // and ModChain paths cannot disagree about the clamp. `set!` writes
+            // the field raw, which left `read_param` (and any chain that starts
+            // from it) seeing a value the modulation path would have rejected.
+            set_clamped!(comp, Comp);
             set!(delaytime, orbit.delay_params.time);
             set!(delayfeedback, orbit.delay_params.feedback);
             set!(delaytype, orbit.delay_params.delay_type);
@@ -1227,12 +1332,10 @@ impl Engine {
             set!(fbcross, orbit.fb_params.cross);
             set!(compattack, orbit.comp.params.attack);
             set!(comprelease, orbit.comp.params.release);
+            set_clamped!(compthresh, CompThresh);
+            set_clamped!(compratio, CompRatio);
             set!(comporbit, orbit.comp_orbit);
-            // Not `set_pos!`: patchlevel is a dry/wet mix, so it clamps to the
-            // unit range rather than just at 0 (see Orbit::write_param).
-            if let Some(x) = event.patchlevel {
-                orbit.patch_level = x.clamp(0.0, 1.0);
-            }
+            set_clamped!(patchlevel, PatchLevel);
             // Orbit arf patch (sticky): `patch/off` returns the Vm home; a
             // new name swaps in a Vm from that entry's pool. Same-entry
             // re-sends are no-ops so cagire's per-cycle param loops don't
@@ -1266,9 +1369,24 @@ impl Engine {
             // trigger on install; the event gate sets their release point
             // (0.0 = hold at sustain).
             let mod_gate = event.gate.unwrap_or(0.0);
+            let mut refused = 0u32;
             for &(id, chain) in &event.orbit_mods {
-                orbit.set_mod(id, chain, mod_gate);
+                if !orbit.set_mod(id, chain, mod_gate) {
+                    refused += 1;
+                }
             }
+            // A refused chain is motion silently lost, so surface it next to the
+            // other drop counters instead of swallowing it.
+            #[cfg(feature = "native")]
+            if refused > 0 {
+                self.metrics
+                    .dropped_orbit_mods
+                    .fetch_add(refused, std::sync::atomic::Ordering::Relaxed);
+            }
+            // wasm has no metrics sink; the count is still computed above so the
+            // loop body stays identical across configs.
+            #[cfg(not(feature = "native"))]
+            let _ = refused;
         }
 
         let v = &mut self.voices[idx];
@@ -1872,9 +1990,15 @@ impl Engine {
         let input_channels = self.input_channels;
         let output_channels = self.output_channels;
         let room_gain = self.room_gain;
+        let comp_gains = &mut self.comp_gains;
         let master_dc = &mut self.master_dc;
         let master_dc_coeff = self.master_dc_coeff;
         let limiter = &mut self.limiter;
+        let master_gain = self.master_gain;
+        let prev_master_gain = &mut self.prev_master_gain;
+        let bass_mono_coeff = self.bass_mono_coeff;
+        let bass_mono_on = self.bass_mono_hz > 0.0;
+        let bass_mono_lp = &mut self.bass_mono_lp;
         #[cfg(feature = "native")]
         let rec_orbit = self.recorder.target_orbit();
 
@@ -2077,15 +2201,15 @@ impl Engine {
         #[cfg(feature = "native")]
         let orbit_rec_bus = &mut self.orbit_rec_bus;
 
-        // Pass 1: non-room orbits onto their stereo pair.
+        // Pass 1: non-room orbits onto their stereo pair. A room-routed orbit
+        // contributes only its wet, spread in Pass 3, so it skips the pair
+        // mapping here — but its compressor and recorder run there, not never.
         for oi in 0..MAX_ORBITS {
-            // Room-routed orbits contribute only their wet, spread below — skip
-            // the stereo-pair mapping, compressor, and recorder for them.
             if orbits[oi].room_active {
                 continue;
             }
             let pair_offset = (oi % num_pairs) * 2;
-            let cp = orbits[oi].comp.params;
+            let comp_amount = orbits[oi].comp.params.amount;
 
             // Idle orbit: provably all-zero bus contributes nothing. Cannot
             // skip when the compressor is engaged (its envelope must keep
@@ -2095,32 +2219,14 @@ impl Engine {
             let rec_this = rec_orbit == Some(oi);
             #[cfg(not(feature = "native"))]
             let rec_this = false;
-            if !orbits[oi].bus_used && cp.amount == 0.0 && !rec_this {
+            if !orbits[oi].bus_used && comp_amount == 0.0 && !rec_this {
                 continue;
             }
 
-            if cp.amount > 0.0 {
-                let sc = orbits[oi].comp_orbit % MAX_ORBITS;
-                let attack_coeff = (isr / cp.attack.max(0.0001)).min(1.0);
-                let release_coeff = (isr / cp.release.max(0.0001)).min(1.0);
-                let expo = 1.0 + cp.amount * 4.0;
-                // Sidechain levels staged through a stack scratch so reading
-                // another orbit's post-FX bus doesn't alias the compressor borrow.
-                // The 1 KB zero is paid only by an engaged compressor; `[..n]` is
-                // fully rewritten below before any read.
-                let mut sc_lv = [0.0f32; MAX_BLOCK];
-                for (slot, frame) in sc_lv.iter_mut().zip(orbits[sc].bus.iter()).take(n) {
-                    *slot = frame[0].abs().max(frame[1].abs());
-                }
-                let orbit = &mut orbits[oi];
-                for (f, &sc_level) in sc_lv.iter().enumerate().take(n) {
-                    let env = orbit.comp.process(sc_level, attack_coeff, release_coeff);
-                    // `.max(0.0)`: the sidechain env can exceed 1 (unclamped), so
-                    // `1 - env` may go negative and `powf(negative, non-integer)`
-                    // would mint a NaN into the master mix. 0 is the right full-duck limit.
-                    let base = (1.0 - env).max(0.0);
-                    // IEEE 754: powf(1.0, y) == 1.0 exactly, so the skip is free.
-                    let gain = if base == 1.0 { 1.0 } else { dsp::powf(base, expo) };
+            if orbit_comp_gains(orbits, oi, isr, n, comp_gains) {
+                let orbit = &orbits[oi];
+                for f in 0..n {
+                    let gain = comp_gains[f];
                     let orbit_frame = orbit.bus[f];
                     let base_idx = (start + f) * output_channels;
                     output[base_idx + pair_offset] += orbit_frame[0] * gain;
@@ -2164,32 +2270,81 @@ impl Engine {
             }
         }
 
-        // Pass 3: spread each room-routed orbit's FX wet diffusely across the room.
-        for orbit in orbits.iter() {
-            if !orbit.room_active {
+        // Pass 3: spread each room-routed orbit's FX wet diffusely across the
+        // room. The compressor and the recorder run here for these orbits: they
+        // are skipped by Pass 1's pair mapping, not exempt from the rest.
+        for oi in 0..MAX_ORBITS {
+            if !orbits[oi].room_active {
                 continue;
             }
+            let comp_on = orbit_comp_gains(orbits, oi, isr, n, comp_gains);
+            let orbit = &orbits[oi];
             for f in 0..n {
-                let w0 = orbit.fx_wet[f][0];
-                let w1 = orbit.fx_wet[f][1];
+                let gain = if comp_on { comp_gains[f] } else { 1.0 };
+                let w0 = orbit.fx_wet[f][0] * gain;
+                let w1 = orbit.fx_wet[f][1] * gain;
                 let base_idx = (start + f) * output_channels;
                 for c in 0..output_channels {
                     let s = if c % 2 == 0 { w0 } else { w1 };
                     output[base_idx + c] += s * room_gain;
                 }
+                // The room orbit's stereo analogue for the recorder is its wet
+                // pair, pre-spread — what Pass 1 would have captured.
+                #[cfg(feature = "native")]
+                if rec_orbit == Some(oi) {
+                    let bus_idx = (oi * total + start + f) * CHANNELS;
+                    orbit_rec_bus[bus_idx] = w0;
+                    orbit_rec_bus[bus_idx + 1] = w1;
+                }
             }
         }
 
         // Pass 4: master chain — per-channel DC blocker (~10 Hz one-pole HP),
-        // linked peak limiter (instant attack, ~100 ms release), then tanh
-        // safety clip. The limiter computes ONE gain per frame from the peak
-        // across all channels so the multichannel image never shifts. All
-        // state lives on the Engine: gen_block runs once per inner chunk and
-        // must not reset it.
+        // master level, linked peak limiter (instant attack, ~100 ms release),
+        // then tanh safety clip. The limiter computes ONE gain per frame from
+        // the peak across all channels so the multichannel image never shifts.
+        // All state lives on the Engine: gen_block runs once per inner chunk
+        // and must not reset it.
+        // Bass mono, ahead of everything else in the master chain so the DC
+        // blocker and the limiter see the finished image. Below the corner the
+        // stereo difference is discarded and both channels carry the centre, so
+        // a summed sub array cannot phase-cancel the low end. First-order split
+        // per channel; `out_l + out_r == l + r` exactly, so the mono sum of the
+        // mix is untouched and only the low-band difference goes away. Skipped
+        // whole when off (the default), which is why it is not folded into the
+        // loop below.
+        if bass_mono_on {
+            for f in 0..n {
+                let base_idx = (start + f) * output_channels;
+                for p in 0..output_channels / 2 {
+                    let li = base_idx + p * 2;
+                    // Scrub here too: a NaN reaching `bass_mono_lp` would latch
+                    // it forever, the same failure the DC blocker guards against.
+                    for s in output[li..li + 2].iter_mut() {
+                        if !s.is_finite() {
+                            *s = 0.0;
+                        }
+                    }
+                    let (l, r) = (output[li], output[li + 1]);
+                    bass_mono_lp[p * 2] += bass_mono_coeff * (l - bass_mono_lp[p * 2]);
+                    bass_mono_lp[p * 2 + 1] += bass_mono_coeff * (r - bass_mono_lp[p * 2 + 1]);
+                    let (low_l, low_r) = (bass_mono_lp[p * 2], bass_mono_lp[p * 2 + 1]);
+                    let mono = (low_l + low_r) * 0.5;
+                    output[li] = (l - low_l) + mono;
+                    output[li + 1] = (r - low_r) + mono;
+                }
+            }
+        }
+
         let limiter_release = (isr / effects::LIMITER_RELEASE_SECS).min(1.0);
+        // Master level ramped across the chunk, so a live move does not step.
+        // Constant level => step 0 => exact `frame * gain` (unchanged steady state).
+        let gain_prev = *prev_master_gain;
+        let gain_step = (master_gain - gain_prev) / n as f32;
         for f in 0..n {
             let base_idx = (start + f) * output_channels;
             let frame = &mut output[base_idx..base_idx + output_channels];
+            let level = gain_prev + gain_step * (f as f32 + 1.0);
             let mut peak = 0.0_f32;
             for (c, s) in frame.iter_mut().enumerate() {
                 // non-finite in => zero: else master_dc latches NaN forever (silent till restart).
@@ -2201,7 +2356,10 @@ impl Engine {
                 // headroom or bias the tanh asymmetrically.
                 let st = &mut master_dc[c];
                 *st += master_dc_coeff * (*s - *st);
-                let y = *s - *st;
+                // Master level lands here, BEFORE peak detection: the limiter
+                // has to see the boosted signal or it cannot protect against it.
+                // (The DC blocker stays upstream so its state is level-independent.)
+                let y = (*s - *st) * level;
                 *s = y;
                 peak = peak.max(y.abs());
             }
@@ -2210,10 +2368,16 @@ impl Engine {
                 *s = soft_clip_sample(*s * gain);
             }
         }
+        *prev_master_gain = master_gain;
         // Denormal hygiene for non-FTZ targets (wasm): flush decayed DC state
         // once per chunk.
         for st in master_dc.iter_mut().take(output_channels) {
             *st = ftz(*st, 1.0e-12);
+        }
+        if bass_mono_on {
+            for st in bass_mono_lp.iter_mut().take(output_channels) {
+                *st = ftz(*st, 1.0e-12);
+            }
         }
 
         #[cfg(all(feature = "native", feature = "profiling"))]
@@ -2419,6 +2583,9 @@ impl Engine {
             self.metrics
                 .schedule_depth
                 .store(self.schedule.len() as u32, Ordering::Relaxed);
+            // Single consumer of the limiter's hold: reading resets it, so the
+            // readout is "peak reduction since the last block", not cumulative.
+            self.metrics.set_limiter_gr(self.limiter.take_reduction());
             self.metrics
                 .time_bits
                 .store(self.time.to_bits(), Ordering::Relaxed);
@@ -2486,6 +2653,48 @@ impl Engine {
         }
     }
 
+    /// Set the master output level, linear, clamped to `0..=MASTER_GAIN_MAX`.
+    /// Non-finite values are ignored. The move is ramped over the next chunk,
+    /// so this is safe to call live. Applied before the limiter's peak
+    /// detector, so a boost cannot escape the master safety chain.
+    pub fn set_master_gain(&mut self, gain: f32) {
+        if gain.is_finite() {
+            self.master_gain = gain.clamp(0.0, MASTER_GAIN_MAX);
+        }
+    }
+
+    /// The current master output level (post-clamp).
+    pub fn master_gain(&self) -> f32 {
+        self.master_gain
+    }
+
+    /// Set the bass-mono crossover corner in Hz; 0 (the default) disables the
+    /// stage. Below the corner the stereo image collapses to centre, so a
+    /// summed sub array cannot phase-cancel the low end. Clamped to
+    /// `0..=BASS_MONO_MAX_HZ`; non-finite values are ignored.
+    pub fn set_bass_mono(&mut self, hz: f32) {
+        if !hz.is_finite() {
+            return;
+        }
+        let hz = hz.clamp(0.0, BASS_MONO_MAX_HZ);
+        if hz == self.bass_mono_hz {
+            return;
+        }
+        self.bass_mono_hz = hz;
+        // Same bilinear one-pole as the master DC blocker.
+        let w = std::f32::consts::PI * hz / self.sample_rate();
+        self.bass_mono_coeff = (2.0 * w) / (1.0 + 2.0 * w);
+        // Turning the stage off leaves stale low-band state behind; clear it so
+        // re-enabling starts from silence instead of a frozen DC step.
+        if hz == 0.0 {
+            self.bass_mono_lp = [0.0; MAX_OUTPUT_CHANNELS];
+        }
+    }
+
+    /// The current bass-mono corner in Hz (0 = off).
+    pub fn bass_mono(&self) -> f32 {
+        self.bass_mono_hz
+    }
     pub fn hush(&mut self) {
         for i in 0..self.active_voices {
             self.voices[i].force_release();
@@ -2821,6 +3030,237 @@ mod tests {
         assert!(
             (3000.0..=5000.0).contains(&v),
             "chain did not tick the lane: {v}"
+        );
+    }
+
+    // === Master output level ===
+
+    #[cfg(feature = "native")]
+    fn render_blocks(engine: &mut Engine, seconds: f32) {
+        let blocks =
+            ((engine.sample_rate() * seconds) / engine.host_buffer_size() as f32).ceil() as usize;
+        for _ in 0..blocks {
+            engine.dsp();
+        }
+    }
+
+    #[test]
+    fn master_gain_clamps_to_its_range() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.set_master_gain(9.0);
+        assert_eq!(engine.master_gain(), MASTER_GAIN_MAX);
+        engine.set_master_gain(-1.0);
+        assert_eq!(engine.master_gain(), 0.0);
+        // Non-finite is ignored rather than latched.
+        engine.set_master_gain(0.5);
+        engine.set_master_gain(f32::NAN);
+        assert_eq!(engine.master_gain(), 0.5);
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn master_gain_zero_silences_the_output() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.evaluate("sound/sine/gain/1");
+        engine.set_master_gain(0.0);
+        render_blocks(&mut engine, 0.2);
+        let mut out = vec![0.0f32; engine.host_buffer_size() * 2];
+        engine.process_block(&mut out, &[], &[]);
+        assert!(
+            out.iter().all(|s| *s == 0.0),
+            "master gain 0 must mute; peak was {}",
+            out.iter().fold(0.0f32, |a, s| a.max(s.abs()))
+        );
+    }
+
+    // The ordering test, and the reason the master level sits where it does:
+    // it is applied BEFORE the limiter's peak detector, so a boost drives the
+    // limiter instead of escaping it. Move the multiply after peak detection
+    // and this fails with zero reduction. The source is picked to sit just
+    // under the ceiling at unity (~0.49) and just over it at 2x.
+    #[cfg(feature = "native")]
+    #[test]
+    fn boosted_master_still_reaches_the_limiter() {
+        fn gr_at(master: f32) -> f32 {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.evaluate("sound/sine/gain/1/postgain/3");
+            engine.set_master_gain(master);
+            render_blocks(&mut engine, 0.2);
+            engine.metrics().take_limiter_gr()
+        }
+
+        assert_eq!(gr_at(1.0), 0.0, "this source must not limit at unity");
+        assert!(
+            gr_at(MASTER_GAIN_MAX) > 0.0,
+            "the limiter must see the boosted master"
+        );
+    }
+
+    // The engine writes gain reduction far faster than a UI reads it, so the
+    // readout accumulates a maximum and clears on read. A plain store would let
+    // a limiting event land and vanish between two frames.
+    #[cfg(feature = "native")]
+    #[test]
+    fn limiter_gr_survives_until_it_is_read() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        engine.evaluate("sound/sine/gain/1/postgain/3");
+        engine.set_master_gain(MASTER_GAIN_MAX);
+        render_blocks(&mut engine, 0.2);
+        // Quiet again: many blocks pass with no reduction at all.
+        engine.hush();
+        render_blocks(&mut engine, 0.5);
+        assert!(
+            engine.metrics().take_limiter_gr() > 0.0,
+            "the peak must hold across blocks until a reader takes it"
+        );
+        assert_eq!(
+            engine.metrics().take_limiter_gr(),
+            0.0,
+            "taking it must clear the accumulator"
+        );
+    }
+
+    #[test]
+    fn master_ceiling_is_the_clipped_limiter_threshold() {
+        let ceiling = master_ceiling();
+        assert!(
+            (0.5..1.0).contains(&ceiling),
+            "ceiling {ceiling} is not a plausible output bound"
+        );
+        assert_eq!(ceiling, soft_clip_sample(effects::LIMITER_THRESHOLD));
+    }
+
+    // === Bass mono ===
+
+    #[test]
+    fn bass_mono_clamps_and_reports_its_corner() {
+        let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+        assert_eq!(engine.bass_mono(), 0.0, "off by default");
+        engine.set_bass_mono(9_000.0);
+        assert_eq!(engine.bass_mono(), BASS_MONO_MAX_HZ);
+        engine.set_bass_mono(-5.0);
+        assert_eq!(engine.bass_mono(), 0.0);
+        engine.set_bass_mono(120.0);
+        engine.set_bass_mono(f32::NAN);
+        assert_eq!(engine.bass_mono(), 120.0);
+    }
+
+    // The load-bearing property: the crossover discards only the low-band
+    // *difference*, so what a mono PA hears is unchanged. A club sums to mono in
+    // the sub array, and a bass-mono stage that altered that sum would be
+    // changing the mix rather than protecting it. The source is kept quiet on
+    // purpose: the master tanh downstream is nonlinear, so it redistributes a
+    // hot signal slightly when energy moves between channels, and the invariant
+    // belongs to the crossover, not to the safety clip.
+    #[cfg(feature = "native")]
+    #[test]
+    fn bass_mono_preserves_the_mono_sum() {
+        fn mono_sum(bass_mono: f32) -> Vec<f32> {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.set_bass_mono(bass_mono);
+            engine.evaluate("sound/sine/freq/40/gain/0.1/pan/0");
+            render_blocks(&mut engine, 0.3);
+            let mut out = vec![0.0f32; engine.host_buffer_size() * 2];
+            engine.process_block(&mut out, &[], &[]);
+            out.chunks_exact(2).map(|f| f[0] + f[1]).collect()
+        }
+
+        let off = mono_sum(0.0);
+        let on = mono_sum(200.0);
+        assert!(off.iter().any(|s| s.abs() > 1e-4), "test signal was silent");
+        for (i, (a, b)) in off.iter().zip(&on).enumerate() {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "frame {i}: bass mono changed the mono sum, {a} vs {b}"
+            );
+        }
+    }
+
+    // === Compressor ===
+
+    // With no `comporbit` the detector is the orbit's own bus, so a bare `comp`
+    // glues. It used to default to orbit 0, which meant an unrelated orbit's
+    // material ducked yours by accident.
+    #[cfg(feature = "native")]
+    #[test]
+    fn comp_without_comporbit_compresses_itself() {
+        fn peak_on_orbit_1(extra: &str) -> f32 {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.evaluate(&format!("sound/sine/orbit/1/gain/1/postgain/3{extra}"));
+            render_blocks(&mut engine, 0.3);
+            let mut out = vec![0.0f32; engine.host_buffer_size() * 2];
+            engine.process_block(&mut out, &[], &[]);
+            out.iter().fold(0.0f32, |a, s| a.max(s.abs()))
+        }
+
+        let open = peak_on_orbit_1("");
+        // Orbit 0 is silent, so under the old orbit-0 default this would not
+        // have compressed at all.
+        let glued = peak_on_orbit_1("/comp/1/compthresh/-30/compratio/8");
+        assert!(
+            glued < open * 0.8,
+            "a bare comp must compress this orbit: open {open}, glued {glued}"
+        );
+    }
+
+    // === Room routing keeps the compressor ===
+
+    // A room-routed orbit used to be skipped wholesale by the stereo-pair pass,
+    // which took its compressor and its recorder with it. Pass 3 now runs the
+    // same gain helper, so ducking survives the room latch. Measured on the far
+    // channels, which only the room spread reaches.
+    #[cfg(feature = "native")]
+    #[test]
+    fn a_room_routed_orbit_still_ducks() {
+        fn room_energy(sidechain_loud: bool) -> f32 {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 8));
+            if sidechain_loud {
+                engine.evaluate("sound/sine/orbit/0/freq/60/gain/1");
+            }
+            // superpan with no pan dry, plus an FX send, is what latches the room.
+            // The threshold is set well under the bus level so the detector
+            // actually engages on this test signal.
+            engine.evaluate(
+                "sound/sine/orbit/1/freq/440/gain/1/superpan/0.5/verb/0.4\
+                 /comp/1/comporbit/0/compthresh/-40/compratio/8",
+            );
+            render_blocks(&mut engine, 0.4);
+            let mut out = vec![0.0f32; engine.host_buffer_size() * 8];
+            engine.process_block(&mut out, &[], &[]);
+            out.chunks_exact(8)
+                .map(|f| f[4..8].iter().map(|s| s.abs()).sum::<f32>())
+                .sum()
+        }
+
+        let open = room_energy(false);
+        assert!(open > 0.0, "the room spread must reach the far channels");
+        let ducked = room_energy(true);
+        assert!(
+            ducked < open * 0.9,
+            "a room-routed orbit's compressor must still duck: open {open}, ducked {ducked}"
+        );
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn bass_mono_centres_a_panned_low_tone() {
+        // A hard-left sub tone: with the crossover on, the right channel has to
+        // carry it too, which is the whole point of the stage.
+        fn right_energy(bass_mono: f32) -> f32 {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.set_bass_mono(bass_mono);
+            engine.evaluate("sound/sine/freq/40/gain/1/pan/0");
+            render_blocks(&mut engine, 0.3);
+            let mut out = vec![0.0f32; engine.host_buffer_size() * 2];
+            engine.process_block(&mut out, &[], &[]);
+            out.chunks_exact(2).map(|f| f[1].abs()).sum()
+        }
+
+        let off = right_energy(0.0);
+        let on = right_energy(200.0);
+        assert!(
+            on > off * 4.0,
+            "bass mono must move a panned sub to the centre: off {off}, on {on}"
         );
     }
 }
