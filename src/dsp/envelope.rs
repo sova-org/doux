@@ -213,21 +213,19 @@ impl Dahdsr {
                 if self.check_gate() {
                     return self.current_val;
                 }
+                // Fade from the retrigger value toward 0 across the delay. With no
+                // delay there is nothing to fade, so hold and let attack take over:
+                // dropping to 0 here would be a one-sample notch on every retrigger.
+                self.current_val = if self.start_val > 0.0 && delay > 0.0 {
+                    lerp(self.phase_time / delay, self.start_val, 0.0, 0.0)
+                } else {
+                    self.start_val
+                };
                 if delay <= 0.0 || self.phase_time >= delay {
                     self.state = DahdsrState::Attack;
                     self.phase_time = 0.0;
-                }
-                self.current_val = lerp(0.0, self.start_val, 0.0, 0.0);
-                // During delay, fade from retrigger value toward 0
-                if self.start_val > 0.0 {
-                    let t = if delay > 0.0 {
-                        self.phase_time / delay
-                    } else {
-                        1.0
-                    };
-                    self.current_val = lerp(t, self.start_val, 0.0, 0.0);
-                } else {
-                    self.current_val = 0.0;
+                    // Attack resumes where the delay left off, not where it started.
+                    self.start_val = self.current_val;
                 }
                 self.current_val
             }
@@ -627,5 +625,52 @@ mod tests {
         }
         assert!(!env.is_off(), "set_gate(0) keeps infinite sustain");
         assert!(matches!(env.state, DahdsrState::Sustain));
+    }
+
+    // Mono lines (`voice 0` + a source name) retrigger a still-sounding voice.
+    // `trigger` anchors `start_val` to `current_val` for exactly this reason;
+    // the Delay phase must not undo it.
+    #[test]
+    fn retrigger_while_sounding_no_click() {
+        let mut env = Dahdsr::default();
+        let isr = 1.0 / 44100.0;
+        let mut samples = Vec::new();
+
+        env.trigger(0.0);
+        for _ in 0..10000 {
+            samples.push(env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01));
+        }
+        assert!(matches!(env.state, DahdsrState::Sustain));
+
+        env.trigger(0.0);
+        for _ in 0..10000 {
+            samples.push(env.update(isr, 0.0, 0.01, 0.0, 0.05, 0.5, 0.01));
+        }
+
+        let max_delta = max_discontinuity(&samples);
+        assert!(max_delta < 0.01, "Discontinuity: max delta = {}", max_delta);
+    }
+
+    // With a delay the envelope fades toward 0 first, so attack has to resume
+    // from the faded value rather than jumping back to the retrigger level.
+    #[test]
+    fn retrigger_with_envdelay_no_click() {
+        let mut env = Dahdsr::default();
+        let isr = 1.0 / 44100.0;
+        let mut samples = Vec::new();
+
+        env.trigger(0.0);
+        for _ in 0..10000 {
+            samples.push(env.update(isr, 0.01, 0.01, 0.0, 0.05, 0.5, 0.01));
+        }
+        assert!(matches!(env.state, DahdsrState::Sustain));
+
+        env.trigger(0.0);
+        for _ in 0..10000 {
+            samples.push(env.update(isr, 0.01, 0.01, 0.0, 0.05, 0.5, 0.01));
+        }
+
+        let max_delta = max_discontinuity(&samples);
+        assert!(max_delta < 0.01, "Discontinuity: max delta = {}", max_delta);
     }
 }
