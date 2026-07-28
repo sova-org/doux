@@ -22,6 +22,14 @@ pub struct SampleData {
     pub frame_count: u32,
     /// Total frames in the original file (may differ from frame_count for head preloads).
     pub total_frames: u32,
+    /// Wavetable cycle length the file declares, in source-file samples.
+    /// `0` when the file is not a wavetable.
+    pub wt_cycle_len: u32,
+    /// Buffer frames per source-file frame (`target_sr / source_sr`), `1.0` when
+    /// the file was not resampled. Cycle lengths are quoted in source-file
+    /// samples, so they scale by this. Not to be confused with
+    /// `RegistrySample::sr_ratio`, which is the inverse and feeds playback speed.
+    pub resample_ratio: f32,
 }
 
 impl SampleData {
@@ -35,6 +43,8 @@ impl SampleData {
             freq,
             frame_count,
             total_frames: frame_count,
+            wt_cycle_len: 0,
+            resample_ratio: 1.0,
         }
     }
 
@@ -48,7 +58,34 @@ impl SampleData {
             freq,
             frame_count,
             total_frames,
+            wt_cycle_len: 0,
+            resample_ratio: 1.0,
         }
+    }
+
+    /// Tags decoded data with what the file says about its wavetable layout.
+    pub fn with_wavetable(mut self, wt_cycle_len: u32, resample_ratio: f32) -> Self {
+        self.wt_cycle_len = wt_cycle_len;
+        self.resample_ratio = resample_ratio;
+        self
+    }
+
+    /// Cycle length in stored-buffer frames, resampling accounted for.
+    ///
+    /// `override_len` is the caller's cycle length in source-file samples, `0`
+    /// to use whatever the file declared. Falls back to the whole buffer as a
+    /// single cycle, which is what a one-cycle waveform file wants.
+    #[inline]
+    pub fn cycle_frames(&self, override_len: u32) -> f32 {
+        let source_len = if override_len > 0 {
+            override_len
+        } else {
+            self.wt_cycle_len
+        };
+        if source_len == 0 {
+            return self.frame_count as f32;
+        }
+        source_len as f32 * self.resample_ratio
     }
 
     /// Reads a sample at the given frame and channel with 4-tap cubic Hermite interpolation.

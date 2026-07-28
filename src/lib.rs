@@ -1210,6 +1210,11 @@ impl Engine {
             .and_then(|name| self.patch_registry.get(name))
             .filter(|e| e.is_effect());
 
+        // The `wtlen` key is what asks for wavetable playback, whatever its value;
+        // `0` means "take the cycle length from the file". `scan` is an ordinary
+        // parameter, so it cannot change a voice's source on its own.
+        let wants_wavetable = event.wtlen.is_some();
+
         #[cfg(feature = "native")]
         let (registry_sample_data, registry_sample_data_b, sample_blend) =
             if let Some(ref sound_str) = event.sound {
@@ -1566,7 +1571,8 @@ impl Engine {
         }
         copy_opt_some!(event, v.params, cut);
 
-        // Wavetable scan parameter
+        // Wavetable geometry. `wtlen` doubles as the mode switch, resolved into
+        // `wants_wavetable` above; here it is only the cycle-length override.
         if let Some(scan) = event.scan {
             v.params.scan = scan.clamp(0.0, 1.0);
         }
@@ -1630,10 +1636,7 @@ impl Engine {
         // Sample playback via lock-free registry (native)
         #[cfg(feature = "native")]
         if let Some((sample_name, sample_data)) = registry_sample_data {
-            // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
-            let has_scan =
-                event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
-            v.params.sound = if has_scan {
+            v.params.sound = if wants_wavetable {
                 Source::Wavetable
             } else {
                 Source::Sample
@@ -1682,10 +1685,7 @@ impl Engine {
         if let Some(sample_idx) = loaded_sample {
             if let Some(info) = self.samples.get(sample_idx) {
                 use sampling::FileSource;
-                // Use Wavetable mode if scan param present (static or modulated), otherwise Sample
-                let has_scan =
-                    event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
-                v.params.sound = if has_scan {
+                v.params.sound = if wants_wavetable {
                     Source::Wavetable
                 } else {
                     Source::Sample
@@ -1717,10 +1717,7 @@ impl Engine {
         if let (Some(offset), Some(frames)) = (event.file_pcm, event.file_frames) {
             use sampling::WebSampleSource;
             let (begin, end) = event.resolve_range();
-            // Use Wavetable mode if scan param present (static or modulated), otherwise WebSample
-            let has_scan =
-                event.scan.is_some() || event.mods.iter().any(|(id, _)| *id == ParamId::Scan);
-            v.params.sound = if has_scan {
+            v.params.sound = if wants_wavetable {
                 Source::Wavetable
             } else {
                 Source::WebSample
@@ -3265,3 +3262,4 @@ mod tests {
         );
     }
 }
+

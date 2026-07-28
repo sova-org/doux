@@ -26,6 +26,7 @@
 //! startup fast even with large sample libraries.
 
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -208,13 +209,100 @@ pub fn decode_sample_file(path: &Path, target_sr: f32) -> Result<SampleData, Str
         return Err("No samples decoded".to_string());
     }
 
-    let resampled = if (sample_rate - target_sr).abs() > 1.0 {
-        resample_linear(&samples, channels as usize, sample_rate, target_sr)
+    // This decoder reads the whole file, so its own length is the source length.
+    let source_frames = (samples.len() / channels as usize) as u32;
+    let (resampled, resample_ratio) = if (sample_rate - target_sr).abs() > 1.0 {
+        (
+            resample_linear(&samples, channels as usize, sample_rate, target_sr),
+            target_sr / sample_rate,
+        )
     } else {
-        samples
+        (samples, 1.0)
     };
 
-    Ok(SampleData::new(resampled, channels, DEFAULT_BASE_FREQ))
+    Ok(
+        SampleData::new(resampled, channels, DEFAULT_BASE_FREQ).with_wavetable(
+            wavetable_cycle_len(path, Some(source_frames)),
+            resample_ratio,
+        ),
+    )
+}
+
+/// Serum's cycle length, and the de facto standard for wavetable packs.
+const SERUM_CYCLE: u32 = 2048;
+
+/// Bytes of a file header searched for the `clm ` chunk. The chunk sits with
+/// `fmt ` ahead of `data` in every exporter that writes one.
+const HEADER_SCAN_BYTES: u64 = 4096;
+
+/// Cycle length a WAV declares for itself, in source-file samples.
+///
+/// Serum-family exporters write a RIFF `clm ` chunk whose payload reads
+/// `<!>2048 20000000 wavetable (www.xferrecords.com)`. Anything else, including
+/// an unreadable file or a non-WAV, is `None`.
+fn declared_cycle_len(path: &Path) -> Option<u32> {
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+    {
+        return None;
+    }
+
+    let mut head = Vec::new();
+    File::open(path)
+        .ok()?
+        .take(HEADER_SCAN_BYTES)
+        .read_to_end(&mut head)
+        .ok()?;
+
+    if head.len() < 12 || &head[0..4] != b"RIFF" || &head[8..12] != b"WAVE" {
+        return None;
+    }
+
+    let mut pos = 12;
+    while pos + 8 <= head.len() {
+        let size = u32::from_le_bytes(head[pos + 4..pos + 8].try_into().ok()?) as usize;
+        let body = pos + 8;
+        if &head[pos..pos + 4] == b"clm " {
+            let end = body.saturating_add(size).min(head.len());
+            return parse_clm(&head[body..end]);
+        }
+        // Chunk bodies are padded to an even length.
+        pos = body.saturating_add(size).saturating_add(size & 1);
+    }
+    None
+}
+
+/// Reads the leading integer out of a `clm ` payload.
+fn parse_clm(body: &[u8]) -> Option<u32> {
+    let digits = std::str::from_utf8(body).ok()?.strip_prefix("<!>")?;
+    let end = digits
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(digits.len());
+    digits[..end].parse().ok()
+}
+
+/// Wavetable cycle length for a file, in source-file samples, `0` when the file
+/// is not a wavetable.
+///
+/// The file's own declaration wins. Without one, a length that divides evenly
+/// into [`SERUM_CYCLE`] frames is taken as a pack that simply omitted the chunk.
+/// A file exactly one cycle long stays `0`: the whole buffer is the cycle.
+///
+/// `source_frames` must be the length of the whole original file. A decoded
+/// length will not do: [`decode_sample_head`] truncates to [`HEAD_FRAMES`],
+/// itself a multiple of [`SERUM_CYCLE`], so the fallback would tag every long
+/// sample in the library as a wavetable. `None` declines the fallback.
+fn wavetable_cycle_len(path: &Path, source_frames: Option<u32>) -> u32 {
+    if let Some(declared) = declared_cycle_len(path) {
+        if declared >= 2 && source_frames.is_none_or(|frames| declared <= frames) {
+            return declared;
+        }
+    }
+    match source_frames {
+        Some(frames) if frames > SERUM_CYCLE && frames % SERUM_CYCLE == 0 => SERUM_CYCLE,
+        _ => 0,
+    }
 }
 
 /// Maximum frames to decode for head preloading (~93ms at 44.1kHz).
@@ -309,6 +397,11 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
     }
 
     let resample = (sample_rate - target_sr).abs() > 1.0;
+    let resample_ratio = if resample {
+        target_sr / sample_rate
+    } else {
+        1.0
+    };
     let resampled = if resample {
         resample_linear(&samples, channels as usize, sample_rate, target_sr)
     } else {
@@ -319,7 +412,7 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
     let total_frames = match file_n_frames {
         Some(n) => {
             let n = if resample {
-                (n as f32 * target_sr / sample_rate) as u32
+                (n as f32 * resample_ratio) as u32
             } else {
                 n as u32
             };
@@ -328,12 +421,16 @@ pub fn decode_sample_head(path: &Path, target_sr: f32) -> Result<SampleData, Str
         None => decoded_frames,
     };
 
-    Ok(SampleData::new_head(
-        resampled,
-        channels,
-        DEFAULT_BASE_FREQ,
-        total_frames,
-    ))
+    // Only the whole file's length can drive cycle detection; the head we just
+    // decoded is truncated to a multiple of SERUM_CYCLE by construction.
+    let source_frames = file_n_frames.map(|n| n as u32);
+
+    Ok(
+        SampleData::new_head(resampled, channels, DEFAULT_BASE_FREQ, total_frames).with_wavetable(
+            wavetable_cycle_len(path, source_frames),
+            resample_ratio,
+        ),
+    )
 }
 
 /// Resamples interleaved audio using linear interpolation.
@@ -366,3 +463,120 @@ pub(crate) fn resample_linear(
 
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Builds a minimal WAV header, optionally carrying a `clm ` chunk.
+    fn wav_header(clm: Option<&str>) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&0u32.to_le_bytes()); // size, unread
+        out.extend_from_slice(b"WAVE");
+
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&[0; 16]);
+
+        if let Some(text) = clm {
+            out.extend_from_slice(b"clm ");
+            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            out.extend_from_slice(text.as_bytes());
+            if text.len() % 2 == 1 {
+                out.push(0);
+            }
+        }
+
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out
+    }
+
+    fn write_temp(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let mut f = File::create(&path).expect("temp file");
+        f.write_all(bytes).expect("write temp file");
+        path
+    }
+
+    #[test]
+    fn clm_chunk_yields_cycle_length() {
+        let path = write_temp(
+            "doux_clm_serum.wav",
+            &wav_header(Some("<!>2048 20000000 wavetable (www.xferrecords.com)")),
+        );
+        assert_eq!(declared_cycle_len(&path), Some(2048));
+    }
+
+    #[test]
+    fn wav_without_clm_chunk_declares_nothing() {
+        let path = write_temp("doux_clm_absent.wav", &wav_header(None));
+        assert_eq!(declared_cycle_len(&path), None);
+    }
+
+    #[test]
+    fn malformed_clm_payloads_do_not_panic() {
+        for (name, payload) in [
+            ("doux_clm_empty.wav", ""),
+            ("doux_clm_noprefix.wav", "2048 wavetable"),
+            ("doux_clm_nodigits.wav", "<!>wavetable"),
+            ("doux_clm_huge.wav", "<!>99999999999999999999"),
+        ] {
+            let path = write_temp(name, &wav_header(Some(payload)));
+            assert_eq!(declared_cycle_len(&path), None, "payload {payload:?}");
+        }
+    }
+
+    #[test]
+    fn truncated_header_declares_nothing() {
+        let full = wav_header(Some("<!>2048 wavetable"));
+        let path = write_temp("doux_clm_truncated.wav", &full[..20]);
+        assert_eq!(declared_cycle_len(&path), None);
+    }
+
+    #[test]
+    fn non_wav_extension_is_skipped() {
+        let path = write_temp("doux_clm_wrong_ext.mp3", &wav_header(Some("<!>2048 x")));
+        assert_eq!(declared_cycle_len(&path), None);
+    }
+
+    #[test]
+    fn undeclared_pack_falls_back_to_serum_cycle() {
+        let path = write_temp("doux_fallback.wav", &wav_header(None));
+        assert_eq!(wavetable_cycle_len(&path, Some(16 * SERUM_CYCLE)), SERUM_CYCLE);
+    }
+
+    #[test]
+    fn single_cycle_file_stays_undeclared() {
+        let path = write_temp("doux_single_cycle.wav", &wav_header(None));
+        // Exactly one cycle long, and any length that is not a whole number of
+        // cycles, both mean "the whole buffer is the cycle".
+        assert_eq!(wavetable_cycle_len(&path, Some(SERUM_CYCLE)), 0);
+        assert_eq!(wavetable_cycle_len(&path, Some(600)), 0);
+    }
+
+    #[test]
+    fn declaration_longer_than_the_file_is_rejected() {
+        let path = write_temp("doux_clm_too_long.wav", &wav_header(Some("<!>2048 x")));
+        assert_eq!(wavetable_cycle_len(&path, Some(512)), 0);
+    }
+
+    #[test]
+    fn cycle_frames_scales_by_resampling() {
+        let data =
+            SampleData::new(vec![0.0; 8192], 1, 261.626).with_wavetable(2048, 48000.0 / 44100.0);
+        // 2048 source samples become 2048 * 48000/44100 stored frames.
+        assert!((data.cycle_frames(0) - 2229.12).abs() < 0.1);
+        // A caller override is quoted in source-file samples too.
+        assert!((data.cycle_frames(1024) - 1114.56).abs() < 0.1);
+    }
+
+    #[test]
+    fn cycle_frames_falls_back_to_the_whole_buffer() {
+        let data = SampleData::new(vec![0.0; 600], 1, 261.626);
+        assert_eq!(data.cycle_frames(0), 600.0);
+    }
+}
+

@@ -43,6 +43,67 @@ fn scan_xfade(blend: f32) -> f32 {
     blend * blend * (3.0 - 2.0 * blend)
 }
 
+/// Cycle length for a buffer that carries no declaration of its own, as the
+/// WASM and web pools do: the caller's `wtlen`, else the whole buffer.
+#[cfg(not(feature = "native"))]
+#[inline]
+fn cycle_len_or_whole(override_len: u32, frame_count: f32) -> f32 {
+    if override_len > 0 {
+        override_len as f32
+    } else {
+        frame_count
+    }
+}
+
+/// One wavetable output frame: two adjacent cycles read at the same shaped
+/// phase, smoothstep-blended by the fractional part of the scan position.
+///
+/// `read(pos, channel)` is the only platform-specific part. It clamps
+/// out-of-range taps rather than wrapping: a wrap is modulo the whole file, so
+/// the last cycle's tail would fold onto the file's first frame.
+///
+/// Deliberately not wrapping taps within a cycle either. After resampling a
+/// cycle boundary no longer lands on a frame, so a per-cycle wrap would be
+/// approximate; instead each cycle smears about two frames of its neighbour at
+/// the seam, which is one interpolation window wide.
+#[inline]
+fn wavetable_frame(
+    scan: f32,
+    phase: f32,
+    frame_count: f32,
+    cycle_len: f32,
+    channels: usize,
+    read: impl Fn(f32, usize) -> f32,
+) -> [f32; CHANNELS] {
+    let mut out = [0.0; CHANNELS];
+    // Also rejects NaN, which a zero-length buffer would otherwise divide into.
+    let usable = cycle_len > 0.0 && frame_count > 0.0;
+    if !usable {
+        return out;
+    }
+
+    // The tolerance keeps the last cycle reachable: resampling leaves
+    // frame_count a hair under a whole number of cycles (255.9997, not 256).
+    let num_cycles = (frame_count / cycle_len + 1e-3).floor().max(1.0);
+    let scan_pos = scan.clamp(0.0, 1.0) * (num_cycles - 1.0);
+    let cycle_a = scan_pos.floor();
+    let cycle_b = (cycle_a + 1.0).min(num_cycles - 1.0);
+    let blend = scan_xfade(scan_pos.fract());
+
+    let offset = phase * cycle_len;
+    let pos_a = cycle_a * cycle_len + offset;
+    let pos_b = cycle_b * cycle_len + offset;
+
+    let channels = channels.max(1);
+    for (c, slot) in out.iter_mut().enumerate() {
+        let ch = c.min(channels - 1);
+        let a = read(pos_a, ch);
+        let b = read(pos_b, ch);
+        *slot = (a + blend * (b - a)) * 0.5;
+    }
+    out
+}
+
 #[inline]
 fn osc_morph_at(phase: f32, dt: f32, wave: f32, shape: &PhaseShape) -> f32 {
     let w = wave.clamp(0.0, 1.0) * 3.0;
@@ -764,51 +825,38 @@ impl Voice {
         }
     }
 
+    /// Registry samples know the cycle length their file declared, so `wtlen`
+    /// is only an override here.
+    ///
+    /// The first trigger of a file that is still head-preloaded sees a table a
+    /// fraction of its real length: `floor(HEAD_FRAMES / cycle)` cycles instead
+    /// of the file's own count. `Engine::process_block` upgrades the voice in
+    /// place as soon as the full decode lands, so it corrects itself mid-note,
+    /// and at `scan` 0 both read cycle 0 and the output is identical either way.
     #[cfg(feature = "native")]
-    #[allow(clippy::needless_range_loop)]
     fn run_wavetable(&mut self, freq: f32, isr: f32) -> [f32; CHANNELS] {
-        // Compute modulated scan before borrowing registry_sample
-        let scan = self.get_modulated_scan();
-        let mut out = [0.0; CHANNELS];
+        let scan = self.params.scan;
+        let phase = self.shape_phase(self.phasor.phase);
+        let override_len = self.params.wt_cycle_len;
 
-        if let Some(ref rs) = self.registry_sample {
-            let frame_count = rs.data.frame_count as f32;
+        let Some(ref rs) = self.registry_sample else {
+            return [0.0; CHANNELS];
+        };
+        let out = wavetable_frame(
+            scan,
+            phase,
+            rs.data.frame_count as f32,
+            rs.data.cycle_frames(override_len),
+            rs.data.channels as usize,
+            |pos, ch| rs.data.read_interpolated(pos, ch),
+        );
 
-            let cycle_len = if self.params.wt_cycle_len > 0 {
-                self.params.wt_cycle_len as f32
-            } else {
-                frame_count
-            };
-
-            let num_cycles = (frame_count / cycle_len).floor().max(1.0);
-
-            let phase = self.shape_phase(self.phasor.phase);
-
-            let scan_pos = scan * (num_cycles - 1.0);
-            let cycle_a = scan_pos.floor() as usize;
-            let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-            let blend = scan_xfade(scan_pos.fract());
-
-            let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
-            let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
-
-            let channels = rs.data.channels as usize;
-            for c in 0..CHANNELS {
-                let ch = c.min(channels - 1);
-                let sample_a = rs.data.read_interpolated(pos_a, ch);
-                let sample_b = rs.data.read_interpolated(pos_b, ch);
-                out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
-            }
-
-            self.phasor.update(freq, isr);
-        }
+        self.phasor.update(freq, isr);
         out
     }
 
-    fn get_modulated_scan(&self) -> f32 {
-        self.params.scan.clamp(0.0, 1.0)
-    }
-
+    /// The WASM pool carries no file metadata, so there is nothing to detect a
+    /// cycle length from: `wtlen` or the whole buffer.
     #[cfg(not(feature = "native"))]
     fn run_wavetable_wasm(
         &mut self,
@@ -817,85 +865,60 @@ impl Voice {
         pool: &[f32],
         samples: &[SampleInfo],
     ) -> [f32; CHANNELS] {
-        let scan = self.get_modulated_scan();
-        let mut out = [0.0; CHANNELS];
+        let scan = self.params.scan;
+        let phase = self.shape_phase(self.phasor.phase);
+        let override_len = self.params.wt_cycle_len;
 
-        if let Some(ref fs) = self.file_source {
-            if let Some(info) = samples.get(fs.sample_idx) {
-                let frame_count = info.frames as f32;
-                let channels = info.channels as usize;
-                let offset = info.offset;
+        let Some(ref fs) = self.file_source else {
+            return [0.0; CHANNELS];
+        };
+        let Some(info) = samples.get(fs.sample_idx) else {
+            return [0.0; CHANNELS];
+        };
+        let frame_count = info.frames as f32;
+        let channels = (info.channels as usize).max(1);
+        let frames = info.frames as usize;
+        let offset = info.offset;
 
-                let cycle_len = if self.params.wt_cycle_len > 0 {
-                    self.params.wt_cycle_len as f32
-                } else {
-                    frame_count
-                };
+        let out = wavetable_frame(
+            scan,
+            phase,
+            frame_count,
+            cycle_len_or_whole(override_len, frame_count),
+            channels,
+            |pos, ch| read_interpolated(pool, offset, channels, frames, pos, ch),
+        );
 
-                let num_cycles = (frame_count / cycle_len).floor().max(1.0);
-
-                let phase = self.shape_phase(self.phasor.phase);
-
-                let scan_pos = scan * (num_cycles - 1.0);
-                let cycle_a = scan_pos.floor() as usize;
-                let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-                let blend = scan_xfade(scan_pos.fract());
-
-                let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
-                let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
-
-                let frames = frame_count as usize;
-                for c in 0..CHANNELS {
-                    let ch = c.min(channels - 1);
-                    let sample_a = read_interpolated(pool, offset, channels, frames, pos_a, ch);
-                    let sample_b = read_interpolated(pool, offset, channels, frames, pos_b, ch);
-                    out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
-                }
-
-                self.phasor.update(freq, isr);
-            }
-        }
+        self.phasor.update(freq, isr);
         out
     }
 
+    /// Web PCM comes from JavaScript with no file to inspect, so cycle length is
+    /// `wtlen` or the whole buffer.
     #[cfg(not(feature = "native"))]
     fn run_wavetable_web(&mut self, freq: f32, isr: f32, web_pcm: &[f32]) -> [f32; CHANNELS] {
-        let scan = self.get_modulated_scan();
-        let mut out = [0.0; CHANNELS];
+        let scan = self.params.scan;
+        let phase = self.shape_phase(self.phasor.phase);
+        let override_len = self.params.wt_cycle_len;
 
-        if let Some(ref ws) = self.web_sample {
-            let frame_count = ws.frame_count();
-            let channels = ws.info.channels as usize;
-            let offset = ws.info.offset;
+        let Some(ref ws) = self.web_sample else {
+            return [0.0; CHANNELS];
+        };
+        let frame_count = ws.frame_count();
+        let channels = (ws.info.channels as usize).max(1);
+        let frames = frame_count as usize;
+        let offset = ws.info.offset;
 
-            let cycle_len = if self.params.wt_cycle_len > 0 {
-                self.params.wt_cycle_len as f32
-            } else {
-                frame_count
-            };
+        let out = wavetable_frame(
+            scan,
+            phase,
+            frame_count,
+            cycle_len_or_whole(override_len, frame_count),
+            channels,
+            |pos, ch| read_interpolated(web_pcm, offset, channels, frames, pos, ch),
+        );
 
-            let num_cycles = (frame_count / cycle_len).floor().max(1.0);
-
-            let phase = self.shape_phase(self.phasor.phase);
-
-            let scan_pos = scan * (num_cycles - 1.0);
-            let cycle_a = scan_pos.floor() as usize;
-            let cycle_b = (cycle_a + 1).min(num_cycles as usize - 1);
-            let blend = scan_xfade(scan_pos.fract());
-
-            let pos_a = (cycle_a as f32 * cycle_len) + (phase * cycle_len);
-            let pos_b = (cycle_b as f32 * cycle_len) + (phase * cycle_len);
-
-            let frames = frame_count as usize;
-            for c in 0..CHANNELS {
-                let ch = c.min(channels - 1);
-                let sample_a = read_interpolated(web_pcm, offset, channels, frames, pos_a, ch);
-                let sample_b = read_interpolated(web_pcm, offset, channels, frames, pos_b, ch);
-                out[c] = (sample_a + blend * (sample_b - sample_a)) * 0.5;
-            }
-
-            self.phasor.update(freq, isr);
-        }
+        self.phasor.update(freq, isr);
         out
     }
 }
@@ -913,14 +936,17 @@ fn read_interpolated(
     if frames == 0 {
         return 0.0;
     }
-    let center = pos.floor() as usize % frames;
+    let last = frames - 1;
+    let center = (pos.floor() as usize).min(last);
     let frac = pos.fract();
 
-    // Wavetable wraparound: cycle through `frames` for all 4 taps.
-    let i0 = (center + frames - 1) % frames;
+    // Clamp, matching `SampleData::read_interpolated`. Wrapping here is modulo
+    // the whole file, which for a multi-cycle table folds the last cycle's tail
+    // onto the first frame.
+    let i0 = center.saturating_sub(1);
     let i1 = center;
-    let i2 = (center + 1) % frames;
-    let i3 = (center + 2) % frames;
+    let i2 = (center + 1).min(last);
+    let i3 = (center + 2).min(last);
 
     let read = |idx: usize| -> f32 {
         pool.get(offset + idx * channels + channel)
@@ -933,6 +959,62 @@ fn read_interpolated(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A table whose frame `k` holds the constant value `k`, so a read tells you
+    /// which cycle it landed in.
+    fn ramp_table(num_cycles: usize, cycle_len: usize) -> Vec<f32> {
+        (0..num_cycles)
+            .flat_map(|c| std::iter::repeat_n(c as f32, cycle_len))
+            .collect()
+    }
+
+    #[test]
+    fn scan_spans_the_whole_table() {
+        let (cycles, len) = (4, 64);
+        let table = ramp_table(cycles, len);
+        let read = |pos: f32, _ch: usize| table[(pos as usize).min(table.len() - 1)];
+        let frames = (cycles * len) as f32;
+
+        // `* 0.5` is the reader's fixed output trim.
+        let at = |scan| wavetable_frame(scan, 0.5, frames, len as f32, 1, read)[0] * 2.0;
+        assert_eq!(at(0.0), 0.0, "scan 0 reads the first cycle");
+        assert_eq!(at(1.0), (cycles - 1) as f32, "scan 1 reads the last cycle");
+        assert_eq!(at(1.0 / 3.0), 1.0, "scan divides evenly across cycles");
+    }
+
+    #[test]
+    fn resampling_does_not_cost_the_last_cycle() {
+        // 256 cycles of 2048 resampled 44.1k -> 48k leave frame_count a hair
+        // under a whole number of cycles; the last cycle must stay reachable.
+        let ratio = 48_000.0f32 / 44_100.0;
+        let cycle_len = 2048.0 * ratio;
+        let frames = (256.0f32 * 2048.0 * ratio).floor();
+
+        let seen = std::cell::Cell::new(0.0);
+        let read = |pos: f32, _ch: usize| {
+            seen.set(pos);
+            0.0
+        };
+        wavetable_frame(1.0, 0.0, frames, cycle_len, 1, read);
+        let last_cycle = (seen.get() / cycle_len).round();
+        assert_eq!(last_cycle, 255.0, "scan 1 must reach cycle 255, not 254");
+    }
+
+    #[test]
+    fn a_degenerate_table_is_silent_rather_than_nan() {
+        let read = |_pos: f32, _ch: usize| 1.0;
+        assert_eq!(wavetable_frame(0.5, 0.0, 0.0, 2048.0, 1, read), [0.0; CHANNELS]);
+        assert_eq!(wavetable_frame(0.5, 0.0, 4096.0, 0.0, 1, read), [0.0; CHANNELS]);
+    }
+
+    #[test]
+    fn a_single_cycle_table_ignores_scan() {
+        let table = ramp_table(1, 64);
+        let read = |pos: f32, _ch: usize| table[(pos as usize).min(table.len() - 1)];
+        let a = wavetable_frame(0.0, 0.25, 64.0, 64.0, 1, read);
+        let b = wavetable_frame(1.0, 0.25, 64.0, 64.0, 1, read);
+        assert_eq!(a, b);
+    }
 
     #[test]
     fn hard_sync_resets_main_phase_on_master_wrap() {

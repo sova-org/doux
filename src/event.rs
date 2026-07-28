@@ -443,7 +443,12 @@ impl Event {
                 "syncphase" | "syncph" => parse_param!(val, sync_phase, ParamId::SyncPhase),
                 "syncmode" => event.sync_mode = val.parse().ok(),
                 "scan" => parse_param!(val, scan, ParamId::Scan),
-                "wtlen" => event.wtlen = Self::num(val).map(|f| f as u32),
+                // The key alone selects wavetable playback, so it must survive a
+                // value that will not parse; an unreadable length falls back to
+                // 0, which reads the cycle length from the file.
+                "wtlen" => {
+                    event.wtlen = Some(Self::num(val).map(|f| f.max(0.0) as u32).unwrap_or(0))
+                }
                 "file_pcm" => event.file_pcm = val.parse().ok(),
                 "file_frames" => event.file_frames = val.parse().ok(),
                 "file_channels" => event.file_channels = Self::parse_u8(val),
@@ -664,6 +669,23 @@ mod tests {
     use super::*;
 
     const SR: f32 = 48000.0;
+
+    #[test]
+    fn wtlen_key_survives_any_value() {
+        // The key is the wavetable mode switch, so it must outlive a value that
+        // will not parse; an unreadable length reads the cycle from the file.
+        assert_eq!(Event::parse("sound/pad/wtlen/0", SR).wtlen, Some(0));
+        assert_eq!(Event::parse("sound/pad/wtlen/2048", SR).wtlen, Some(2048));
+        assert_eq!(Event::parse("sound/pad/wtlen/abc", SR).wtlen, Some(0));
+        assert_eq!(Event::parse("sound/pad/wtlen/-1", SR).wtlen, Some(0));
+    }
+
+    #[test]
+    fn scan_alone_does_not_request_a_wavetable() {
+        let e = Event::parse("sound/pad/scan/0.5", SR);
+        assert_eq!(e.scan, Some(0.5));
+        assert!(e.wtlen.is_none(), "scan is a parameter, not a mode switch");
+    }
 
     #[test]
     fn slice_pick_basic() {

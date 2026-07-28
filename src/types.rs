@@ -833,7 +833,7 @@ const INFO_WAVETABLE: SourceInfo = source_info!(
     "wt",
     &[],
     SourceCategory::Sample,
-    "Sample played as wavetable oscillator with pitch tracking",
+    "Sample read as a wavetable oscillator; selected by putting wtlen on a sample",
     None,
     &[
         ParamInfo {
@@ -847,10 +847,10 @@ const INFO_WAVETABLE: SourceInfo = source_info!(
         ParamInfo {
             name: "wtlen",
             aliases: &[],
-            description: "cycle length in samples",
-            default: "0.0",
+            description: "cycle length in samples, 0 reads it from the file",
+            default: "auto",
             min: 0.0,
-            max: 2048.0
+            max: 65536.0
         },
     ],
     11
@@ -997,6 +997,13 @@ impl FromStr for Source {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         for &source in Source::all() {
+            // Wavetable has no typeable name: it is reached by putting `wtlen` on
+            // a sample. Matching "wt" here would resolve to a source with no
+            // sample attached, which renders silence, and would shadow a sample
+            // folder of that name.
+            if matches!(source, Source::Wavetable) {
+                continue;
+            }
             let info = source.info();
             if info.module.name == s {
                 return Ok(source);
