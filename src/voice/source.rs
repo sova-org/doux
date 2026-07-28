@@ -8,6 +8,8 @@ use crate::dsp::{exp2f, log2f};
 use crate::dsp::{PhaseShape, Phasor};
 #[cfg(not(feature = "native"))]
 use crate::sampling::SampleInfo;
+#[cfg(feature = "native")]
+use crate::sampling::Cloud;
 use crate::types::{Source, SourceCategory, SubWave, SyncMode, CHANNELS};
 
 use super::Voice;
@@ -146,6 +148,41 @@ impl Voice {
             }
             Source::Sample => {
                 self.nch = CHANNELS;
+                // `grain` picks the reader. A positive grain size granulates and
+                // re-points `stretch` at the cloud's scan head; the phase vocoder
+                // below is the transparent alternative for the same axis.
+                #[cfg(feature = "native")]
+                if self.params.grain > 0.0 {
+                    for i in 0..n {
+                        let freq = self.tick_pre(isr, i);
+                        let Some(rs) = self.registry_sample.as_ref() else {
+                            self.scratch[i] = [0.0; CHANNELS];
+                            continue;
+                        };
+                        if !self.grain.is_primed() {
+                            let (start, end) = (rs.cursor_start(), rs.cursor_end());
+                            let looping = rs.is_looping();
+                            self.grain.reset(start, end, looping, self.seed);
+                        }
+                        if self.grain.is_done() {
+                            self.dahdsr.force_release();
+                        }
+                        let cloud = Cloud::new(
+                            self.params.grain,
+                            self.params.spray,
+                            self.params.dens,
+                            self.params.stretch,
+                            (freq * INV_MIDDLE_C) as f64,
+                            self.sr,
+                        );
+                        let mut frame = [0.0; CHANNELS];
+                        self.grain.tick(&rs.data, cloud, &mut frame);
+                        self.scratch[i][0] = frame[0] * 0.7;
+                        self.scratch[i][1] = frame[1] * 0.7;
+                    }
+                    self.finish_block(env, n, isr);
+                    return n;
+                }
                 let stretch = self.params.stretch;
                 if stretch != 1.0 {
                     for i in 0..n {

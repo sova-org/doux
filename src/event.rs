@@ -52,6 +52,12 @@ pub struct Event {
     // Time stretch
     pub stretch: Option<f32>,
 
+    // Granular sample reader. A positive `grain` re-points `stretch` at the
+    // grain cloud's scan head instead of the phase vocoder.
+    pub grain: Option<f32>,
+    pub spray: Option<f32>,
+    pub dens: Option<f32>,
+
     // Fit sample playback into a target duration (seconds)
     pub fit: Option<f32>,
 
@@ -409,6 +415,9 @@ impl Event {
                 "speed" => parse_param!(val, speed, ParamId::Speed),
                 "glide" => event.glide = Self::num(val),
                 "stretch" => parse_param!(val, stretch, ParamId::Stretch),
+                "grain" => parse_param!(val, grain, ParamId::Grain),
+                "spray" => parse_param!(val, spray, ParamId::Spray),
+                "dens" => parse_param!(val, dens, ParamId::Dens),
                 "fit" => event.fit = Self::num(val),
                 "sound" | "s" => event.sound = Some(val.to_string()),
                 "pw" => parse_param!(val, pw, ParamId::Pw),

@@ -1417,6 +1417,7 @@ impl Engine {
         if let Some(stretch) = event.stretch {
             v.params.stretch = stretch.max(0.0);
         }
+        copy_opt!(event, v.params, grain, spray, dens);
         // --- Source ---
         if let Some(source) = parsed_source {
             v.params.sound = source;

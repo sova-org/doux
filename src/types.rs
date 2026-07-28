@@ -794,6 +794,30 @@ const INFO_SAMPLE: SourceInfo = source_info!(
             max: 100.0
         },
         ParamInfo {
+            name: "grain",
+            aliases: &[],
+            description: "granular grain size in ms (0 = off; stretch drives the scan head)",
+            default: "0.0",
+            min: 0.0,
+            max: 1000.0
+        },
+        ParamInfo {
+            name: "spray",
+            aliases: &[],
+            description: "scatter of grain position and stereo placement (0-1)",
+            default: "0.0",
+            min: 0.0,
+            max: 1.0
+        },
+        ParamInfo {
+            name: "dens",
+            aliases: &[],
+            description: "overlapping grains (1-8)",
+            default: "2.0",
+            min: 1.0,
+            max: 8.0
+        },
+        ParamInfo {
             name: "cut",
             aliases: &[],
             description: "choke group",

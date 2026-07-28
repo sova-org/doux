@@ -18,7 +18,9 @@ const BUF_MASK: usize = BUF_LEN - 1;
 // Hann^2 COLA sum with 4x overlap = 1.5; normalize by its reciprocal.
 const COLA_NORM: f32 = 2.0 / 3.0;
 
-static HANN: LazyLock<[f32; WINDOW_SIZE]> = LazyLock::new(|| {
+/// Shared with [`super::grain`], which indexes it by window phase rather than
+/// by FFT bin. `init_tables` pre-warms it for both readers.
+pub(super) static HANN: LazyLock<[f32; WINDOW_SIZE]> = LazyLock::new(|| {
     let mut w = [0.0f32; WINDOW_SIZE];
     for i in 0..WINDOW_SIZE {
         w[i] = 0.5 * (1.0 - (TAU * i as f32 / WINDOW_SIZE as f32).cos());

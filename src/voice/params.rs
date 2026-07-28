@@ -35,6 +35,14 @@ pub struct VoiceParams {
     pub speed: f32,
     /// Time stretch factor (duration multiplier). 1.0 = normal, 2.0 = twice as long, 0 = freeze.
     pub stretch: f32,
+    /// Granular grain size in ms. 0 = off; positive switches the sample reader
+    /// from the phase vocoder to a grain cloud, with `stretch` driving its scan head.
+    pub grain: f32,
+    /// Grain scatter (0-1): start position within the `begin`/`end` region and
+    /// stereo placement, both by the same amount.
+    pub spray: f32,
+    /// Overlapping grains (1-8).
+    pub dens: f32,
     /// Portamento time in seconds. When > 0, a static `freq`/`note` retarget
     /// on a sounding voice slews from the current pitch instead of snapping.
     pub glide: f32,
@@ -377,6 +385,9 @@ impl Default for VoiceParams {
             detune: 0.0,
             speed: 1.0,
             stretch: 1.0,
+            grain: 0.0,
+            spray: 0.0,
+            dens: 2.0,
             glide: 0.0,
             gain: 1.0,
             velocity: 1.0,

@@ -23,7 +23,7 @@ use crate::effects::{
 #[cfg(feature = "native")]
 use crate::sampling::RegistrySample;
 #[cfg(feature = "native")]
-use crate::sampling::StretchState;
+use crate::sampling::{GrainState, StretchState};
 use crate::sampling::WebSampleSource;
 #[cfg(not(feature = "native"))]
 use crate::sampling::{FileSource, SampleInfo};
@@ -270,6 +270,9 @@ pub struct Voice {
     /// stack both shrink. Allocated once at `Engine::new`, reset in place.
     #[cfg(feature = "native")]
     pub stretch: Box<StretchState>,
+    /// The other sample reader. ~200 bytes, so unlike `stretch` it stays inline.
+    #[cfg(feature = "native")]
+    pub grain: GrainState,
     pub web_sample: Option<WebSampleSource>,
     /// Live arf patch handle (`Source::Arf`): pooled Vm + control plane.
     /// Never dropped on the audio thread — see the note in [`Voice::reset`].
@@ -380,6 +383,8 @@ impl Default for Voice {
             sample_blend: 0.0,
             #[cfg(feature = "native")]
             stretch: Box::new(StretchState::default()),
+            #[cfg(feature = "native")]
+            grain: GrainState::default(),
             web_sample: None,
             patch: None,
             fx_patch: None,
@@ -441,6 +446,7 @@ impl Voice {
         #[cfg(feature = "native")]
         {
             *self.stretch = StretchState::default();
+            self.grain = GrainState::default();
         }
         self.web_sample = None;
         // `patch` is deliberately untouched: dropping the arf Vm here would

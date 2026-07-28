@@ -328,6 +328,9 @@ macro_rules! for_each_param {
             Pan             => [plain pan], stage Pan;
             Speed           => [plain speed];
             Stretch         => [plain stretch];
+            Grain           => [plain grain];
+            Spray           => [plain spray];
+            Dens            => [plain dens];
             Detune          => [plain detune];
             Pw              => [plain pw];
             Wave            => [plain wave];

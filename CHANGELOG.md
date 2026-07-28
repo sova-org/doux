@@ -3,6 +3,19 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Granular sample reader**: `grain` (grain size in ms, 0 = off, modulatable) switches `Source::Sample` from the phase vocoder to a cloud of short Hann-windowed grains. `spray` (0-1) scatters each grain's start position within the `begin`/`end` region and its stereo placement by the same amount, `dens` (1-8, default 2) sets how many overlap. `stretch` keeps its exact meaning and drives the cloud's scan head instead of the vocoder, `speed`/`note` pitch the grains, so `grain` selects the algorithm rather than adding a second time control
+- The granular branch is tested first in the `Source::Sample` arm and early-returns, so an unused `grain` costs one `f32` compare per block. `GrainState` is ~260 bytes and lives inline on `Voice`, not boxed like `StretchState`, and shares the phase vocoder's pre-warmed Hann table
+- Grain placement uses the square-root law `sqrt(2(1-p))` / `sqrt(2p)`, which is equal-power and exactly unity at the centre, so `spray/0` is bit-identical to no placement. Note `spread` has never applied to samples: it gates on `nch == 1` and the sample source is stereo
+- Grain slots are allocated by stealing the most-faded grain, the same policy `steal_voice_slot` applies to voices. Round-robin is safe only at a fixed `grain`: modulating it downward raises the launch rate while long grains are still fading, and the allocator would reclaim one mid-window, cutting a Hann peak to zero
+
+### Known limitations
+
+- A fractional `n` (the A/B sample crossfade) is ignored in grain mode; the first sample is granulated
+
 ## [0.0.44] - 2026-07-27
 
 ### Added
