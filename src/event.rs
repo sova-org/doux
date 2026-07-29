@@ -174,6 +174,11 @@ pub struct Event {
     pub wahpeak: Option<f32>,
     pub wahsens: Option<f32>,
     pub wahmanual: Option<f32>,
+    pub modal: Option<f32>,
+    pub modalfreq: Option<f32>,
+    pub modaldecay: Option<f32>,
+    pub modalstruct: Option<f32>,
+    pub modalbright: Option<f32>,
     pub vinyl: Option<f32>,
     pub vinylwow: Option<f32>,
     pub vinylnoise: Option<f32>,
@@ -284,6 +289,15 @@ pub struct Event {
 
     // Pre-computed effective sample name (sound + bank suffix)
     pub effective_name: Option<String>,
+}
+
+/// The sample folder a `sound` + `bank` pair looks up. The one definition of
+/// the bank suffix.
+pub fn effective_sample_name(sound: &str, bank: Option<&str>) -> String {
+    match bank {
+        Some(b) => format!("{sound}_{b}"),
+        None => sound.to_string(),
+    }
 }
 
 impl Event {
@@ -513,6 +527,11 @@ impl Event {
                 "wahpeak" => event.wahpeak = Self::num(val),
                 "wahsens" => event.wahsens = Self::num(val),
                 "wahmanual" => event.wahmanual = Self::num(val),
+                "modal" => parse_param!(val, modal, ParamId::Modal),
+                "modalfreq" => parse_param!(val, modalfreq, ParamId::Modalfreq),
+                "modaldecay" => parse_param!(val, modaldecay, ParamId::Modaldecay),
+                "modalstruct" => parse_param!(val, modalstruct, ParamId::Modalstruct),
+                "modalbright" => parse_param!(val, modalbright, ParamId::Modalbright),
                 "vinyl" => event.vinyl = Self::num(val),
                 "vinylwow" => event.vinylwow = Self::num(val),
                 "vinylnoise" => event.vinylnoise = Self::num(val),
@@ -655,11 +674,10 @@ impl Event {
                 }
             }
         }
-        event.effective_name = match (&event.sound, &event.bank) {
-            (Some(s), Some(b)) => Some(format!("{s}_{b}")),
-            (Some(s), None) => Some(s.clone()),
-            _ => None,
-        };
+        event.effective_name = event
+            .sound
+            .as_deref()
+            .map(|s| effective_sample_name(s, event.bank.as_deref()));
         event
     }
 }

@@ -38,6 +38,8 @@ pub mod sampling;
 pub mod schedule;
 #[cfg(feature = "soundfont")]
 pub mod soundfont;
+#[cfg(feature = "native")]
+pub mod source_resolver;
 pub mod superpan;
 #[cfg(feature = "native")]
 pub mod telemetry;
@@ -83,6 +85,8 @@ pub use sampling::{SampleData, SampleRegistry};
 #[cfg(not(feature = "native"))]
 use sampling::{SampleInfo, SamplePool};
 use schedule::Schedule;
+#[cfg(feature = "native")]
+pub use source_resolver::{SourceKind, SourceResolver};
 use std::sync::Arc;
 #[cfg(feature = "native")]
 pub use telemetry::EngineMetrics;
@@ -260,6 +264,11 @@ pub struct EngineConfig {
     /// `None` constructs a fresh one.
     #[cfg(feature = "native")]
     pub sample_registry: Option<Arc<SampleRegistry>>,
+    /// Reuse an existing sample index (same recovery pattern as
+    /// `sample_registry`), so a host that rebuilds the Engine keeps the scan it
+    /// already published. `None` constructs a fresh empty one.
+    #[cfg(feature = "native")]
+    pub sample_index: Option<Arc<arc_swap::ArcSwap<Vec<SampleEntry>>>>,
     /// Reuse an existing arf patch registry (same recovery pattern as
     /// `sample_registry`). `None` constructs a fresh one.
     pub patch_registry: Option<Arc<PatchRegistry>>,
@@ -278,6 +287,7 @@ impl EngineConfig {
             inner_block_size: DEFAULT_DSP_BLOCK_SIZE,
             metrics: Arc::new(EngineMetrics::default()),
             sample_registry: None,
+            sample_index: None,
             patch_registry: None,
         }
     }
@@ -446,8 +456,9 @@ impl Engine {
         };
 
         #[cfg(feature = "native")]
-        let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> =
-            Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new()));
+        let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> = config
+            .sample_index
+            .unwrap_or_else(|| Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new())));
         #[cfg(feature = "native")]
         let recorder = Recorder::new(
             config.sample_rate,
@@ -713,22 +724,18 @@ impl Engine {
     /// not need to keep the [`arc_swap::Guard`] alive.
     #[cfg(feature = "native")]
     fn lookup_sample_entry(&self, name: &str, n: usize) -> Option<SampleEntry> {
-        let name_bytes = name.as_bytes();
         let name_len = name.len();
-        let matches = |e: &SampleEntry| {
-            e.name.len() > name_len
-                && e.name.as_bytes()[name_len] == b'/'
-                && e.name.as_bytes().starts_with(name_bytes)
-        };
         let index = self.sample_index.load();
-        let count = index.iter().filter(|e| matches(e)).count();
+        let count = index.iter().filter(|e| e.in_folder(name)).count();
         if count == 0 {
             return None;
         }
         let wrapped_n = n % count;
         index
             .iter()
-            .find(|e| matches(e) && e.name[name_len + 1..].parse::<usize>().ok() == Some(wrapped_n))
+            .find(|e| {
+                e.in_folder(name) && e.name[name_len + 1..].parse::<usize>().ok() == Some(wrapped_n)
+            })
             .cloned()
     }
 
@@ -1832,6 +1839,15 @@ impl Engine {
         copy_opt!(event, v.params, fshift);
         copy_opt!(event, v.params, pshift, pshiftwin);
         copy_opt!(event, v.params, wah, wahpeak, wahsens, wahmanual);
+        copy_opt!(
+            event,
+            v.params,
+            modal,
+            modalfreq,
+            modaldecay,
+            modalstruct,
+            modalbright
+        );
         copy_opt!(event, v.params, vinyl, vinylwow, vinylnoise, vinyltone, vinyltype);
         copy_opt!(event, v.params, smear, smearfreq, smearfb);
         copy_opt!(
@@ -2962,6 +2978,71 @@ mod tests {
                 last_peak > 0.0,
                 "{name}: effect should stay stable and audible"
             );
+        }
+    }
+
+    // The modal resonator is a filter, not a voice: full wet, what you hear is the bank
+    // ringing, so the pitch follows `modalfreq` and not the exciter. Rendering the same
+    // noise through two tunings and comparing zero-crossing rates proves the five params
+    // reach the stage in the right order rather than crossed on the wire.
+    #[cfg(feature = "native")]
+    #[test]
+    fn modal_resonator_rings_at_its_own_pitch() {
+        fn crossing_rate(freq: f32) -> u32 {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.evaluate(&format!(
+                "sound/white/modal/1/modalfreq/{freq}/modaldecay/4/modalbright/0/sustain/1/gate/1"
+            ));
+            let ch = engine.output_channels();
+            let mut out = vec![0.0_f32; engine.host_buffer_size() * ch];
+            let blocks = (24_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+            let mut crossings = 0_u32;
+            let mut prev = 0.0_f32;
+            for _ in 0..blocks {
+                engine.process_block(&mut out, &[], &[]);
+                for frame in out.chunks_exact(ch) {
+                    let now = frame[0];
+                    assert!(now.is_finite(), "modal produced a non-finite sample");
+                    if prev < 0.0 && now >= 0.0 {
+                        crossings += 1;
+                    }
+                    prev = now;
+                }
+            }
+            crossings * 2 // measured over half a second
+        }
+        let low = crossing_rate(300.0);
+        let high = crossing_rate(1200.0);
+        assert!(low > 0, "the resonator never rang");
+        assert!(
+            high > low * 2,
+            "four times the fundamental should ring far higher: {low} Hz vs {high} Hz"
+        );
+    }
+
+    // The same singularities the Faust effects had: `modaldecay` and `modalfreq` both sit
+    // under a divide in the damping term, and a mode pushed past Nyquist would send `tan`
+    // negative. Out-of-range values must be absorbed, not latched into a NaN.
+    #[cfg(feature = "native")]
+    #[test]
+    fn modal_resonator_clamps_pathological_params() {
+        for patch in [
+            "sound/saw/note/48/modal/1/modaldecay/0/gate/1",
+            "sound/saw/note/48/modal/1/modalfreq/0/gate/1",
+            "sound/saw/note/48/modal/5/modalfreq/-440/modaldecay/-3/gate/1",
+            "sound/saw/note/48/modal/1/modalfreq/19000/modalstruct/9/modalbright/-9/gate/1",
+        ] {
+            let mut engine = Engine::new(EngineConfig::native(48_000.0, 2));
+            engine.evaluate(patch);
+            let mut out = vec![0.0_f32; engine.host_buffer_size() * engine.output_channels()];
+            let blocks = (48_000.0 / engine.host_buffer_size() as f32).ceil() as usize;
+            for _ in 0..blocks {
+                engine.process_block(&mut out, &[], &[]);
+                for &s in &out {
+                    assert!(s.is_finite(), "{patch}: produced a non-finite sample");
+                    assert!(s.abs() < 64.0, "{patch}: runaway resonance ({s})");
+                }
+            }
         }
     }
 

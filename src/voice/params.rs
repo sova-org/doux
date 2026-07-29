@@ -270,6 +270,20 @@ pub struct VoiceParams {
     pub wahmanual: f32,
 
     // ─────────────────────────────────────────────────────────────────────
+    // Modal resonator (eight tuned modes rung by the voice)
+    // ─────────────────────────────────────────────────────────────────────
+    /// Modal resonator dry/wet mix (0 = bypass, 1 = full wet).
+    pub modal: f32,
+    /// Modal fundamental in Hz — the pitch the bank rings at.
+    pub modalfreq: f32,
+    /// Ring time of mode 1 in seconds (0.05-20).
+    pub modaldecay: f32,
+    /// Partial ratios: 0 = string (harmonic), 0.5 = bar, 1 = bell.
+    pub modalstruct: f32,
+    /// How long the upper modes ring relative to mode 1 (0 = they die fast).
+    pub modalbright: f32,
+
+    // ─────────────────────────────────────────────────────────────────────
     // VinylSim / Cassette character
     // ─────────────────────────────────────────────────────────────────────
     /// Vinyl/cassette dry/wet mix (0 = bypass, 1 = full wet).
@@ -467,6 +481,11 @@ impl Default for VoiceParams {
             wahpeak: 0.5,
             wahsens: 0.5,
             wahmanual: 400.0,
+            modal: 0.0,
+            modalfreq: 220.0,
+            modaldecay: 2.0,
+            modalstruct: 0.0,
+            modalbright: 0.5,
             vinyl: 0.0,
             vinylwow: 0.3,
             vinylnoise: 0.2,

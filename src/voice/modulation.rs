@@ -357,6 +357,11 @@ macro_rules! for_each_param {
             Lhpq            => [plain lhpq], stage LadderHp;
             Lbpf            => [opt lbpf = 1000.0], stage LadderBp;
             Lbpq            => [plain lbpq], stage LadderBp;
+            Modal           => [plain modal], stage Modal;
+            Modalfreq       => [plain modalfreq], stage Modal;
+            Modaldecay      => [plain modaldecay], stage Modal;
+            Modalstruct     => [plain modalstruct], stage Modal;
+            Modalbright     => [plain modalbright], stage Modal;
             Fm              => [plain fm];
             Fmh             => [plain fmh];
             Fm2             => [plain fm2];

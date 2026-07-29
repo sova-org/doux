@@ -60,6 +60,7 @@ fn main() {
         inner_block_size: args.common.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
+        sample_index: None,
         patch_registry: None,
     });
 
@@ -130,6 +131,7 @@ fn main() {
             inner_block_size: args.common.dsp_block_size,
             metrics: Arc::new(EngineMetrics::default()),
             sample_registry: Some(Arc::clone(&sample_registry)),
+            sample_index: None,
             patch_registry: None,
         });
         engine.set_sample_index(sample_index.clone());

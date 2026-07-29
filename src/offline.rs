@@ -49,6 +49,7 @@ pub fn create_engine(
         inner_block_size: config.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
+        sample_index: None,
         patch_registry: None,
     });
 

@@ -252,6 +252,54 @@ pub(super) static UGENS: &[UGen] = &[
         cost: 20,
         tick: tick_ringz,
     },
+    // modal  ( in freq decay structure bright -- sig )  state: see `crate::modal`   eight
+    // tuned bandpasses standing in for the modes of a struck body: `ringz` grown into a bank
+    // whose partials morph from the harmonic series to a bar to a bell.
+    UGen {
+        name: "modal",
+        category: Category::Filter,
+        description: "Modal resonator — eight tuned modes rung by whatever excites them; `structure` morphs string to bar to bell.",
+        examples: &[
+            "4 impulse 220 3 0 0.5 modal 0.4 * out",
+            "noise 110 6 0.5 0.8 modal 0.3 * out",
+        ],
+        arity: Arity::Fixed(5),
+        inputs: &[
+            signal("in"),
+            InputDescriptor {
+                name: "freq",
+                unit: Unit::Hz,
+                range: (20.0, 20_000.0),
+                default: 220.0,
+            },
+            InputDescriptor {
+                name: "decay",
+                unit: Unit::Seconds,
+                range: (0.05, 20.0),
+                default: 2.0,
+            },
+            InputDescriptor {
+                name: "structure",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.0,
+            },
+            InputDescriptor {
+                name: "bright",
+                unit: Unit::Ratio,
+                range: (0.0, 1.0),
+                default: 0.5,
+            },
+        ],
+        outputs: 1,
+        state_slots: crate::modal::STATE_SLOTS,
+        buffer_len: 0,
+        // Eight modes at ~10 each on the cached path. A parameter moving every sample
+        // retunes all eight (8 `tan` + 8 `powf`), so audio-rate modulation here is genuinely
+        // expensive — that is the price of a bank rather than a single resonator.
+        cost: 90,
+        tick: tick_modal,
+    },
     // slew  ( in up down -- sig )  state: [y1]   rate limiter: the output chases the input,
     // rising at most `up` and falling at most `down` units per second (lag's linear cousin).
     UGen {
@@ -613,6 +661,18 @@ fn tick_ringz(ctx: &mut TickCtx, out: &mut [f32]) {
     out[0] = 0.5 * (y0 - y2);
     ctx.state[1] = y1;
     ctx.state[0] = flush(y0);
+}
+
+fn tick_modal(ctx: &mut TickCtx, out: &mut [f32]) {
+    out[0] = crate::modal::tick(
+        ctx.state,
+        ctx.inputs[0],
+        ctx.inputs[1],
+        ctx.inputs[2],
+        ctx.inputs[3],
+        ctx.inputs[4],
+        ctx.sr,
+    );
 }
 
 // Not `.clamp()`: `.max().min()` suppresses a NaN step bound (see `svf_taps`).

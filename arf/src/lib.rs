@@ -13,6 +13,10 @@
 //! - [`compile`] — lowers a [`graph::Graph`] into an [`ir::Program`].
 //! - [`vm`]      — the VM that runs a program one sample at a time.
 //!
+//! [`fastmath`] and [`modal`] are shared DSP the host reaches into directly: doux runs the
+//! same approximations and the same resonator bank as the UGens do, rather than keeping a
+//! second copy.
+//!
 //! Front-ends live outside the engine: the Forth patch language is cagire's `arf-forth`
 //! crate, and a host may build a [`graph::Graph`] any other way. This crate is just the
 //! engine; doux compiles and runs the graphs, it never parses a patch language.
@@ -21,6 +25,7 @@ pub mod compile;
 pub mod fastmath;
 pub mod graph;
 pub mod ir;
+pub mod modal;
 pub mod ugen;
 pub mod vm;
 

@@ -16,6 +16,7 @@ mod flanger;
 mod fshift;
 mod ladder;
 mod limiter;
+mod modal;
 mod phaser;
 mod pshift;
 mod reverb;
@@ -685,6 +686,7 @@ pub const ALL_MODULES: &[&ModuleInfo] = &[
     &fshift::INFO,
     &pshift::INFO,
     &wah::INFO,
+    &modal::INFO,
     &vinyl::INFO,
     // Effects — distortion
     &coarse::INFO,

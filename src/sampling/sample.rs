@@ -19,6 +19,16 @@ pub struct SampleEntry {
     pub name: Arc<str>,
 }
 
+impl SampleEntry {
+    /// True when this entry is `<folder>/<n>`. The one definition of what it
+    /// means for a bare sound name to name a sample folder.
+    pub fn in_folder(&self, folder: &str) -> bool {
+        self.name.len() > folder.len()
+            && self.name.as_bytes()[folder.len()] == b'/'
+            && self.name.as_bytes().starts_with(folder.as_bytes())
+    }
+}
+
 /// Contiguous storage for all loaded sample data (WASM only).
 #[cfg(not(feature = "native"))]
 #[derive(Default)]

@@ -191,6 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inner_block_size: args.common.dsp_block_size,
         metrics: Arc::new(EngineMetrics::default()),
         sample_registry: None,
+        sample_index: None,
         patch_registry: None,
     });
 
@@ -250,6 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 inner_block_size: dsp_block_size,
                 metrics: Arc::new(EngineMetrics::default()),
                 sample_registry: Some(Arc::clone(&sample_registry)),
+                sample_index: None,
                 patch_registry: Some(Arc::clone(&patch_registry)),
             });
             engine.set_sample_index(sample_index.clone());

@@ -3,10 +3,13 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.0.45] - 2026-07-29
 
 ### Added
 
+- **Modal resonator**: eight tuned bandpasses standing in for a struck body, as the `modal` UGen and as a voice insert (`modal` mix, `modalfreq`, `modaldecay`, `modalstruct` string to bar to bell, `modalbright`). Whatever is fed in excites it. The bank lives in `arf::modal` so the patch and the param run the same modes
+- **`SourceResolver`**: asks what a bare sound name plays (`Builtin`, `Patch`, `Sample`, `Unresolved`) off the audio thread, so a host can classify a name without the Engine. Shares its name matching with dispatch, so the two cannot disagree
+- `EngineConfig::sample_index` takes an app-owned index, like `patch_registry` and `sample_registry` already did. Rebuilding the Engine for a device change keeps it
 - **Granular sample reader**: `grain` (grain size in ms, 0 = off, modulatable) switches `Source::Sample` from the phase vocoder to a cloud of short Hann-windowed grains. `spray` (0-1) scatters each grain's start position within the `begin`/`end` region and its stereo placement by the same amount, `dens` (1-8, default 2) sets how many overlap. `stretch` keeps its exact meaning and drives the cloud's scan head instead of the vocoder, `speed`/`note` pitch the grains, so `grain` selects the algorithm rather than adding a second time control
 - The granular branch is tested first in the `Source::Sample` arm and early-returns, so an unused `grain` costs one `f32` compare per block. `GrainState` is ~260 bytes and lives inline on `Voice`, not boxed like `StretchState`, and shares the phase vocoder's pre-warmed Hann table
 - Grain placement uses the square-root law `sqrt(2(1-p))` / `sqrt(2p)`, which is equal-power and exactly unity at the centre, so `spray/0` is bit-identical to no placement. Note `spread` has never applied to samples: it gates on `nch == 1` and the sample source is stereo

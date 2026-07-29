@@ -59,6 +59,7 @@ pub(crate) enum Stage {
     LadderHp,
     LadderBp,
     Wah,
+    Modal,
     Coarse,
     Crush,
     Fold,
@@ -89,7 +90,7 @@ pub(crate) enum Stage {
 
 /// Upper bound on stages a voice can emit per block. Must cover the maximal
 /// chain — every push in `build_stage_program` firing at once (the nine
-/// filter stages are NOT mutually exclusive), 35 stages today; allocated
+/// filter stages are NOT mutually exclusive), 36 stages today; allocated
 /// inline on `Voice`.
 pub(crate) const MAX_STAGES: usize = 40;
 
@@ -117,6 +118,10 @@ pub struct VoiceFxState {
     pub ladder_hp: [FaustLadder; CHANNELS],
     pub ladder_bp: [FaustLadder; CHANNELS],
     pub wah: [FaustWah; CHANNELS],
+    /// The modal resonator's flat bank state, one per channel. Not a Faust struct:
+    /// the bank lives in `arf::modal` so the `modal` UGen and this stage run the
+    /// same definition rather than two copies.
+    pub modal: [[f32; arf::modal::STATE_SLOTS]; CHANNELS],
     pub coarse: [FaustCoarse; CHANNELS],
     pub crush: [FaustCrush; CHANNELS],
     pub fold_state: [FaustFold; CHANNELS],
@@ -145,6 +150,7 @@ impl Default for VoiceFxState {
             ladder_hp: std::array::from_fn(|_| FaustLadder::default()),
             ladder_bp: std::array::from_fn(|_| FaustLadder::default()),
             wah: std::array::from_fn(|_| FaustWah::default()),
+            modal: [[0.0; arf::modal::STATE_SLOTS]; CHANNELS],
             coarse: std::array::from_fn(|_| FaustCoarse::default()),
             crush: std::array::from_fn(|_| FaustCrush::default()),
             fold_state: std::array::from_fn(|_| FaustFold::default()),
@@ -179,6 +185,7 @@ impl VoiceFxState {
         self.ladder_hp = std::array::from_fn(|_| FaustLadder::default());
         self.ladder_bp = std::array::from_fn(|_| FaustLadder::default());
         self.wah = std::array::from_fn(|_| FaustWah::default());
+        self.modal = [[0.0; arf::modal::STATE_SLOTS]; CHANNELS];
         self.coarse = std::array::from_fn(|_| FaustCoarse::default());
         self.crush = std::array::from_fn(|_| FaustCrush::default());
         self.fold_state = std::array::from_fn(|_| FaustFold::default());
@@ -673,6 +680,9 @@ impl Voice {
         if self.params.wah > 0.0 {
             push!(Stage::Wah);
         }
+        if self.params.modal > 0.0 || self.mod_targets(ParamId::Modal) {
+            push!(Stage::Modal);
+        }
 
         if coarse {
             push!(Stage::Coarse);
@@ -1007,6 +1017,26 @@ impl Voice {
                             manual,
                             sr,
                         );
+                    }
+                }
+            }
+            Stage::Modal => {
+                if self.params.modal > 0.0 {
+                    // The gate above already excludes 0, negatives and NaN, so only the
+                    // top needs bounding: past 1 the `x + (y - x) * mix` dry term inverts.
+                    let mix = self.params.modal.min(1.0);
+                    let freq = self.params.modalfreq;
+                    let decay = self.params.modaldecay;
+                    let structure = self.params.modalstruct;
+                    let bright = self.params.modalbright;
+                    for c in 0..nch {
+                        let state = &mut self.fx.modal[c];
+                        for s in 0..n {
+                            let x = self.scratch[s][c];
+                            let y =
+                                arf::modal::tick(state, x, freq, decay, structure, bright, sr);
+                            self.scratch[s][c] = x + (y - x) * mix;
+                        }
                     }
                 }
             }
@@ -1437,6 +1467,30 @@ impl Voice {
                         let x = self.scratch[i][c];
                         self.scratch[i][c] =
                             self.fx.wah[c].process(x, amount, peak, sens, manual, sr);
+                    }
+                }
+            }
+            Stage::Modal => {
+                if self.params.modal > 0.0 {
+                    // The gate above already excludes 0, negatives and NaN, so only the
+                    // top needs bounding: past 1 the `x + (y - x) * mix` dry term inverts.
+                    let mix = self.params.modal.min(1.0);
+                    let freq = self.params.modalfreq;
+                    let decay = self.params.modaldecay;
+                    let structure = self.params.modalstruct;
+                    let bright = self.params.modalbright;
+                    for c in 0..nch {
+                        let x = self.scratch[i][c];
+                        let y = arf::modal::tick(
+                            &mut self.fx.modal[c],
+                            x,
+                            freq,
+                            decay,
+                            structure,
+                            bright,
+                            sr,
+                        );
+                        self.scratch[i][c] = x + (y - x) * mix;
                     }
                 }
             }
