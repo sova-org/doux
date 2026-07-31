@@ -164,7 +164,11 @@ fn get_device_config(device: &Device) -> Result<(SupportedStreamConfig, f32), Do
 }
 
 fn compute_channels(device: &Device, requested: u16) -> usize {
-    resolve_output_channels(device, requested) as usize
+    // Probed at the device's own rate: sova does not request one.
+    let rate = doux::audio::default_output_config(device)
+        .map(|cfg| cfg.sample_rate())
+        .unwrap_or(44_100);
+    resolve_output_channels(device, requested, rate) as usize
 }
 
 fn spawn_preload(

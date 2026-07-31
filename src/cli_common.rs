@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::audio::{
     find_device, get_host, host_controls_buffer_size, list_hosts, print_diagnostics,
-    resolve_output_channels, HostSelection,
+    resolve_output_shape, HostSelection,
 };
 use crate::error::DouxError;
 use crate::types::{DEFAULT_BUFFER_SIZE, MAX_BUFFER_FRAMES};
@@ -41,6 +41,10 @@ pub struct CommonAudioArgs {
     /// Number of output channels (default: 2, max depends on device).
     #[arg(long, default_value = "2")]
     pub channels: u16,
+
+    /// Number of input channels (default: 2, max depends on device).
+    #[arg(long, default_value = "2")]
+    pub input_channels: u16,
 
     /// Audio buffer size in samples (lower = less latency, higher = more stable).
     #[arg(short, long)]
@@ -180,12 +184,15 @@ pub fn resolve_output_config(
             .ok_or(DouxError::NoDefaultDevice)?,
     };
 
-    let output_channels = resolve_output_channels(&device, requested_channels) as usize;
-
     let default_config = device
         .default_output_config()
         .map_err(|e| DouxError::DeviceConfigError(e.to_string()))?;
-    let sample_rate = default_config.sample_rate() as f32;
+
+    // Channels and rate settle together: a device can take either alone and
+    // refuse the pair.
+    let (channels, rate) = resolve_output_shape(&device, requested_channels, None);
+    let output_channels = channels as usize;
+    let sample_rate = rate as f32;
 
     let buf_size = match buffer_size {
         Some(buf) if !host_controls_buffer_size(host) => cpal::BufferSize::Fixed(buf),
@@ -200,7 +207,7 @@ pub fn resolve_output_config(
     Ok(OutputConfig {
         stream_config: cpal::StreamConfig {
             channels: output_channels as u16,
-            sample_rate: default_config.sample_rate(),
+            sample_rate: rate,
             buffer_size: buf_size,
         },
         output_channels,
@@ -273,6 +280,7 @@ pub struct StreamParams<'a> {
     pub host: &'a cpal::Host,
     pub input_spec: Option<&'a str>,
     pub output_spec: Option<&'a str>,
+    pub input_channels: u16,
     pub config: &'a OutputConfig,
     pub device_lost: &'a Arc<AtomicBool>,
 }
@@ -292,10 +300,12 @@ pub fn build_audio_streams(
         None => crate::audio::default_input_device(),
     };
 
-    let input_channels: usize = input_device
-        .as_ref()
-        .and_then(|dev| dev.default_input_config().ok())
-        .map_or(0, |cfg| cfg.channels() as usize);
+    // One negotiation for the input width: the ring, the engine and the stream all
+    // read this, so they cannot disagree. Probed rather than read off
+    // default_input_config(), which reports stereo for a 4-in interface.
+    let input_channels: usize = input_device.as_ref().map_or(0, |dev| {
+        crate::audio::resolve_input_channels(dev, params.input_channels) as usize
+    });
 
     let input_buffer_size = engine.host_buffer_size() * INPUT_RING_PERIODS * input_channels.max(2);
     let (mut input_producer, mut input_consumer) = HeapRb::<f32>::new(input_buffer_size).split();
@@ -304,8 +314,15 @@ pub fn build_audio_streams(
 
     let flag = Arc::clone(params.device_lost);
     let input_stream = input_device.and_then(|input_dev| {
-        let input_config = input_dev.default_input_config().ok()?;
-        let input_format = input_config.sample_format();
+        let default_cfg = input_dev.default_input_config().ok()?;
+        let input_format = default_cfg.sample_format();
+        // Built by hand rather than `default_cfg.into()`: the negotiated width is
+        // what the ring and the engine were sized for.
+        let input_config = cpal::StreamConfig {
+            channels: input_channels as u16,
+            sample_rate: default_cfg.sample_rate(),
+            buffer_size: cpal::BufferSize::Default,
+        };
         let flag = Arc::clone(&flag);
 
         macro_rules! build_input {
@@ -314,7 +331,7 @@ pub fn build_audio_streams(
                 // 8192 frames covers all common host buffer sizes.
                 let mut scratch: Vec<f32> = vec![0.0f32; 8192];
                 input_dev.build_input_stream(
-                    input_config.into(),
+                    input_config,
                     move |data: &[$T], _| {
                         let usable = data.len().min(scratch.len());
                         for (dst, &src) in scratch[..usable].iter_mut().zip(data[..usable].iter()) {

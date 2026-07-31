@@ -40,8 +40,67 @@ impl std::fmt::Display for HostSelection {
     }
 }
 
-/// Gets an audio host by selection mode.
+/// Whether the session manager wires our stream ports to the system devices, or
+/// leaves them for the user to patch. PipeWire and JACK only; every other
+/// backend connects and has no say in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Patching {
+    #[default]
+    Auto,
+    Manual,
+}
+
+/// True when this build can register the host's ports and leave them unlinked.
+/// Answered by trying to construct the unwired host, not by matching a backend
+/// name: `unwired_host` is Linux-only, so a JACK host on macOS or Windows names
+/// a backend that has the feature in cpal but no route to it from here.
+pub fn host_supports_manual_patching(host: &Host) -> bool {
+    unwired_host(host.id().name()).is_some()
+}
+
+/// Rebuilds `name`'s host with auto-connection off. `None` when the backend has
+/// no such switch, which leaves the caller with the connecting host it had.
+#[cfg(target_os = "linux")]
+fn unwired_host(name: &str) -> Option<Host> {
+    let name = name.to_lowercase();
+    if name.contains("pipewire") {
+        use cpal::platform::PipeWireHost;
+        let mut host = PipeWireHost::new().ok()?;
+        host.set_connect_automatically(false);
+        return Some(host.into());
+    }
+    if name.contains("jack") {
+        use cpal::platform::JackHost;
+        let mut host = JackHost::new().ok()?;
+        host.set_connect_automatically(false);
+        return Some(host.into());
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn unwired_host(_name: &str) -> Option<Host> {
+    None
+}
+
+/// Gets an audio host by selection mode, wired up by the session manager.
 pub fn get_host(selection: HostSelection) -> Result<Host, DouxError> {
+    get_host_patched(selection, Patching::Auto)
+}
+
+/// Gets an audio host, choosing whether its ports come pre-wired.
+pub fn get_host_patched(selection: HostSelection, patching: Patching) -> Result<Host, DouxError> {
+    let host = get_host_wired(selection)?;
+    if patching == Patching::Auto {
+        return Ok(host);
+    }
+    // Falls back to the wired host rather than failing: a backend without the
+    // switch still has to make sound.
+    Ok(unwired_host(host.id().name()).unwrap_or(host))
+}
+
+fn get_host_wired(selection: HostSelection) -> Result<Host, DouxError> {
     match selection {
         HostSelection::Auto => Ok(preferred_host()),
         HostSelection::Named(name) => {
@@ -298,6 +357,11 @@ pub fn default_output_config(device: &Device) -> Option<SupportedStreamConfig> {
     device.default_output_config().ok()
 }
 
+/// Gets the default input config for a device.
+pub fn default_input_config(device: &Device) -> Option<SupportedStreamConfig> {
+    device.default_input_config().ok()
+}
+
 /// Returns true if the given host controls its own buffer size.
 /// JACK and ASIO enforce their own buffer sizes, so user-specified values should be ignored.
 pub fn host_controls_buffer_size(host: &Host) -> bool {
@@ -305,36 +369,170 @@ pub fn host_controls_buffer_size(host: &Host) -> bool {
     name.contains("jack") || name.contains("asio")
 }
 
-/// Usable output channel count: honor `requested`.
+/// Usable output channel count at `sample_rate`: honor `requested`.
 /// PipeWire/JACK accept counts that `supported_output_configs()` under-reports as
 /// stereo, so probe by actually opening a stream; on real refusal (hardware limit),
 /// warn and fall back to the device default.
-pub fn resolve_output_channels(device: &Device, requested: u16) -> u16 {
+///
+/// Takes the rate rather than assuming the device's own, because a device can
+/// support 8 channels and 96 kHz separately but not together. Resolve the rate
+/// first and pass it here, so what gets probed is the combination that will
+/// actually be opened.
+pub fn resolve_output_channels(device: &Device, requested: u16, sample_rate: u32) -> u16 {
     let requested = requested.max(1); // PipeWire 0.18 rejects channels == 0
     let Some(default_cfg) = default_output_config(device) else {
         return requested; // cannot probe; trust the request
     };
-    let probe = device.build_output_stream(
-        cpal::StreamConfig {
-            channels: requested,
-            sample_rate: default_cfg.sample_rate(),
-            buffer_size: cpal::BufferSize::Default,
-        },
-        |_: &mut [f32], _: &cpal::OutputCallbackInfo| {},
-        |_err: cpal::Error| {},
-        None,
-    );
-    match probe {
-        Ok(stream) => {
-            drop(stream); // accepted at build time; no play() needed
-            requested
-        }
+    match probe_output(device, requested, sample_rate, &default_cfg) {
+        Ok(()) => requested,
         Err(e) => {
             let fallback = default_cfg.channels();
             eprintln!("[doux] {requested} output channels refused ({e}); using {fallback}");
             fallback
         }
     }
+}
+
+/// Opens and drops a playback stream to find out whether the device takes this
+/// shape. Raw builder, so the probe runs at the device's own sample format
+/// rather than assuming `f32`.
+fn probe_output(
+    device: &Device,
+    channels: u16,
+    sample_rate: u32,
+    default_cfg: &SupportedStreamConfig,
+) -> Result<(), cpal::Error> {
+    let stream = device.build_output_stream_raw(
+        cpal::StreamConfig {
+            channels,
+            sample_rate,
+            buffer_size: cpal::BufferSize::Default,
+        },
+        default_cfg.sample_format(),
+        |_: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {},
+        |_err: cpal::Error| {},
+        None,
+    )?;
+    drop(stream); // accepted at build time; no play() needed
+    Ok(())
+}
+
+/// Usable output sample rate: honor `requested`, `None` meaning the device's own.
+/// Probed like the channel counts, since a backend that resamples will accept a
+/// rate its default config never mentions.
+pub fn resolve_sample_rate(device: &Device, requested: Option<u32>) -> u32 {
+    let Some(default_cfg) = default_output_config(device) else {
+        return requested.unwrap_or(44_100);
+    };
+    let Some(rate) = requested.filter(|&r| r > 0) else {
+        return default_cfg.sample_rate();
+    };
+    if rate == default_cfg.sample_rate() {
+        return rate;
+    }
+    match probe_output(device, default_cfg.channels(), rate, &default_cfg) {
+        Ok(()) => rate,
+        Err(e) => {
+            let fallback = default_cfg.sample_rate();
+            eprintln!("[doux] {rate} Hz refused ({e}); using {fallback}");
+            fallback
+        }
+    }
+}
+
+/// The output shape a device will actually take: channel count and sample rate
+/// resolved together, because they are accepted together. A device can support 8
+/// channels and 96 kHz on their own and refuse the pair, so resolving them
+/// independently and combining the answers yields a config that never opens, and
+/// `build_stream` fails outright instead of degrading.
+///
+/// Falls all the way back to the device's own default config if even the settled
+/// combination is refused, so the caller always gets something openable.
+pub fn resolve_output_shape(
+    device: &Device,
+    requested_channels: u16,
+    requested_rate: Option<u32>,
+) -> (u16, u32) {
+    let rate = resolve_sample_rate(device, requested_rate);
+    let channels = resolve_output_channels(device, requested_channels, rate);
+    let Some(default_cfg) = default_output_config(device) else {
+        return (channels, rate);
+    };
+    if (channels, rate) == (default_cfg.channels(), default_cfg.sample_rate()) {
+        return (channels, rate);
+    }
+    match probe_output(device, channels, rate, &default_cfg) {
+        Ok(()) => (channels, rate),
+        Err(e) => {
+            let fallback = (default_cfg.channels(), default_cfg.sample_rate());
+            eprintln!(
+                "[doux] {channels}ch at {rate} Hz refused together ({e}); using {}ch at {} Hz",
+                fallback.0, fallback.1
+            );
+            fallback
+        }
+    }
+}
+
+/// Usable input channel count: honor `requested`.
+/// `default_input_config()` reports stereo for a 4-in interface on every backend
+/// (cpal's default heuristic ranks 2 channels highest, and the PipeWire host's
+/// default-input node is hardcoded to 2), so probe by actually opening a stream
+/// rather than trusting what the device volunteers.
+pub fn resolve_input_channels(device: &Device, requested: u16) -> u16 {
+    let requested = requested.max(1); // PipeWire 0.18 rejects channels == 0
+    let Some(default_cfg) = default_input_config(device) else {
+        return requested; // cannot probe; trust the request
+    };
+    match probe_input(device, requested, default_cfg.sample_rate(), &default_cfg) {
+        Ok(()) => requested,
+        Err(e) => {
+            let fallback = default_cfg.channels();
+            eprintln!("[doux] {requested} input channels refused ({e}); using {fallback}");
+            fallback
+        }
+    }
+}
+
+/// Usable input sample rate: honor `requested`, which the caller sets to the
+/// output's rate so a duplex device runs both halves off one clock. Nothing
+/// resamples the live input, so a split here is drift.
+pub fn resolve_input_rate(device: &Device, requested: u32) -> u32 {
+    let Some(default_cfg) = default_input_config(device) else {
+        return requested;
+    };
+    if requested == default_cfg.sample_rate() || requested == 0 {
+        return default_cfg.sample_rate();
+    }
+    match probe_input(device, default_cfg.channels(), requested, &default_cfg) {
+        Ok(()) => requested,
+        Err(_) => default_cfg.sample_rate(),
+    }
+}
+
+/// Opens and drops a capture stream to find out whether the device takes this
+/// shape. Uses the raw builder so the probe runs at the device's own sample
+/// format: a hardcoded `f32` would be refused outright on an I16-native
+/// interface and make every count look unsupported.
+fn probe_input(
+    device: &Device,
+    channels: u16,
+    sample_rate: u32,
+    default_cfg: &SupportedStreamConfig,
+) -> Result<(), cpal::Error> {
+    let stream = device.build_input_stream_raw(
+        cpal::StreamConfig {
+            channels,
+            sample_rate,
+            buffer_size: cpal::BufferSize::Default,
+        },
+        default_cfg.sample_format(),
+        |_: &cpal::Data, _: &cpal::InputCallbackInfo| {},
+        |_err: cpal::Error| {},
+        None,
+    )?;
+    drop(stream); // accepted at build time; no play() needed
+    Ok(())
 }
 
 /// Runs audio diagnostics.

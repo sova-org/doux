@@ -84,6 +84,7 @@ fn main() {
         host: &host,
         input_spec: args.common.input.as_deref(),
         output_spec: args.common.output.as_deref(),
+        input_channels: args.common.input_channels,
         config: &oc,
         device_lost: &device_lost,
     };
