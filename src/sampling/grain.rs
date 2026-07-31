@@ -56,6 +56,8 @@ pub struct Cloud {
     dens: usize,
     /// Frames the scan head advances per output sample. 0 = frozen.
     scan: f64,
+    /// Driven head position, 0-1 across the region. `Some` overrides `scan`.
+    head: Option<f32>,
     /// Frames a grain advances per output sample.
     pitch: f64,
 }
@@ -66,7 +68,15 @@ impl Cloud {
     /// float-to-int cast saturates to 0 before the integer clamp.
     // `clamp` is the one thing that would break that: it propagates NaN.
     #[allow(clippy::manual_clamp)]
-    pub fn new(grain_ms: f32, spray: f32, dens: f32, stretch: f32, pitch: f64, sr: f32) -> Self {
+    pub fn new(
+        grain_ms: f32,
+        spray: f32,
+        dens: f32,
+        stretch: f32,
+        head: Option<f32>,
+        pitch: f64,
+        sr: f32,
+    ) -> Self {
         Self {
             // A one-sample Hann grain is a zero, so never go below two.
             size: ms_to_samples(grain_ms, sr).max(2.0),
@@ -79,6 +89,7 @@ impl Cloud {
             } else {
                 0.0
             },
+            head: head.map(|t| t.max(0.0).min(1.0)),
             pitch: if pitch.is_finite() { pitch } else { 0.0 },
         }
     }
@@ -167,11 +178,20 @@ impl GrainState {
             self.countdown += interval;
         }
 
-        self.head += cloud.scan;
-        if self.looping {
-            self.head = self.region_start + (self.head - self.region_start).rem_euclid(region_len);
-        } else if self.head >= self.region_end {
-            self.exhausted = true;
+        // A driven head is placed, not advanced, and never exhausts: the caller
+        // is free to sweep past either edge and come back, so the voice has to
+        // outlive the region and die on its envelope instead.
+        match cloud.head {
+            Some(t) => self.head = self.region_start + t as f64 * region_len,
+            None => {
+                self.head += cloud.scan;
+                if self.looping {
+                    self.head =
+                        self.region_start + (self.head - self.region_start).rem_euclid(region_len);
+                } else if self.head >= self.region_end {
+                    self.exhausted = true;
+                }
+            }
         }
 
         let hann = &*HANN;
@@ -270,7 +290,7 @@ mod tests {
     }
 
     fn cloud(grain_ms: f32, spray: f32, dens: f32, stretch: f32) -> Cloud {
-        Cloud::new(grain_ms, spray, dens, stretch, 1.0, SR)
+        Cloud::new(grain_ms, spray, dens, stretch, None, 1.0, SR)
     }
 
     fn armed(start: f64, end: f64, looping: bool) -> GrainState {
@@ -333,12 +353,14 @@ mod tests {
     #[test]
     fn nan_params_do_not_poison_the_output() {
         let data = sine(4096, 440.0);
-        let mut st = armed(0.0, 4096.0, false);
-        let c = Cloud::new(f32::NAN, f32::NAN, f32::NAN, f32::NAN, f64::NAN, SR);
-        let mut frame = [0.0; CHANNELS];
-        for _ in 0..1000 {
-            st.tick(&data, c, &mut frame);
-            assert!(frame[0].is_finite() && frame[1].is_finite());
+        for head in [None, Some(f32::NAN)] {
+            let mut st = armed(0.0, 4096.0, false);
+            let c = Cloud::new(f32::NAN, f32::NAN, f32::NAN, f32::NAN, head, f64::NAN, SR);
+            let mut frame = [0.0; CHANNELS];
+            for _ in 0..1000 {
+                st.tick(&data, c, &mut frame);
+                assert!(frame[0].is_finite() && frame[1].is_finite());
+            }
         }
     }
 
@@ -352,6 +374,34 @@ mod tests {
             st.tick(&data, c, &mut frame);
         }
         assert!(!st.is_done(), "a frozen cloud must sustain until its gate");
+    }
+
+    #[test]
+    fn driven_head_never_finishes() {
+        // A swept head runs off the end and back. `stretch` is 1 here, so the
+        // natural motion would have exhausted the region long before the budget.
+        let data = sine(4096, 440.0);
+        let mut st = armed(0.0, 4096.0, false);
+        let mut frame = [0.0; CHANNELS];
+        for i in 0..20000 {
+            let t = (i % 1000) as f32 / 1000.0;
+            let c = Cloud::new(20.0, 0.0, 2.0, 1.0, Some(t), 1.0, SR);
+            st.tick(&data, c, &mut frame);
+            assert!(!st.is_done(), "a driven cloud must sustain until its gate");
+        }
+    }
+
+    #[test]
+    fn driven_head_lands_where_it_is_told() {
+        let (start, end) = (2048.0, 3072.0);
+        let data = sine(4096, 440.0);
+        let mut st = armed(start, end, false);
+        let mut frame = [0.0; CHANNELS];
+        for &(t, want) in &[(0.0, 2048.0), (0.5, 2560.0), (1.0, 3072.0), (0.25, 2304.0)] {
+            let c = Cloud::new(20.0, 0.0, 2.0, 1.0, Some(t), 1.0, SR);
+            st.tick(&data, c, &mut frame);
+            assert_eq!(st.head, want, "head at scan {t}");
+        }
     }
 
     #[test]
@@ -389,7 +439,7 @@ mod tests {
         let (start, end) = (2048.0, 3072.0);
         let data = sine(4096, 440.0);
         let mut st = armed(start, end, true);
-        let c = Cloud::new(30.0, 1.0, 8.0, 0.5, 2.0, SR);
+        let c = Cloud::new(30.0, 1.0, 8.0, 0.5, None, 2.0, SR);
         let mut frame = [0.0; CHANNELS];
         for _ in 0..8000 {
             st.tick(&data, c, &mut frame);

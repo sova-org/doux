@@ -113,10 +113,12 @@ impl StretchState {
         !self.has_prev_phase && self.available == 0
     }
 
+    /// `scan` places the analysis window at a normalized position in the region,
+    /// overriding the walk `stretch` would otherwise drive.
     #[inline]
-    pub fn ensure_available(&mut self, data: &SampleData, stretch: f32) {
+    pub fn ensure_available(&mut self, data: &SampleData, stretch: f32, scan: Option<f32>) {
         while self.available < 2 {
-            self.produce_frame(data, stretch);
+            self.produce_frame(data, stretch, scan);
             if self.done {
                 return;
             }
@@ -147,7 +149,7 @@ impl StretchState {
         }
     }
 
-    fn produce_frame(&mut self, data: &SampleData, stretch: f32) {
+    fn produce_frame(&mut self, data: &SampleData, stretch: f32, scan: Option<f32>) {
         if self.done {
             return;
         }
@@ -158,10 +160,19 @@ impl StretchState {
             return;
         }
 
-        let analysis_hop = if stretch <= 0.001 {
-            0.0
-        } else {
-            HOP_LEN as f64 / stretch as f64
+        // A driven window is a teleport, so the hop is the distance actually
+        // travelled. Placing it before the read below makes `analysis_hop` the
+        // gap between the previous window and this one, which is the number
+        // phase continuation needs to stay locked instead of smeared.
+        let analysis_hop = match scan {
+            Some(t) => {
+                let target = self.region_start + t.max(0.0).min(1.0) as f64 * region_len;
+                let hop = target - self.analysis_pos;
+                self.analysis_pos = target;
+                hop
+            }
+            None if stretch <= 0.001 => 0.0,
+            None => HOP_LEN as f64 / stretch as f64,
         };
 
         let frame_count = data.frame_count as f64;
@@ -232,11 +243,18 @@ impl StretchState {
             self.output_buf[1][idx] = 0.0;
         }
 
-        self.analysis_pos += analysis_hop;
-        self.analysis_consumed += analysis_hop;
         self.write_pos = (self.write_pos + HOP_LEN) & BUF_MASK;
         self.available += HOP_LEN as i32;
 
+        // A driven window was already placed above and has no distance to run
+        // out of, so the walk, the loop wrap and the completion test are all
+        // the natural reader's business alone.
+        if scan.is_some() {
+            return;
+        }
+
+        self.analysis_pos += analysis_hop;
+        self.analysis_consumed += analysis_hop;
         if self.loop_active {
             if self.analysis_pos >= self.region_end {
                 let overshoot = self.analysis_pos - self.region_end;
@@ -386,10 +404,45 @@ mod tests {
     }
 
     fn step(st: &mut StretchState, data: &SampleData, stretch: f32, pitch_ratio: f64) -> f32 {
-        st.ensure_available(data, stretch);
+        st.ensure_available(data, stretch, None);
         let out = st.read(0);
         st.advance(pitch_ratio);
         out
+    }
+
+    #[test]
+    fn driven_window_lands_where_it_is_told() {
+        let data = make_sine_data(8000, 440.0, 44100.0);
+        let mut st = StretchState::default();
+        st.reset(2000.0, 6000.0, false);
+
+        for &(t, want) in &[(0.0, 2000.0), (0.5, 4000.0), (1.0, 6000.0), (0.25, 3000.0)] {
+            // The vocoder re-analyses once per hop, not per sample, so drain a
+            // hop of output to force a fresh frame at the new target.
+            for _ in 0..HOP_LEN {
+                st.ensure_available(&data, 1.0, Some(t));
+                st.advance(1.0);
+            }
+            assert_eq!(st.analysis_pos, want, "analysis window at scan {t}");
+        }
+    }
+
+    #[test]
+    fn driven_window_never_finishes() {
+        // stretch 1 would consume the region in 4096 frames; a driven window
+        // sweeps it repeatedly and must still be alive at the end.
+        let data = make_sine_data(4096, 440.0, 44100.0);
+        let mut st = StretchState::default();
+        st.reset(0.0, 4096.0, false);
+
+        for i in 0..20000 {
+            let t = (i % 500) as f32 / 500.0;
+            st.ensure_available(&data, 1.0, Some(t));
+            let out = st.read(0);
+            st.advance(1.0);
+            assert!(out.is_finite());
+            assert!(!st.is_done(), "a driven window must sustain until its gate");
+        }
     }
 
     #[test]
@@ -524,7 +577,7 @@ mod tests {
             if st.is_done() {
                 break;
             }
-            st.ensure_available(&data, 1.5);
+            st.ensure_available(&data, 1.5, None);
             let l = st.read(0);
             let r = st.read(1);
             st.advance(1.0);

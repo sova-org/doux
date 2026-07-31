@@ -80,6 +80,12 @@ impl RegistrySample {
         self.cursor.advance(speed);
     }
 
+    /// Places the cursor at a normalized position in the region.
+    #[inline]
+    pub fn seek_normalized(&mut self, t: f32) {
+        self.cursor.seek_normalized(t);
+    }
+
     /// Sets loop points (in frames relative to sample start).
     pub fn set_loop(&mut self, loop_start: f32, loop_end: f32) {
         self.cursor.set_loop(loop_start, loop_end);

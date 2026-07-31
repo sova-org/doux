@@ -126,6 +126,18 @@ impl Cursor {
         }
     }
 
+    /// Places the playhead at a normalized position in the region.
+    ///
+    /// Rate is whatever successive calls imply, so a driven cursor pitches
+    /// itself the way a hand on a record does. Callers own the completion
+    /// test: a driven cursor walks off the end and back, so [`Self::is_done`]
+    /// stays theirs to skip.
+    #[inline]
+    pub fn seek_normalized(&mut self, t: f32) {
+        self.started = true;
+        self.pos = t.clamp(0.0, 1.0) * self.length;
+    }
+
     /// Returns true if playback has finished (position out of bounds).
     /// Looping cursors never finish from position — voice dies from DAHDSR release.
     #[inline]
@@ -274,6 +286,27 @@ mod tests {
         assert_eq!(c.frame_position(), 250.0);
         c.pos = 600.0;
         assert_eq!(c.frame_position(), 749.0); // 250 + 499 (length-1)
+    }
+
+    #[test]
+    fn seek_normalized_is_region_relative() {
+        let mut c = Cursor::new(1000, 0.25, 0.75); // start 250, length 500
+        c.seek_normalized(0.0);
+        assert_eq!(c.frame_position(), 250.0);
+        c.seek_normalized(0.5);
+        assert_eq!(c.frame_position(), 500.0);
+        c.seek_normalized(1.0);
+        assert_eq!(c.frame_position(), 749.0); // clamped to length - 1
+        assert!(c.started, "a seek counts as having started");
+    }
+
+    #[test]
+    fn seek_normalized_clamps_its_argument() {
+        let mut c = Cursor::new(1000, 0.0, 1.0);
+        c.seek_normalized(-3.0);
+        assert_eq!(c.frame_position(), 0.0);
+        c.seek_normalized(7.0);
+        assert_eq!(c.frame_position(), 999.0);
     }
 
     #[test]

@@ -79,7 +79,9 @@ pub struct VoiceParams {
     pub morph: f32,
     /// Sample slice/cut index for sample playback.
     pub cut: Option<usize>,
-    /// Wavetable scan position (0.0 to 1.0) - morphs between cycles.
+    /// Read position through the buffer (0.0 to 1.0). A wavetable selects the
+    /// cycle; a sample places the playhead. Negative means unset, so each
+    /// reader keeps its own motion.
     pub scan: f32,
     /// Wavetable cycle length in samples (0 = use entire sample as one cycle).
     pub wt_cycle_len: u32,
@@ -416,7 +418,8 @@ impl Default for VoiceParams {
             timbre: 0.5,
             morph: 0.5,
             cut: None,
-            scan: 0.0,
+            // Sentinel: unset. Wavetables clamp it back to 0 at the read site.
+            scan: -1.0,
             wt_cycle_len: 0,
             wave: 0.0,
             sub: 0.0,

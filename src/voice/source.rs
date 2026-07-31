@@ -17,6 +17,15 @@ use super::Voice;
 const INV_MIDDLE_C: f32 = 1.0 / 261.626;
 const SYNC_RATIO_EPS: f32 = 1e-4;
 
+/// `scan` places a sample reader's playhead; negative means unset, so the
+/// reader keeps its own motion. NaN from a modulation chain reads as unset too,
+/// which is the only place that test needs to live.
+#[cfg(feature = "native")]
+#[inline]
+fn driven_scan(scan: f32) -> Option<f32> {
+    (scan >= 0.0).then_some(scan)
+}
+
 #[inline]
 fn wrap_phase(phase: f32) -> f32 {
     if phase >= 1.0 {
@@ -233,6 +242,7 @@ impl Voice {
                             self.params.spray,
                             self.params.dens,
                             self.params.stretch,
+                            driven_scan(self.params.scan),
                             (freq * INV_MIDDLE_C) as f64,
                             self.sr,
                         );
@@ -249,6 +259,7 @@ impl Voice {
                     for i in 0..n {
                         let freq = self.tick_pre(isr, i);
                         let pitch_ratio = (freq * INV_MIDDLE_C) as f64;
+                        let scan = driven_scan(self.params.scan);
                         let blend = self.sample_blend;
                         match (&self.registry_sample, &self.registry_sample_b) {
                             (Some(_), Some(_)) if blend > 0.0 => {
@@ -264,7 +275,7 @@ impl Voice {
                                     self.dahdsr.force_release();
                                 }
                                 let a = self.registry_sample.as_ref().unwrap();
-                                self.stretch.ensure_available(&a.data, stretch);
+                                self.stretch.ensure_available(&a.data, stretch, scan);
                                 let a_start = a.cursor_start() as f32;
                                 let sa0 = self.stretch.read(0);
                                 let sa1 = self.stretch.read(1);
@@ -288,7 +299,7 @@ impl Voice {
                                     self.dahdsr.force_release();
                                 }
                                 let rs = self.registry_sample.as_ref().unwrap();
-                                self.stretch.ensure_available(&rs.data, stretch);
+                                self.stretch.ensure_available(&rs.data, stretch, scan);
                                 self.scratch[i][0] = self.stretch.read(0) * 0.7;
                                 self.scratch[i][1] = self.stretch.read(1) * 0.7;
                                 self.stretch.advance(pitch_ratio);
@@ -301,14 +312,23 @@ impl Voice {
                     self.finish_block(env, n, isr);
                     return n;
                 }
+                // A driven cursor is placed rather than advanced, and never
+                // reports done: rate is whatever the sweep implies, the way a
+                // hand on a record works, so `speed` stops applying and the
+                // voice has to die on its envelope instead of on the region.
                 for i in 0..n {
                     let freq = self.tick_pre(isr, i);
                     let speed = freq * INV_MIDDLE_C;
+                    let scan = driven_scan(self.params.scan);
                     let blend = self.sample_blend;
                     match (&mut self.registry_sample, &mut self.registry_sample_b) {
                         (Some(a), Some(b)) if blend > 0.0 => {
-                            let done_a = a.is_done();
-                            let done_b = b.is_done();
+                            if let Some(t) = scan {
+                                a.seek_normalized(t);
+                                b.seek_normalized(t);
+                            }
+                            let done_a = scan.is_none() && a.is_done();
+                            let done_b = scan.is_none() && b.is_done();
                             if done_a && done_b {
                                 self.dahdsr.force_release();
                             }
@@ -316,21 +336,26 @@ impl Voice {
                                 (a.read(0) + blend * (b.read(0) - a.read(0))) * 0.7;
                             self.scratch[i][1] =
                                 (a.read(1) + blend * (b.read(1) - a.read(1))) * 0.7;
-                            if !done_a {
-                                a.advance(speed);
-                            }
-                            if !done_b {
-                                b.advance(speed);
+                            if scan.is_none() {
+                                if !done_a {
+                                    a.advance(speed);
+                                }
+                                if !done_b {
+                                    b.advance(speed);
+                                }
                             }
                         }
                         (Some(rs), _) => {
-                            let done = rs.is_done();
+                            if let Some(t) = scan {
+                                rs.seek_normalized(t);
+                            }
+                            let done = scan.is_none() && rs.is_done();
                             if done {
                                 self.dahdsr.force_release();
                             }
                             self.scratch[i][0] = rs.read(0) * 0.7;
                             self.scratch[i][1] = rs.read(1) * 0.7;
-                            if !done {
+                            if scan.is_none() && !done {
                                 rs.advance(speed);
                             }
                         }
