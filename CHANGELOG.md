@@ -3,6 +3,26 @@
 All notable changes to doux are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.0.46]
+
+### Added
+
+- **`scan` drives the sample playhead** — modulatable, so `scan/0~1:4` sweeps the buffer. Works on the plain cursor, the phase vocoder (`stretch`) and the grain cloud (`grain`). Native only
+- A driven reader never finishes, so the voice dies on its envelope, not at the region end. The plain cursor stops honouring `speed`/`note` (rate is whatever the sweep implies, like a hand on a record); the vocoder and the cloud still transpose
+- **`--input-channels`** (default 2), probed rather than read off `default_input_config()`, which reports stereo for a 4-in interface on every backend
+- `resolve_output_shape` settles channels and rate together — a device can take either alone and refuse the pair
+- `resolve_sample_rate` probes a requested output rate; `resolve_input_rate` pins the input to the output's rate, since nothing resamples live input
+- Probes use the raw stream builders at the device's own sample format. Hardcoded `f32` made every count look unsupported on an I16-native interface
+- **Manual port patching** — `Patching::{Auto, Manual}` and `get_host_patched` build a PipeWire or JACK host with auto-connection off, leaving the ports for the user to wire. Linux only; `host_supports_manual_patching` reports it
+- `audio::default_input_config`
+
+### Changed
+
+- **[BREAKING]** `resolve_output_channels(device, requested)` → `(device, requested, sample_rate)`
+- **[BREAKING]** `VoiceParams::scan` defaults to `-1.0` (unset) instead of `0.0`. Wavetables clamp it back at the read site and are unaffected; a NaN from a mod chain also reads as unset
+- **[BREAKING]** `StretchState::ensure_available` and `Cloud::new` take an `Option<f32>` driven position
+- The input stream opens at the negotiated width, not `default_input_config().into()`
+
 ## [0.0.45] - 2026-07-29
 
 ### Added
