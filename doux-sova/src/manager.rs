@@ -104,7 +104,7 @@ pub struct DouxManager {
     /// Shared with the engine: worker threads publish a new sample index
     /// by `store`-ing on this ArcSwap. The audio thread reads via the
     /// engine's snapshot accessor.
-    sample_index: Arc<doux::arc_swap::ArcSwap<Vec<doux::sampling::SampleEntry>>>,
+    sample_index: Arc<doux::arc_swap::ArcSwap<doux::SampleIndex>>,
     /// Shared with the engine: the worker publishes a decoded GM bank by
     /// `store`-ing here; the audio thread reads it in `resolve_gm`.
     #[cfg(feature = "soundfont")]
@@ -234,7 +234,7 @@ impl DouxManager {
         let sample_index = engine.sample_index_handle();
         #[cfg(feature = "soundfont")]
         let gm_bank = engine.gm_bank_handle();
-        spawn_preload(&engine.sample_index(), sample_rate, &registry);
+        spawn_preload(engine.sample_index().entries(), sample_rate, &registry);
 
         Ok(Self {
             pending_engine: Some(engine),
@@ -664,7 +664,7 @@ impl DouxManager {
         {
             self.gm_bank = engine.gm_bank_handle();
         }
-        spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
+        spawn_preload(engine.sample_index().entries(), sample_rate, &self.registry);
         self.pending_engine = Some(engine);
 
         match self.build_streams() {
@@ -737,7 +737,7 @@ impl DouxManager {
         {
             self.gm_bank = engine.gm_bank_handle();
         }
-        spawn_preload(&engine.sample_index(), sample_rate, &self.registry);
+        spawn_preload(engine.sample_index().entries(), sample_rate, &self.registry);
 
         self.pending_engine = Some(engine);
         self.host_selection = host_selection;
@@ -810,7 +810,8 @@ impl DouxManager {
     pub fn clear_samples(&mut self) {
         // Direct swap — no audio-thread roundtrip. The old Vec is dropped on
         // this caller's thread (whichever holds the last Arc).
-        self.sample_index.store(Arc::new(Vec::new()));
+        self.sample_index
+            .store(Arc::new(doux::SampleIndex::default()));
     }
 
     pub fn hush(&self) {

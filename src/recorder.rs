@@ -8,7 +8,7 @@
 //! record and overdub. Replaces the old toggle + per-stop 23 MB `Vec` alloc
 //! that page-faulted on the audio thread.
 
-use crate::sampling::{SampleData, SampleEntry, SampleRegistry};
+use crate::sampling::{SampleData, SampleEntry, SampleIndex, SampleRegistry};
 use crate::telemetry::EngineMetrics;
 use crate::types::{CHANNELS, MAX_BUFFER_FRAMES};
 use arc_swap::ArcSwap;
@@ -62,7 +62,7 @@ impl Recorder {
         sr: f32,
         metrics: Arc<EngineMetrics>,
         registry: Arc<SampleRegistry>,
-        sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
+        sample_index: Arc<ArcSwap<SampleIndex>>,
     ) -> Self {
         let (mut producer, mut consumer) = HeapRb::<f32>::new(RING_FRAMES * CHANNELS).split();
         // Pre-fault the ring off-RT so first capture takes no page faults.
@@ -181,7 +181,7 @@ impl RecorderWriter {
     fn spawn(
         consumer: HeapCons<f32>,
         registry: Arc<SampleRegistry>,
-        sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
+        sample_index: Arc<ArcSwap<SampleIndex>>,
         sr: f32,
     ) -> Self {
         let (ctrl_tx, ctrl_rx) = bounded::<RecCtrl>(CTRL_DEPTH);
@@ -223,7 +223,7 @@ fn writer_loop(
     mut consumer: HeapCons<f32>,
     ctrl_rx: Receiver<RecCtrl>,
     registry: &SampleRegistry,
-    sample_index: &ArcSwap<Vec<SampleEntry>>,
+    sample_index: &ArcSwap<SampleIndex>,
     max_len: usize,
 ) {
     let mut dest: Vec<f32> = Vec::new();
@@ -321,7 +321,7 @@ fn overdub_mix(dest: &mut [f32], src: &[f32], write_pos: &mut usize) {
 // Build the SampleData and publish it into the registry + index. Off-RT.
 fn finalize(
     registry: &SampleRegistry,
-    sample_index: &ArcSwap<Vec<SampleEntry>>,
+    sample_index: &ArcSwap<SampleIndex>,
     name: &str,
     captured: Vec<f32>,
 ) {
@@ -331,13 +331,13 @@ fn finalize(
     let data = SampleData::new(captured, CHANNELS as u8, 261.626);
     let key = format!("{name}/0");
     registry.insert(key.clone(), Arc::new(data));
-    let current = sample_index.load_full();
-    if !current.iter().any(|e| e.name.as_ref() == key) {
-        let mut new_index = (*current).clone();
-        new_index.push(SampleEntry {
+    let current = sample_index.load();
+    if !current.entries().iter().any(|e| e.name.as_ref() == key) {
+        let mut merged = current.entries().to_vec();
+        merged.push(SampleEntry {
             name: Arc::from(key),
             path: Arc::new(PathBuf::new()),
         });
-        sample_index.store(Arc::new(new_index));
+        sample_index.store(Arc::new(SampleIndex::new(merged)));
     }
 }

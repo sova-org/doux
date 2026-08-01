@@ -68,7 +68,7 @@ fn main() {
         setup_engine_samples(&mut engine, dir, args.preload, true);
     }
 
-    let sample_index = engine.sample_index().to_vec();
+    let sample_index = engine.sample_index().entries().to_vec();
     let sample_registry = Arc::clone(engine.sample_registry());
     #[cfg(feature = "soundfont")]
     let gm_bank = engine.take_gm_bank();

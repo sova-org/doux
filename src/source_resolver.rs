@@ -6,7 +6,7 @@ use arc_swap::ArcSwap;
 
 use crate::event::effective_sample_name;
 use crate::patch::PatchRegistry;
-use crate::sampling::SampleEntry;
+use crate::sampling::SampleIndex;
 use crate::types::Source;
 
 /// What a bare sound name plays.
@@ -26,11 +26,11 @@ pub enum SourceKind {
 #[derive(Clone)]
 pub struct SourceResolver {
     patches: Arc<PatchRegistry>,
-    sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
+    sample_index: Arc<ArcSwap<SampleIndex>>,
 }
 
 impl SourceResolver {
-    pub fn new(patches: Arc<PatchRegistry>, sample_index: Arc<ArcSwap<Vec<SampleEntry>>>) -> Self {
+    pub fn new(patches: Arc<PatchRegistry>, sample_index: Arc<ArcSwap<SampleIndex>>) -> Self {
         Self {
             patches,
             sample_index,
@@ -47,12 +47,7 @@ impl SourceResolver {
             return SourceKind::Patch;
         }
         let folder = effective_sample_name(name, bank);
-        if self
-            .sample_index
-            .load()
-            .iter()
-            .any(|e| e.in_folder(&folder))
-        {
+        if self.sample_index.load().has_folder(&folder) {
             return SourceKind::Sample;
         }
         SourceKind::Unresolved

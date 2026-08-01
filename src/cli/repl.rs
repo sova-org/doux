@@ -199,12 +199,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         setup_engine_samples(&mut engine, dir, false, false);
         println!(
             "Samples: {} from {}",
-            engine.sample_index().len(),
+            engine.sample_index().entries().len(),
             dir.display()
         );
     }
 
-    let sample_index = engine.sample_index().to_vec();
+    let sample_index = engine.sample_index().entries().to_vec();
     let sample_registry = Arc::clone(engine.sample_registry());
     let patch_registry = Arc::clone(engine.patch_registry());
     #[cfg(feature = "soundfont")]

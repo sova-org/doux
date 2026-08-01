@@ -79,6 +79,8 @@ use recorder::Recorder;
 use sampling::RegistrySample;
 use sampling::SampleEntry;
 #[cfg(feature = "native")]
+pub use sampling::SampleIndex;
+#[cfg(feature = "native")]
 pub use sampling::SampleLoader;
 #[cfg(feature = "native")]
 pub use sampling::{SampleData, SampleRegistry};
@@ -268,7 +270,7 @@ pub struct EngineConfig {
     /// `sample_registry`), so a host that rebuilds the Engine keeps the scan it
     /// already published. `None` constructs a fresh empty one.
     #[cfg(feature = "native")]
-    pub sample_index: Option<Arc<arc_swap::ArcSwap<Vec<SampleEntry>>>>,
+    pub sample_index: Option<Arc<arc_swap::ArcSwap<SampleIndex>>>,
     /// Reuse an existing arf patch registry (same recovery pattern as
     /// `sample_registry`). `None` constructs a fresh one.
     pub patch_registry: Option<Arc<PatchRegistry>>,
@@ -373,7 +375,7 @@ pub struct Engine {
     #[cfg(not(feature = "native"))]
     pub(crate) samples: Vec<SampleInfo>,
     #[cfg(feature = "native")]
-    pub(crate) sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>>,
+    pub(crate) sample_index: Arc<arc_swap::ArcSwap<SampleIndex>>,
     #[cfg(not(feature = "native"))]
     pub(crate) sample_index: Vec<SampleEntry>,
     #[cfg(feature = "native")]
@@ -456,9 +458,9 @@ impl Engine {
         };
 
         #[cfg(feature = "native")]
-        let sample_index: Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> = config
+        let sample_index: Arc<arc_swap::ArcSwap<SampleIndex>> = config
             .sample_index
-            .unwrap_or_else(|| Arc::new(arc_swap::ArcSwap::from_pointee(Vec::new())));
+            .unwrap_or_else(|| Arc::new(arc_swap::ArcSwap::from_pointee(SampleIndex::default())));
         #[cfg(feature = "native")]
         let recorder = Recorder::new(
             config.sample_rate,
@@ -595,11 +597,10 @@ impl Engine {
 
     /// Snapshot of the sample index.
     ///
-    /// Native: returns an `arc_swap::Guard` that derefs through
-    /// `Arc<Vec<SampleEntry>>` to `Vec<SampleEntry>` / `[SampleEntry]`. The
-    /// load is a single atomic op — RT-safe.
+    /// Native: returns an `arc_swap::Guard` that derefs to [`SampleIndex`].
+    /// The load is a single atomic op — RT-safe.
     #[cfg(feature = "native")]
-    pub fn sample_index(&self) -> arc_swap::Guard<Arc<Vec<SampleEntry>>> {
+    pub fn sample_index(&self) -> arc_swap::Guard<Arc<SampleIndex>> {
         self.sample_index.load()
     }
 
@@ -611,16 +612,18 @@ impl Engine {
     /// Handle to the swappable sample-index slot. Worker threads clone this
     /// to publish a new index without going through the RT thread.
     #[cfg(feature = "native")]
-    pub fn sample_index_handle(&self) -> Arc<arc_swap::ArcSwap<Vec<SampleEntry>>> {
+    pub fn sample_index_handle(&self) -> Arc<arc_swap::ArcSwap<SampleIndex>> {
         Arc::clone(&self.sample_index)
     }
 
     /// Atomically replaces the sample index. `&self` — interior mutation via
-    /// `ArcSwap`. The previous `Vec` is dropped on whichever thread drops the
+    /// `ArcSwap`. Building the [`SampleIndex`] sorts the entries on the
+    /// caller's thread, which is why lookup on the RT thread is a binary
+    /// search. The previous index is dropped on whichever thread drops the
     /// last `Arc`; for the worker-driven flow, that's the worker.
     #[cfg(feature = "native")]
     pub fn set_sample_index(&self, index: Vec<SampleEntry>) {
-        self.sample_index.store(Arc::new(index));
+        self.sample_index.store(Arc::new(SampleIndex::new(index)));
     }
 
     #[cfg(not(feature = "native"))]
@@ -628,13 +631,13 @@ impl Engine {
         self.sample_index = index;
     }
 
-    /// Appends `entries` to the sample index. Clones the current Vec on the
-    /// caller's thread (off the RT path).
+    /// Appends `entries` to the sample index. Rebuilds on the caller's thread
+    /// (off the RT path).
     #[cfg(feature = "native")]
     pub fn extend_sample_index<I: IntoIterator<Item = SampleEntry>>(&self, entries: I) {
-        let mut new_index = (*self.sample_index.load_full()).clone();
-        new_index.extend(entries);
-        self.sample_index.store(Arc::new(new_index));
+        let mut merged = self.sample_index.load().entries().to_vec();
+        merged.extend(entries);
+        self.sample_index.store(Arc::new(SampleIndex::new(merged)));
     }
 
     #[cfg(not(feature = "native"))]
@@ -717,26 +720,19 @@ impl Engine {
         Some(idx)
     }
 
-    /// Look up sample folder/n (e.g., "wave_tek/3"). `n` wraps via modulo over the folder count.
-    /// Walks the index twice (count, then find) — but each walk is O(n) and shared by all callers.
+    /// Look up sample folder/n (e.g., "wave_tek/3"). `n` wraps via modulo over
+    /// the folder count.
+    ///
+    /// Runs on the audio thread — event dispatch drains inside the cpal
+    /// callback — so it must not scale with the size of the sample library.
+    /// [`SampleIndex`] pays for that off-RT: this is a binary search over
+    /// folder names plus one direct index.
     ///
     /// Returns a cloned [`SampleEntry`] (two `Arc` clones) so the caller does
     /// not need to keep the [`arc_swap::Guard`] alive.
     #[cfg(feature = "native")]
     fn lookup_sample_entry(&self, name: &str, n: usize) -> Option<SampleEntry> {
-        let name_len = name.len();
-        let index = self.sample_index.load();
-        let count = index.iter().filter(|e| e.in_folder(name)).count();
-        if count == 0 {
-            return None;
-        }
-        let wrapped_n = n % count;
-        index
-            .iter()
-            .find(|e| {
-                e.in_folder(name) && e.name[name_len + 1..].parse::<usize>().ok() == Some(wrapped_n)
-            })
-            .cloned()
+        self.sample_index.load().folder_entry(name, n).cloned()
     }
 
     /// Try to get a sample from the registry, or request background loading.

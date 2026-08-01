@@ -27,6 +27,120 @@ impl SampleEntry {
             && self.name.as_bytes()[folder.len()] == b'/'
             && self.name.as_bytes().starts_with(folder.as_bytes())
     }
+
+    /// Split `<folder>/<n>` into its parts. `None` for a top-level entry
+    /// (a bare stem, no `/`) or a suffix that is not a plain integer.
+    #[cfg(feature = "native")]
+    fn folder_parts(&self) -> Option<(&str, usize)> {
+        let (folder, suffix) = self.name.split_once('/')?;
+        Some((folder, suffix.parse().ok()?))
+    }
+}
+
+/// One folder's contiguous run inside [`SampleIndex::entries`].
+#[cfg(feature = "native")]
+struct FolderRange {
+    name: Arc<str>,
+    start: u32,
+    /// Members are dense `0..count`, established by [`SampleIndex::new`].
+    count: u32,
+}
+
+/// The sample index, arranged for lookup instead of for scanning.
+///
+/// `folder/n` resolution happens on the audio thread — event dispatch drains
+/// inside the cpal callback — so the cost must not scale with the size of the
+/// user's sample library. [`SampleIndex::new`] pays one sort off the RT thread
+/// and every later lookup is a binary search over folder names plus a direct
+/// index.
+#[cfg(feature = "native")]
+pub struct SampleIndex {
+    entries: Vec<SampleEntry>,
+    /// Sorted by `name`, one per distinct folder. Top-level entries have no
+    /// range: they are addressed by exact name through the registry, never as
+    /// `folder/n`.
+    folders: Vec<FolderRange>,
+}
+
+#[cfg(feature = "native")]
+impl SampleIndex {
+    /// Group `entries` by folder and record each run.
+    ///
+    /// Sorting by `(folder, n)` rather than merely grouping is what lets
+    /// `folder_entry` index directly: it makes the "one contiguous, densely
+    /// numbered run per folder" invariant hold no matter what order the
+    /// entries arrived in, so an append from `extend_sample_index` or the
+    /// recorder cannot break the lookup.
+    pub fn new(mut entries: Vec<SampleEntry>) -> Self {
+        entries.sort_by(|a, b| match (a.folder_parts(), b.folder_parts()) {
+            (Some((fa, na)), Some((fb, nb))) => fa.cmp(fb).then(na.cmp(&nb)),
+            // Top-level entries sort after all folder members, keeping every
+            // folder run contiguous. Their relative order is by name.
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.name.cmp(&b.name),
+        });
+        // Two scanned roots that share a folder name both number their members
+        // from 0, so the index can carry the same `folder/n` twice. The
+        // registry is keyed by that name and cannot hold both, so the later
+        // one is unreachable regardless — dropping it here is what keeps each
+        // run densely numbered. The sort is stable, so the survivor is the
+        // first-scanned entry, which is the one the old linear `find` picked.
+        entries.dedup_by(|a, b| a.name == b.name);
+
+        let mut folders: Vec<FolderRange> = Vec::new();
+        for (i, entry) in entries.iter().enumerate() {
+            let Some((folder, _)) = entry.folder_parts() else {
+                break; // top-level tail; nothing past here belongs to a folder
+            };
+            match folders.last_mut() {
+                Some(last) if last.name.as_ref() == folder => last.count += 1,
+                _ => folders.push(FolderRange {
+                    name: Arc::from(folder),
+                    start: i as u32,
+                    count: 1,
+                }),
+            }
+        }
+
+        Self { entries, folders }
+    }
+
+    /// The entry for `folder/n`, wrapping `n` modulo the folder's size.
+    /// `None` when no such folder exists.
+    pub fn folder_entry(&self, folder: &str, n: usize) -> Option<&SampleEntry> {
+        let i = self
+            .folders
+            .binary_search_by(|r| r.name.as_ref().cmp(folder))
+            .ok()?;
+        let range = &self.folders[i];
+        let wrapped = n % range.count as usize;
+        let entry = &self.entries[range.start as usize + wrapped];
+        debug_assert_eq!(
+            entry.folder_parts(),
+            Some((folder, wrapped)),
+            "folder run for `{folder}` is not densely numbered from 0"
+        );
+        Some(entry)
+    }
+
+    /// True when `folder` names a sample folder.
+    pub fn has_folder(&self, folder: &str) -> bool {
+        self.folders
+            .binary_search_by(|r| r.name.as_ref().cmp(folder))
+            .is_ok()
+    }
+
+    pub fn entries(&self) -> &[SampleEntry] {
+        &self.entries
+    }
+}
+
+#[cfg(feature = "native")]
+impl Default for SampleIndex {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
 }
 
 /// Contiguous storage for all loaded sample data (WASM only).

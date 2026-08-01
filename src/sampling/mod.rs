@@ -17,6 +17,8 @@ pub mod stretch;
 
 pub use cursor::Cursor;
 pub use sample::SampleEntry;
+#[cfg(feature = "native")]
+pub use sample::SampleIndex;
 #[cfg(not(feature = "native"))]
 pub use sample::{FileSource, SampleInfo, SamplePool};
 pub use sample::{WebSampleInfo, WebSampleSource};

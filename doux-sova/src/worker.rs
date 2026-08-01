@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender};
 use doux::arc_swap::ArcSwap;
 #[cfg(feature = "soundfont")]
 use doux::arc_swap::ArcSwapOption;
-use doux::sampling::{scan_samples_dir, SampleEntry, SampleRegistry};
+use doux::sampling::{scan_samples_dir, SampleEntry, SampleIndex, SampleRegistry};
 #[cfg(feature = "soundfont")]
 use doux::soundfont::GmBank;
 
@@ -29,7 +29,7 @@ impl EngineWorker {
     /// audio thread.
     pub fn spawn(
         registry: Arc<SampleRegistry>,
-        sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
+        sample_index: Arc<ArcSwap<SampleIndex>>,
         sample_rate: f32,
         #[cfg(feature = "soundfont")] gm_bank: Arc<ArcSwapOption<GmBank>>,
     ) -> Self {
@@ -61,7 +61,7 @@ impl EngineWorker {
 fn run(
     rx: Receiver<WorkerTask>,
     registry: Arc<SampleRegistry>,
-    sample_index: Arc<ArcSwap<Vec<SampleEntry>>>,
+    sample_index: Arc<ArcSwap<SampleIndex>>,
     sample_rate: f32,
     #[cfg(feature = "soundfont")] gm_bank: Arc<ArcSwapOption<GmBank>>,
 ) {
@@ -74,16 +74,17 @@ fn run(
                 }
                 spawn_preload(&index, sample_rate, &registry);
                 // Atomic publish — audio thread sees the new index on its
-                // next snapshot load. The old Vec is dropped here on the
-                // worker thread.
-                sample_index.store(Arc::new(index));
+                // next snapshot load. Building the `SampleIndex` sorts here,
+                // on the worker thread, so lookup stays a binary search. The
+                // old index is dropped here too.
+                sample_index.store(Arc::new(SampleIndex::new(index)));
             }
             WorkerTask::AddSamplePath(path) => {
                 let new_entries = scan_samples_dir(&path);
                 spawn_preload(&new_entries, sample_rate, &registry);
-                let mut next = (*sample_index.load_full()).clone();
+                let mut next = sample_index.load().entries().to_vec();
                 next.extend(new_entries);
-                sample_index.store(Arc::new(next));
+                sample_index.store(Arc::new(SampleIndex::new(next)));
             }
             #[cfg(feature = "soundfont")]
             WorkerTask::LoadSoundfont(paths) => {
