@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "fshift"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn FreqShiftDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn FreqShiftDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct FreqShiftDsp {
@@ -15,6 +15,8 @@ pub struct FreqShiftDsp {
 	iVec0: [i32;2],
 	fConst5: F32,
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fRec0: [F32;2],
 	fRec1: [F32;2],
 	iRec2: [i32;3],
@@ -71,6 +73,8 @@ impl FreqShiftDsp {
 			iVec0: [0;2],
 			fConst5: 0.0,
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fRec0: [0.0;2],
 			fRec1: [0.0;2],
 			iRec2: [0;3],
@@ -98,7 +102,7 @@ impl FreqShiftDsp {
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn FreqShiftDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn FreqShiftDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("filename", r"fshift.dsp");
 		m.declare("filters.lib/fir:author", r"Julius O. Smith III");
 		m.declare("filters.lib/fir:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
@@ -244,6 +248,12 @@ impl FreqShiftDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = F32::tan(self.fConst5 * self.fHslider0);
+		self.fSlow1 = 2.0 * (self.fSlow0 / (FreqShiftDsp_faustpower2_f(self.fSlow0) + 1.0));
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -256,13 +266,11 @@ impl FreqShiftDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = F32::tan(self.fConst5 * self.fHslider0);
-		let mut fSlow1: F32 = 2.0 * (fSlow0 / (FreqShiftDsp_faustpower2_f(fSlow0) + 1.0));
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			self.iVec0[0] = 1;
-			let mut fTemp0: F32 = self.fRec1[1] + fSlow1 * (self.fRec0[1] - fSlow0 * self.fRec1[1]);
-			let mut fTemp1: F32 = (if self.iVec0[1] != 0 {self.fRec0[1] - fSlow0 * (self.fRec1[1] + fTemp0)} else {1.0});
+			let mut fTemp0: F32 = self.fRec1[1] + self.fSlow1 * (self.fRec0[1] - self.fSlow0 * self.fRec1[1]);
+			let mut fTemp1: F32 = (if self.iVec0[1] != 0 {self.fRec0[1] - self.fSlow0 * (self.fRec1[1] + fTemp0)} else {1.0});
 			self.fRec0[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
 			self.fRec1[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
 			self.iRec2[0] = i32::wrapping_sub(1, i32::wrapping_add(self.iVec0[1], self.iRec2[2]));

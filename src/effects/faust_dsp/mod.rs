@@ -435,6 +435,47 @@ fn init_zeroed<D: FaustDsp<T = f32>>(dsp: &mut D, sr: i32) {
     dsp.instance_reset_params();
 }
 
+/// The slider values last handed to a Faust instance, so a wrapper can skip the
+/// generated `control()` when nothing moved.
+///
+/// The `-ec` codegen (see `dsp/regen.sh`) splits each DSP in two: `control()`
+/// holds the slow section — the `tan`/`sqrt`/`powf` coefficient recipes — and
+/// caches its results in struct fields, and `compute()` only reads them. That
+/// section is a pure function of the sliders and the sample-rate constants, so
+/// re-running it on unchanged inputs reproduces the same fields bit for bit;
+/// skipping it therefore changes nothing but the work done.
+///
+/// **`instance_init` does NOT call `control()`.** Every wrapper must therefore
+/// [`invalidate`](Self::invalidate) this cache *and* call `control()` itself at
+/// each `init`, sample-rate change and in-place reset, or the first block after
+/// one would run against uninitialised coefficients.
+struct ParamCache<const N: usize>([f32; N]);
+
+impl<const N: usize> ParamCache<N> {
+    /// A cache matching no possible write: NaN never compares equal, so the
+    /// first [`changed`](Self::changed) after this always reports a change.
+    const fn invalid() -> Self {
+        Self([f32::NAN; N])
+    }
+
+    #[inline]
+    fn invalidate(&mut self) {
+        self.0 = [f32::NAN; N];
+    }
+
+    /// True iff `vals` differs from the last accepted write, which it replaces.
+    /// Exact equality by design: a cached coefficient set is only reusable for a
+    /// bit-identical input.
+    #[inline]
+    fn changed(&mut self, vals: [f32; N]) -> bool {
+        if self.0 == vals {
+            return false;
+        }
+        self.0 = vals;
+        true
+    }
+}
+
 /// Wrap a mono Faust DSP as a voice-insert effect matching the hand-written
 /// `process` / `process_block(buf, n, ch, amount)` convention, so call sites
 /// are unchanged.
@@ -443,28 +484,38 @@ macro_rules! faust_insert {
         #[doc = $doc]
         pub struct $wrapper {
             dsp: $dsp,
+            cache: ParamCache<1>,
         }
 
         impl Default for $wrapper {
             fn default() -> Self {
                 let mut dsp = <$dsp>::new();
                 dsp.init(NOMINAL_SR);
+                dsp.control();
                 debug_assert_eq!(
                     slider_index::<$dsp>($label),
                     Some(AMOUNT.0),
                     "Faust slider `{}` is not at ParamIndex(0) — a .dsp regen drifted from the wrapper",
                     $label,
                 );
-                Self { dsp }
+                Self { dsp, cache: ParamCache::invalid() }
             }
         }
 
         impl $wrapper {
+            #[inline]
+            fn write_params(&mut self, amount: f32) {
+                if self.cache.changed([amount]) {
+                    self.dsp.set_param(AMOUNT, amount);
+                    self.dsp.control();
+                }
+            }
+
             /// Process one sample. Used by the per-sample dispatch path so a
             /// modulated `amount` threads in at sample rate.
             #[inline]
             pub fn process(&mut self, x: f32, amount: f32) -> f32 {
-                self.dsp.set_param(AMOUNT, amount);
+                self.write_params(amount);
                 run_one(&mut self.dsp, x)
             }
 
@@ -478,7 +529,7 @@ macro_rules! faust_insert {
                 ch: usize,
                 amount: f32,
             ) {
-                self.dsp.set_param(AMOUNT, amount);
+                self.write_params(amount);
                 run_block(&mut self.dsp, buf, n, ch);
             }
         }
@@ -515,6 +566,7 @@ pub struct FaustSvf {
     dsp: svf_dsp::SvfDsp,
     /// Sample rate the Faust instance was initialized at (0.0 = not yet).
     sr: f32,
+    cache: ParamCache<3>,
 }
 
 impl FaustSvf {
@@ -528,6 +580,8 @@ impl FaustSvf {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
@@ -539,9 +593,12 @@ impl FaustSvf {
             SvfMode::Hp => 1.0,
             SvfMode::Bp => 2.0,
         };
-        self.dsp.set_param(Self::CUTOFF, self.cutoff);
-        self.dsp.set_param(Self::MODE, mode_idx);
-        self.dsp.set_param(Self::Q, q);
+        if self.cache.changed([self.cutoff, mode_idx, q]) {
+            self.dsp.set_param(Self::CUTOFF, self.cutoff);
+            self.dsp.set_param(Self::MODE, mode_idx);
+            self.dsp.set_param(Self::Q, q);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -575,6 +632,7 @@ impl Default for FaustSvf {
             cutoff: 0.0,
             dsp: svf_dsp::SvfDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -585,6 +643,7 @@ impl Default for FaustSvf {
 pub struct FaustWah {
     dsp: wah_dsp::WahDsp,
     sr: f32,
+    cache: ParamCache<4>,
 }
 
 impl FaustWah {
@@ -597,16 +656,21 @@ impl FaustWah {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, amount: f32, peak: f32, sens: f32, manual: f32) {
-        self.dsp.set_param(Self::WAH, amount);
-        self.dsp.set_param(Self::PEAK, peak);
-        self.dsp.set_param(Self::SENS, sens);
-        self.dsp.set_param(Self::MANUAL, manual);
+        if self.cache.changed([amount, peak, sens, manual]) {
+            self.dsp.set_param(Self::WAH, amount);
+            self.dsp.set_param(Self::PEAK, peak);
+            self.dsp.set_param(Self::SENS, sens);
+            self.dsp.set_param(Self::MANUAL, manual);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -652,6 +716,7 @@ impl Default for FaustWah {
         Self {
             dsp: wah_dsp::WahDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -664,6 +729,7 @@ impl Default for FaustWah {
 pub struct FaustFreqShift {
     dsp: fshift_dsp::FreqShiftDsp,
     sr: f32,
+    cache: ParamCache<1>,
 }
 
 impl FaustFreqShift {
@@ -673,14 +739,24 @@ impl FaustFreqShift {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, shift: f32) {
+        if self.cache.changed([shift]) {
+            self.dsp.set_param(Self::SHIFT, shift);
+            self.dsp.control();
         }
     }
 
     #[inline]
     pub fn process(&mut self, x: f32, shift: f32, sr: f32) -> f32 {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::SHIFT, shift);
+        self.write_params(shift);
         run_one(&mut self.dsp, x)
     }
 
@@ -694,7 +770,7 @@ impl FaustFreqShift {
         sr: f32,
     ) {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::SHIFT, shift);
+        self.write_params(shift);
         run_block(&mut self.dsp, buf, n, ch);
     }
 }
@@ -705,6 +781,7 @@ impl Default for FaustFreqShift {
         Self {
             dsp: fshift_dsp::FreqShiftDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -724,6 +801,7 @@ pub struct FaustPitchShift {
     /// `reset_in_place`), which lets `ensure_sr` skip `instance_clear` — the
     /// clear would rewrite 512 KB of zeros and fault in every untouched page.
     sr: f32,
+    cache: ParamCache<2>,
 }
 
 impl FaustPitchShift {
@@ -740,14 +818,19 @@ impl FaustPitchShift {
             } else {
                 self.dsp.init(sr as i32);
             }
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, shift: f32, window: f32) {
-        self.dsp.set_param(Self::SHIFT, shift);
-        self.dsp.set_param(Self::WINDOW, window);
+        if self.cache.changed([shift, window]) {
+            self.dsp.set_param(Self::SHIFT, shift);
+            self.dsp.set_param(Self::WINDOW, window);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -781,6 +864,9 @@ impl FaustPitchShift {
     pub fn reset_in_place(&mut self) {
         if self.sr != 0.0 {
             self.dsp.instance_clear();
+            // `sr = 0.0` forces `ensure_sr` to re-init and re-`control()` before
+            // the next `compute`; invalidating here keeps the two in step.
+            self.cache.invalidate();
             self.sr = 0.0;
         }
     }
@@ -793,6 +879,7 @@ impl Default for FaustPitchShift {
         Self {
             dsp: boxed_zeroed::<pshift_dsp::PitchShiftDsp>(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -803,6 +890,7 @@ impl Default for FaustPitchShift {
 pub struct FaustVinyl {
     dsp: vinyl_dsp::VinylDsp,
     sr: f32,
+    cache: ParamCache<5>,
 }
 
 impl FaustVinyl {
@@ -816,17 +904,22 @@ impl FaustVinyl {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, amount: f32, wow: f32, noise: f32, tone: f32, kind: f32) {
-        self.dsp.set_param(Self::VINYL, amount);
-        self.dsp.set_param(Self::WOW, wow);
-        self.dsp.set_param(Self::NOISE, noise);
-        self.dsp.set_param(Self::TONE, tone);
-        self.dsp.set_param(Self::TYPE, kind);
+        if self.cache.changed([amount, wow, noise, tone, kind]) {
+            self.dsp.set_param(Self::VINYL, amount);
+            self.dsp.set_param(Self::WOW, wow);
+            self.dsp.set_param(Self::NOISE, noise);
+            self.dsp.set_param(Self::TONE, tone);
+            self.dsp.set_param(Self::TYPE, kind);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -874,6 +967,7 @@ impl Default for FaustVinyl {
         Self {
             dsp: vinyl_dsp::VinylDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -884,6 +978,7 @@ impl Default for FaustVinyl {
 /// the instance initializes at a fixed nominal rate.
 pub struct FaustDistort {
     dsp: distort_dsp::DistortDsp,
+    cache: ParamCache<4>,
 }
 
 impl FaustDistort {
@@ -894,10 +989,13 @@ impl FaustDistort {
 
     #[inline]
     fn write_params(&mut self, amount: f32, postgain: f32, mode: f32, asym: f32) {
-        self.dsp.set_param(Self::DISTORT, amount);
-        self.dsp.set_param(Self::DISTORTVOL, postgain);
-        self.dsp.set_param(Self::DISTORTMODE, mode);
-        self.dsp.set_param(Self::ASYM, asym);
+        if self.cache.changed([amount, postgain, mode, asym]) {
+            self.dsp.set_param(Self::DISTORT, amount);
+            self.dsp.set_param(Self::DISTORTVOL, postgain);
+            self.dsp.set_param(Self::DISTORTMODE, mode);
+            self.dsp.set_param(Self::ASYM, asym);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -930,7 +1028,11 @@ impl Default for FaustDistort {
             "c_distortmode" => Self::DISTORTMODE.0, "d_asym" => Self::ASYM.0);
         let mut dsp = distort_dsp::DistortDsp::new();
         dsp.init(NOMINAL_SR);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 }
 
@@ -940,6 +1042,7 @@ impl Default for FaustDistort {
 /// sample-rate independent, so the instance initializes at a fixed nominal rate.
 pub struct FaustFold {
     dsp: fold_dsp::FoldDsp,
+    cache: ParamCache<2>,
 }
 
 impl FaustFold {
@@ -948,8 +1051,11 @@ impl FaustFold {
 
     #[inline]
     fn write_params(&mut self, amount: f32, mode: f32) {
-        self.dsp.set_param(Self::FOLD, amount);
-        self.dsp.set_param(Self::FOLDMODE, mode);
+        if self.cache.changed([amount, mode]) {
+            self.dsp.set_param(Self::FOLD, amount);
+            self.dsp.set_param(Self::FOLDMODE, mode);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -978,7 +1084,11 @@ impl Default for FaustFold {
             "a_fold" => Self::FOLD.0, "b_foldmode" => Self::FOLDMODE.0);
         let mut dsp = fold_dsp::FoldDsp::new();
         dsp.init(NOMINAL_SR);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 }
 
@@ -988,6 +1098,7 @@ impl Default for FaustFold {
 pub struct FaustTilt {
     dsp: tilt_dsp::TiltDsp,
     sr: f32,
+    cache: ParamCache<1>,
 }
 
 impl FaustTilt {
@@ -997,14 +1108,24 @@ impl FaustTilt {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, tilt: f32) {
+        if self.cache.changed([tilt]) {
+            self.dsp.set_param(Self::TILT, tilt);
+            self.dsp.control();
         }
     }
 
     #[inline]
     pub fn process(&mut self, x: f32, tilt: f32, sr: f32) -> f32 {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::TILT, tilt);
+        self.write_params(tilt);
         run_one(&mut self.dsp, x)
     }
 
@@ -1018,7 +1139,7 @@ impl FaustTilt {
         sr: f32,
     ) {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::TILT, tilt);
+        self.write_params(tilt);
         run_block(&mut self.dsp, buf, n, ch);
     }
 }
@@ -1029,6 +1150,7 @@ impl Default for FaustTilt {
         Self {
             dsp: tilt_dsp::TiltDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1039,6 +1161,7 @@ impl Default for FaustTilt {
 pub struct FaustEq {
     dsp: eq_dsp::EqDsp,
     sr: f32,
+    cache: ParamCache<7>,
 }
 
 impl FaustEq {
@@ -1054,6 +1177,8 @@ impl FaustEq {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
@@ -1070,13 +1195,19 @@ impl FaustEq {
         hi_f: f32,
         mid_q: f32,
     ) {
-        self.dsp.set_param(Self::LO_DB, lo_db);
-        self.dsp.set_param(Self::LO_F, lo_f);
-        self.dsp.set_param(Self::MID_DB, mid_db);
-        self.dsp.set_param(Self::MID_F, mid_f);
-        self.dsp.set_param(Self::HI_DB, hi_db);
-        self.dsp.set_param(Self::HI_F, hi_f);
-        self.dsp.set_param(Self::MID_Q, mid_q);
+        if self
+            .cache
+            .changed([lo_db, mid_db, hi_db, lo_f, mid_f, hi_f, mid_q])
+        {
+            self.dsp.set_param(Self::LO_DB, lo_db);
+            self.dsp.set_param(Self::LO_F, lo_f);
+            self.dsp.set_param(Self::MID_DB, mid_db);
+            self.dsp.set_param(Self::MID_F, mid_f);
+            self.dsp.set_param(Self::HI_DB, hi_db);
+            self.dsp.set_param(Self::HI_F, hi_f);
+            self.dsp.set_param(Self::MID_Q, mid_q);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1130,6 +1261,7 @@ impl Default for FaustEq {
         Self {
             dsp: eq_dsp::EqDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1144,6 +1276,7 @@ pub struct FaustPhaser {
     phase01: f32,
     /// Sample rate the Faust instance was initialized at (0.0 = not yet).
     sr: f32,
+    cache: ParamCache<5>,
 }
 
 impl FaustPhaser {
@@ -1165,6 +1298,7 @@ impl FaustPhaser {
             dsp: phaser_dsp::PhaserDsp::new(),
             phase01: if ch == 1 { 0.25 } else { 0.0 },
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 
@@ -1172,17 +1306,25 @@ impl FaustPhaser {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, rate: f32, depth: f32, center: f32, sweep: f32) {
-        self.dsp.set_param(Self::SPEED, rate);
-        self.dsp.set_param(Self::FB, depth);
-        self.dsp.set_param(Self::SWEEP, sweep);
-        self.dsp.set_param(Self::CENTER, center);
-        self.dsp.set_param(Self::PHASE, self.phase01);
+        if self
+            .cache
+            .changed([rate, depth, sweep, center, self.phase01])
+        {
+            self.dsp.set_param(Self::SPEED, rate);
+            self.dsp.set_param(Self::FB, depth);
+            self.dsp.set_param(Self::SWEEP, sweep);
+            self.dsp.set_param(Self::CENTER, center);
+            self.dsp.set_param(Self::PHASE, self.phase01);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1225,6 +1367,7 @@ impl FaustPhaser {
 pub struct FaustChorus {
     dsp: chorus_dsp::ChorusDsp,
     sr: f32,
+    cache: ParamCache<4>,
 }
 
 impl FaustChorus {
@@ -1237,16 +1380,21 @@ impl FaustChorus {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, rate: f32, depth: f32, delay: f32, ctype: f32) {
-        self.dsp.set_param(Self::RATE, rate);
-        self.dsp.set_param(Self::DEPTH, depth);
-        self.dsp.set_param(Self::DELAY, delay);
-        self.dsp.set_param(Self::TYPE, ctype);
+        if self.cache.changed([rate, depth, delay, ctype]) {
+            self.dsp.set_param(Self::RATE, rate);
+            self.dsp.set_param(Self::DEPTH, depth);
+            self.dsp.set_param(Self::DELAY, delay);
+            self.dsp.set_param(Self::TYPE, ctype);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1292,6 +1440,7 @@ impl Default for FaustChorus {
         Self {
             dsp: chorus_dsp::ChorusDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1304,6 +1453,7 @@ pub struct FaustFlanger {
     /// LFO phase offset in [0, 1], constant per channel.
     phase01: f32,
     sr: f32,
+    cache: ParamCache<5>,
 }
 
 impl FaustFlanger {
@@ -1323,6 +1473,7 @@ impl FaustFlanger {
             dsp: flanger_dsp::FlangerDsp::new(),
             phase01: if ch == 1 { 0.25 } else { 0.0 },
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 
@@ -1330,17 +1481,22 @@ impl FaustFlanger {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, rate: f32, depth: f32, fb: f32, mode: f32) {
-        self.dsp.set_param(Self::RATE, rate);
-        self.dsp.set_param(Self::DEPTH, depth);
-        self.dsp.set_param(Self::FB, fb);
-        self.dsp.set_param(Self::PHASE, self.phase01);
-        self.dsp.set_param(Self::THRU, mode);
+        if self.cache.changed([rate, depth, fb, self.phase01, mode]) {
+            self.dsp.set_param(Self::RATE, rate);
+            self.dsp.set_param(Self::DEPTH, depth);
+            self.dsp.set_param(Self::FB, fb);
+            self.dsp.set_param(Self::PHASE, self.phase01);
+            self.dsp.set_param(Self::THRU, mode);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1374,6 +1530,7 @@ impl FaustFlanger {
 pub struct FaustSmear {
     dsp: smear_dsp::SmearDsp,
     sr: f32,
+    cache: ParamCache<3>,
 }
 
 impl FaustSmear {
@@ -1385,15 +1542,20 @@ impl FaustSmear {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
 
     #[inline]
     fn write_params(&mut self, mix: f32, freq: f32, fb: f32) {
-        self.dsp.set_param(Self::MIX, mix);
-        self.dsp.set_param(Self::FREQ, freq);
-        self.dsp.set_param(Self::FB, fb);
+        if self.cache.changed([mix, freq, fb]) {
+            self.dsp.set_param(Self::MIX, mix);
+            self.dsp.set_param(Self::FREQ, freq);
+            self.dsp.set_param(Self::FB, fb);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1428,6 +1590,7 @@ impl Default for FaustSmear {
         Self {
             dsp: smear_dsp::SmearDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1438,6 +1601,7 @@ impl Default for FaustSmear {
 pub struct FaustHaas {
     dsp: haas_dsp::HaasDsp,
     sr: f32,
+    cache: ParamCache<1>,
 }
 
 impl FaustHaas {
@@ -1449,7 +1613,17 @@ impl FaustHaas {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
+        }
+    }
+
+    #[inline]
+    fn write_params(&mut self, ms: f32) {
+        if self.cache.changed([ms]) {
+            self.dsp.set_param(Self::MS, ms);
+            self.dsp.control();
         }
     }
 
@@ -1457,7 +1631,7 @@ impl FaustHaas {
     #[inline]
     pub fn process(&mut self, x: f32, ms: f32, sr: f32) -> f32 {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::MS, ms);
+        self.write_params(ms);
         run_one(&mut self.dsp, x)
     }
 
@@ -1465,7 +1639,7 @@ impl FaustHaas {
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, ms: f32, sr: f32) {
         self.ensure_sr(sr);
-        self.dsp.set_param(Self::MS, ms);
+        self.write_params(ms);
         run_block(&mut self.dsp, buf, n, Self::CH);
     }
 }
@@ -1476,6 +1650,7 @@ impl Default for FaustHaas {
         Self {
             dsp: haas_dsp::HaasDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1489,6 +1664,7 @@ pub struct FaustSvfCascade {
     pub cutoff: f32,
     dsp: svf24_dsp::Svf24Dsp,
     sr: f32,
+    cache: ParamCache<3>,
 }
 
 impl FaustSvfCascade {
@@ -1501,6 +1677,8 @@ impl FaustSvfCascade {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
@@ -1512,9 +1690,12 @@ impl FaustSvfCascade {
             SvfMode::Hp => 1.0,
             SvfMode::Bp => 2.0,
         };
-        self.dsp.set_param(Self::CUTOFF, self.cutoff);
-        self.dsp.set_param(Self::Q, q);
-        self.dsp.set_param(Self::MODE, mode_idx);
+        if self.cache.changed([self.cutoff, q, mode_idx]) {
+            self.dsp.set_param(Self::CUTOFF, self.cutoff);
+            self.dsp.set_param(Self::Q, q);
+            self.dsp.set_param(Self::MODE, mode_idx);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1548,6 +1729,7 @@ impl Default for FaustSvfCascade {
             cutoff: 0.0,
             dsp: svf24_dsp::Svf24Dsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1558,6 +1740,7 @@ impl Default for FaustSvfCascade {
 pub struct FaustLadder {
     dsp: ladder_dsp::LadderDsp,
     sr: f32,
+    cache: ParamCache<3>,
 }
 
 impl FaustLadder {
@@ -1570,6 +1753,8 @@ impl FaustLadder {
     fn ensure_sr(&mut self, sr: f32) {
         if self.sr != sr {
             self.dsp.init(sr as i32);
+            self.dsp.control();
+            self.cache.invalidate();
             self.sr = sr;
         }
     }
@@ -1581,9 +1766,12 @@ impl FaustLadder {
             LadderMode::Hp => 1.0,
             LadderMode::Bp => 2.0,
         };
-        self.dsp.set_param(Self::CUTOFF, cutoff);
-        self.dsp.set_param(Self::Q, resonance);
-        self.dsp.set_param(Self::MODE, mode_idx);
+        if self.cache.changed([cutoff, resonance, mode_idx]) {
+            self.dsp.set_param(Self::CUTOFF, cutoff);
+            self.dsp.set_param(Self::Q, resonance);
+            self.dsp.set_param(Self::MODE, mode_idx);
+            self.dsp.control();
+        }
     }
 
     #[inline]
@@ -1625,6 +1813,7 @@ impl Default for FaustLadder {
         Self {
             dsp: ladder_dsp::LadderDsp::new(),
             sr: 0.0,
+            cache: ParamCache::invalid(),
         }
     }
 }
@@ -1635,6 +1824,7 @@ impl Default for FaustLadder {
 /// scales the input by the send level and adds the wet back onto the bus.
 pub struct FaustVitalRev {
     dsp: Box<vital_rev_dsp::VitalRevDsp>,
+    cache: ParamCache<11>,
 }
 
 impl FaustVitalRev {
@@ -1660,22 +1850,41 @@ impl FaustVitalRev {
             "i_predelay" => Self::PREDELAY.0, "j_time" => Self::TIME.0, "k_size" => Self::SIZE.0);
         let mut dsp = boxed_zeroed::<vital_rev_dsp::VitalRevDsp>();
         init_zeroed(&mut *dsp, sr as i32);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 
     #[inline]
     pub fn process_block(&mut self, frames: &mut [StereoFrame], n: usize, p: &ReverbParams) {
-        self.dsp.set_param(Self::PRELOW, p.prelow);
-        self.dsp.set_param(Self::PREHIGH, p.prehigh);
-        self.dsp.set_param(Self::LOWCUT, p.lowcut);
-        self.dsp.set_param(Self::HIGHCUT, p.highcut);
-        self.dsp.set_param(Self::LOWGAIN, p.lowgain);
-        self.dsp.set_param(Self::HIGHGAIN, p.highgain);
-        self.dsp.set_param(Self::CHORUS, p.chorus);
-        self.dsp.set_param(Self::CHORUSFREQ, p.chorus_freq);
-        self.dsp.set_param(Self::PREDELAY, p.predelay);
-        self.dsp.set_param(Self::TIME, p.decay);
-        self.dsp.set_param(Self::SIZE, p.size);
+        if self.cache.changed([
+            p.prelow,
+            p.prehigh,
+            p.lowcut,
+            p.highcut,
+            p.lowgain,
+            p.highgain,
+            p.chorus,
+            p.chorus_freq,
+            p.predelay,
+            p.decay,
+            p.size,
+        ]) {
+            self.dsp.set_param(Self::PRELOW, p.prelow);
+            self.dsp.set_param(Self::PREHIGH, p.prehigh);
+            self.dsp.set_param(Self::LOWCUT, p.lowcut);
+            self.dsp.set_param(Self::HIGHCUT, p.highcut);
+            self.dsp.set_param(Self::LOWGAIN, p.lowgain);
+            self.dsp.set_param(Self::HIGHGAIN, p.highgain);
+            self.dsp.set_param(Self::CHORUS, p.chorus);
+            self.dsp.set_param(Self::CHORUSFREQ, p.chorus_freq);
+            self.dsp.set_param(Self::PREDELAY, p.predelay);
+            self.dsp.set_param(Self::TIME, p.decay);
+            self.dsp.set_param(Self::SIZE, p.size);
+            self.dsp.control();
+        }
         run_block_stereo(&mut *self.dsp, frames, n);
     }
 
@@ -1683,6 +1892,10 @@ impl FaustVitalRev {
     /// frozen or denormal tail to true zero at the orbit's silence crossing.
     pub fn reset_in_place(&mut self) {
         self.dsp.instance_clear();
+        // `instance_clear` leaves the cached coefficients alone, but re-running
+        // `control()` costs one block and keeps every reset path on the same
+        // rule: after a reset the instance is always fully controlled.
+        self.dsp.control();
     }
 }
 
@@ -1691,6 +1904,7 @@ impl FaustVitalRev {
 /// `new(sr)`. The `.dsp` remaps the orbit's 0..1 params to jpverb's ranges.
 pub struct FaustJpVerb {
     dsp: Box<jpverb_dsp::JpverbDsp>,
+    cache: ParamCache<10>,
 }
 
 impl FaustJpVerb {
@@ -1714,21 +1928,39 @@ impl FaustJpVerb {
             "i_lowcut" => Self::LOWCUT.0, "j_highcut" => Self::HIGHCUT.0);
         let mut dsp = boxed_zeroed::<jpverb_dsp::JpverbDsp>();
         init_zeroed(&mut *dsp, sr as i32);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 
     #[inline]
     pub fn process_block(&mut self, frames: &mut [StereoFrame], n: usize, p: &ReverbParams) {
-        self.dsp.set_param(Self::DECAY, p.decay);
-        self.dsp.set_param(Self::DAMP, p.damp);
-        self.dsp.set_param(Self::SIZE, p.size);
-        self.dsp.set_param(Self::DIFF, p.diff);
-        self.dsp.set_param(Self::MODDEPTH, p.chorus);
-        self.dsp.set_param(Self::MODFREQ, p.chorus_freq);
-        self.dsp.set_param(Self::LOW, p.lowgain);
-        self.dsp.set_param(Self::HIGH, p.highgain);
-        self.dsp.set_param(Self::LOWCUT, p.lowcut);
-        self.dsp.set_param(Self::HIGHCUT, p.highcut);
+        if self.cache.changed([
+            p.decay,
+            p.damp,
+            p.size,
+            p.diff,
+            p.chorus,
+            p.chorus_freq,
+            p.lowgain,
+            p.highgain,
+            p.lowcut,
+            p.highcut,
+        ]) {
+            self.dsp.set_param(Self::DECAY, p.decay);
+            self.dsp.set_param(Self::DAMP, p.damp);
+            self.dsp.set_param(Self::SIZE, p.size);
+            self.dsp.set_param(Self::DIFF, p.diff);
+            self.dsp.set_param(Self::MODDEPTH, p.chorus);
+            self.dsp.set_param(Self::MODFREQ, p.chorus_freq);
+            self.dsp.set_param(Self::LOW, p.lowgain);
+            self.dsp.set_param(Self::HIGH, p.highgain);
+            self.dsp.set_param(Self::LOWCUT, p.lowcut);
+            self.dsp.set_param(Self::HIGHCUT, p.highcut);
+            self.dsp.control();
+        }
         run_block_stereo(&mut *self.dsp, frames, n);
     }
 
@@ -1736,6 +1968,7 @@ impl FaustJpVerb {
     /// frozen or denormal tail to true zero at the orbit's silence crossing.
     pub fn reset_in_place(&mut self) {
         self.dsp.instance_clear();
+        self.dsp.control();
     }
 }
 
@@ -1745,6 +1978,7 @@ impl FaustJpVerb {
 /// `combfreq` derives the delay length from `ma.SR` inside the DSP.
 pub struct FaustComb {
     dsp: comb_dsp::CombDsp,
+    cache: ParamCache<2>,
 }
 
 impl FaustComb {
@@ -1757,15 +1991,22 @@ impl FaustComb {
         assert_slider_idx!(comb_dsp::CombDsp, "b_fb" => Self::FB.0, "c_damp" => Self::DAMP.0);
         let mut dsp = comb_dsp::CombDsp::new();
         dsp.init(sr as i32);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 
     /// Process `n` samples in place. `freq` is the per-sample fundamental (Hz),
     /// fed as Faust input 0 so a swept ModChain stays audio-rate (no pitch-zipper).
     #[inline]
     pub fn process_block(&mut self, buf: &mut [f32], n: usize, p: &CombParams, freq: &[f32]) {
-        self.dsp.set_param(Self::FB, p.feedback);
-        self.dsp.set_param(Self::DAMP, p.damp);
+        if self.cache.changed([p.feedback, p.damp]) {
+            self.dsp.set_param(Self::FB, p.feedback);
+            self.dsp.set_param(Self::DAMP, p.damp);
+            self.dsp.control();
+        }
         run_block_flat_mod(&mut self.dsp, buf, n, freq);
     }
 
@@ -1773,6 +2014,7 @@ impl FaustComb {
     /// denormal tail to true zero at the orbit's silence crossing.
     pub fn reset_in_place(&mut self) {
         self.dsp.instance_clear();
+        self.dsp.control();
     }
 }
 
@@ -1783,6 +2025,7 @@ impl FaustComb {
 /// call. Boxed: the 1 s stereo delay lines are multi-megabyte.
 pub struct FaustFeedback {
     dsp: Box<feedback_dsp::FeedbackDsp>,
+    cache: ParamCache<3>,
 }
 
 impl FaustFeedback {
@@ -1797,7 +2040,11 @@ impl FaustFeedback {
             "b_damp" => Self::DAMP.0, "c_cross" => Self::CROSS.0, "g_fb" => Self::FB.0);
         let mut dsp = boxed_zeroed::<feedback_dsp::FeedbackDsp>();
         init_zeroed(&mut *dsp, sr as i32);
-        Self { dsp }
+        dsp.control();
+        Self {
+            dsp,
+            cache: ParamCache::invalid(),
+        }
     }
 
     /// Process `n` stereo frames in place. `time` is the per-sample base delay
@@ -1815,9 +2062,12 @@ impl FaustFeedback {
         fb_amount: f32,
         time: &[f32],
     ) {
-        self.dsp.set_param(Self::DAMP, p.damp);
-        self.dsp.set_param(Self::CROSS, p.cross);
-        self.dsp.set_param(Self::FB, fb_amount);
+        if self.cache.changed([p.damp, p.cross, fb_amount]) {
+            self.dsp.set_param(Self::DAMP, p.damp);
+            self.dsp.set_param(Self::CROSS, p.cross);
+            self.dsp.set_param(Self::FB, fb_amount);
+            self.dsp.control();
+        }
         let mut dfreq = block_scratch();
         for (d, &t) in dfreq.iter_mut().zip(time.iter()).take(n) {
             d.write(1000.0 / t.max(0.01));
@@ -1831,6 +2081,7 @@ impl FaustFeedback {
     /// denormal tail to true zero at the orbit's silence crossing.
     pub fn reset_in_place(&mut self) {
         self.dsp.instance_clear();
+        self.dsp.control();
     }
 }
 
@@ -1846,6 +2097,10 @@ pub struct FaustDelay {
     pingpong: Box<delay_pingpong_dsp::DelayPingpongDsp>,
     tape: Box<delay_tape_dsp::DelayTapeDsp>,
     multitap: Box<delay_multitap_dsp::DelayMultitapDsp>,
+    /// One cache per algorithm: the four are independent instances, so a switch
+    /// back to a previously-used type may legitimately skip `control()` — its
+    /// own cached coefficients still match its own last-written params.
+    cache: [ParamCache<2>; 4],
 }
 
 impl FaustDelay {
@@ -1870,35 +2125,53 @@ impl FaustDelay {
         init_zeroed(&mut *pingpong, sr as i32);
         init_zeroed(&mut *tape, sr as i32);
         init_zeroed(&mut *multitap, sr as i32);
+        standard.control();
+        pingpong.control();
+        tape.control();
+        multitap.control();
         Self {
             standard,
             pingpong,
             tape,
             multitap,
+            cache: [const { ParamCache::invalid() }; 4],
         }
     }
 
     #[inline]
     pub fn process_block(&mut self, buf: &mut [StereoFrame], n: usize, p: &DelayParams) {
+        let vals = [p.time, p.feedback];
         match p.delay_type {
             DelayType::Standard => {
-                self.standard.set_param(Self::TIME, p.time);
-                self.standard.set_param(Self::FB, p.feedback);
+                if self.cache[0].changed(vals) {
+                    self.standard.set_param(Self::TIME, p.time);
+                    self.standard.set_param(Self::FB, p.feedback);
+                    self.standard.control();
+                }
                 run_block_stereo(&mut *self.standard, buf, n);
             }
             DelayType::PingPong => {
-                self.pingpong.set_param(Self::TIME, p.time);
-                self.pingpong.set_param(Self::FB, p.feedback);
+                if self.cache[1].changed(vals) {
+                    self.pingpong.set_param(Self::TIME, p.time);
+                    self.pingpong.set_param(Self::FB, p.feedback);
+                    self.pingpong.control();
+                }
                 run_block_stereo(&mut *self.pingpong, buf, n);
             }
             DelayType::Tape => {
-                self.tape.set_param(Self::TIME, p.time);
-                self.tape.set_param(Self::FB, p.feedback);
+                if self.cache[2].changed(vals) {
+                    self.tape.set_param(Self::TIME, p.time);
+                    self.tape.set_param(Self::FB, p.feedback);
+                    self.tape.control();
+                }
                 run_block_stereo(&mut *self.tape, buf, n);
             }
             DelayType::Multitap => {
-                self.multitap.set_param(Self::TIME, p.time);
-                self.multitap.set_param(Self::FB, p.feedback);
+                if self.cache[3].changed(vals) {
+                    self.multitap.set_param(Self::TIME, p.time);
+                    self.multitap.set_param(Self::FB, p.feedback);
+                    self.multitap.control();
+                }
                 run_block_stereo(&mut *self.multitap, buf, n);
             }
         }
@@ -1911,5 +2184,9 @@ impl FaustDelay {
         self.pingpong.instance_clear();
         self.tape.instance_clear();
         self.multitap.instance_clear();
+        self.standard.control();
+        self.pingpong.control();
+        self.tape.control();
+        self.multitap.control();
     }
 }

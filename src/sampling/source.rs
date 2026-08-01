@@ -74,6 +74,13 @@ impl RegistrySample {
             .read_interpolated(self.cursor.frame_position(), channel)
     }
 
+    /// Reads both output channels at the current position in one pass.
+    #[inline]
+    pub fn read_stereo(&self) -> [f32; 2] {
+        self.data
+            .read_interpolated_stereo(self.cursor.frame_position())
+    }
+
     /// Advances the cursor by the given speed (frames per sample).
     #[inline]
     pub fn advance(&mut self, speed: f32) {

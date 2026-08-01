@@ -2,11 +2,13 @@
 /* ------------------------------------------------------------
 name: "vinyl"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct VinylDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	IOTA0: i32,
 	fVec0: [F32;128],
 	fSampleRate: i32,
@@ -19,6 +21,7 @@ pub struct VinylDsp {
 	fConst5: F32,
 	fConst6: F32,
 	fHslider1: F32,
+	fSlow2: F32,
 	fConst7: F32,
 	fRec4: [F32;2],
 	fConst8: F32,
@@ -27,13 +30,24 @@ pub struct VinylDsp {
 	fRec2: [F32;2],
 	fConst9: F32,
 	fHslider2: F32,
+	iSlow3: i32,
+	iSlow4: i32,
+	iSlow5: i32,
+	fSlow6: F32,
+	fSlow7: F32,
+	fSlow8: F32,
+	fSlow9: F32,
+	fSlow10: F32,
 	fRec1: [F32;3],
 	fVec4: [F32;2],
 	fRec0: [F32;2],
 	fHslider3: F32,
+	fSlow11: F32,
 	fRec6: [F32;2],
 	fVec5: [F32;2],
 	fHslider4: F32,
+	fSlow12: F32,
+	fSlow13: F32,
 	fConst10: F32,
 	fConst11: F32,
 	fConst12: F32,
@@ -110,6 +124,8 @@ impl VinylDsp {
 	pub fn new() -> VinylDsp { 
 		VinylDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			IOTA0: 0,
 			fVec0: [0.0;128],
 			fSampleRate: 0,
@@ -122,6 +138,7 @@ impl VinylDsp {
 			fConst5: 0.0,
 			fConst6: 0.0,
 			fHslider1: 0.0,
+			fSlow2: 0.0,
 			fConst7: 0.0,
 			fRec4: [0.0;2],
 			fConst8: 0.0,
@@ -130,13 +147,24 @@ impl VinylDsp {
 			fRec2: [0.0;2],
 			fConst9: 0.0,
 			fHslider2: 0.0,
+			iSlow3: 0,
+			iSlow4: 0,
+			iSlow5: 0,
+			fSlow6: 0.0,
+			fSlow7: 0.0,
+			fSlow8: 0.0,
+			fSlow9: 0.0,
+			fSlow10: 0.0,
 			fRec1: [0.0;3],
 			fVec4: [0.0;2],
 			fRec0: [0.0;2],
 			fHslider3: 0.0,
+			fSlow11: 0.0,
 			fRec6: [0.0;2],
 			fVec5: [0.0;2],
 			fHslider4: 0.0,
+			fSlow12: 0.0,
+			fSlow13: 0.0,
 			fConst10: 0.0,
 			fConst11: 0.0,
 			fConst12: 0.0,
@@ -160,7 +188,7 @@ impl VinylDsp {
 		m.declare("analyzers.lib/version", r"1.2.0");
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn VinylDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("delays.lib/fdelay4:author", r"Julius O. Smith III");
 		m.declare("delays.lib/fdelayltv:author", r"Julius O. Smith III");
 		m.declare("delays.lib/name", r"Faust Delay Library");
@@ -340,6 +368,25 @@ impl VinylDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 1 static var(s)
+	let ftbl0VinylDspSIG0_guard = ftbl0VinylDspSIG0.read().unwrap();
+	self.fSlow0 = self.fHslider0;
+		self.fSlow1 = 1.0 - self.fSlow0;
+		self.fSlow2 = 4e+01 * self.fHslider1;
+		self.iSlow3 = (self.fHslider2) as i32;
+		self.iSlow4 = (self.iSlow3 >= 2) as i32;
+		self.iSlow5 = (self.iSlow3 >= 1) as i32;
+		self.fSlow6 = F32::tan(self.fConst9 * (if self.iSlow4 != 0 {6.5e+03} else {(if self.iSlow5 != 0 {1.1e+04} else {8e+03})}));
+		self.fSlow7 = 1.0 / self.fSlow6;
+		self.fSlow8 = (self.fSlow7 + -1.4142135) / self.fSlow6 + 1.0;
+		self.fSlow9 = 1.0 - 1.0 / VinylDsp_faustpower2_f(self.fSlow6);
+		self.fSlow10 = (self.fSlow7 + 1.4142135) / self.fSlow6 + 1.0;
+		self.fSlow11 = F32::powf(1e+01, 0.3 * self.fHslider3);
+		self.fSlow12 = self.fHslider4;
+		self.fSlow13 = (if self.iSlow4 != 0 {0.05} else {(if self.iSlow5 != 0 {0.025} else {0.03})});
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -353,20 +400,6 @@ impl VinylDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = 1.0 - fSlow0;
-		let mut fSlow2: F32 = 4e+01 * self.fHslider1;
-		let mut iSlow3: i32 = (self.fHslider2) as i32;
-		let mut iSlow4: i32 = (iSlow3 >= 2) as i32;
-		let mut iSlow5: i32 = (iSlow3 >= 1) as i32;
-		let mut fSlow6: F32 = F32::tan(self.fConst9 * (if iSlow4 != 0 {6.5e+03} else {(if iSlow5 != 0 {1.1e+04} else {8e+03})}));
-		let mut fSlow7: F32 = 1.0 / fSlow6;
-		let mut fSlow8: F32 = (fSlow7 + -1.4142135) / fSlow6 + 1.0;
-		let mut fSlow9: F32 = 1.0 - 1.0 / VinylDsp_faustpower2_f(fSlow6);
-		let mut fSlow10: F32 = (fSlow7 + 1.4142135) / fSlow6 + 1.0;
-		let mut fSlow11: F32 = F32::powf(1e+01, 0.3 * self.fHslider3);
-		let mut fSlow12: F32 = self.fHslider4;
-		let mut fSlow13: F32 = (if iSlow4 != 0 {0.05} else {(if iSlow5 != 0 {0.025} else {0.03})});
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
@@ -377,7 +410,7 @@ impl VinylDsp {
 			self.fRec4[0] = fTemp2 - F32::floor(fTemp2);
 			let mut fTemp3: F32 = (if iTemp1 != 0 {0.0} else {self.fConst8 + self.fRec5[1]});
 			self.fRec5[0] = fTemp3 - F32::floor(fTemp3);
-			let mut fTemp4: F32 = F32::max(2.0, F32::min(4093.0, fSlow2 * (0.7 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec4[0]) as i32, 65535))) as usize] + 0.3 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec5[0]) as i32, 65535))) as usize]) + 64.0));
+			let mut fTemp4: F32 = F32::max(2.0, F32::min(4093.0, self.fSlow2 * (0.7 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec4[0]) as i32, 65535))) as usize] + 0.3 * ftbl0VinylDspSIG0_guard[(std::cmp::max(0, std::cmp::min((65536.0 * self.fRec5[0]) as i32, 65535))) as usize]) + 64.0));
 			let mut fTemp5: F32 = fTemp4 + -1.499995;
 			let mut fTemp6: F32 = F32::floor(fTemp5);
 			let mut fTemp7: F32 = fTemp4 + (-3.0 - fTemp6);
@@ -390,19 +423,19 @@ impl VinylDsp {
 			let mut fTemp14: F32 = (fTemp4 + (-4.0 - fTemp6)) * (fTemp7 * (fTemp8 * (0.041666668 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, iTemp9)))) & 127) as usize] * fTemp10 - 0.16666667 * fTemp11 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 1))))) & 127) as usize]) + 0.25 * fTemp12 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 2))))) & 127) as usize]) - 0.16666667 * fTemp13 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 3))))) & 127) as usize]) + 0.041666668 * fTemp13 * fTemp7 * self.fVec0[((i32::wrapping_sub(self.IOTA0, std::cmp::min(4096, std::cmp::max(0, i32::wrapping_add(iTemp9, 4))))) & 127) as usize];
 			self.fVec3[0] = fTemp14;
 			self.fRec2[0] = -(self.fConst5 * (self.fConst6 * self.fRec2[1] - self.fConst4 * (fTemp14 - self.fVec3[1])));
-			self.fRec1[0] = self.fRec2[0] - (self.fRec1[2] * fSlow8 + 2.0 * self.fRec1[1] * fSlow9) / fSlow10;
-			let mut fTemp15: F32 = (self.fRec1[2] + self.fRec1[0] + 2.0 * self.fRec1[1]) / fSlow10;
+			self.fRec1[0] = self.fRec2[0] - (self.fRec1[2] * self.fSlow8 + 2.0 * self.fRec1[1] * self.fSlow9) / self.fSlow10;
+			let mut fTemp15: F32 = (self.fRec1[2] + self.fRec1[0] + 2.0 * self.fRec1[1]) / self.fSlow10;
 			self.fVec4[0] = fTemp15;
 			self.fRec0[0] = -(self.fConst2 * (self.fConst3 * self.fRec0[1] - (fTemp15 + self.fVec4[1])));
 			self.fRec6[0] = -(self.fConst2 * (self.fConst3 * self.fRec6[1] - self.fConst1 * (fTemp15 - self.fVec4[1])));
-			let mut fTemp16: F32 = self.fRec0[0] + fSlow11 * self.fRec6[0];
+			let mut fTemp16: F32 = self.fRec0[0] + self.fSlow11 * self.fRec6[0];
 			self.fVec5[0] = fTemp16;
 			let mut fTemp17: F32 = fTemp16 - self.fVec5[1];
 			self.iRec8[0] = i32::wrapping_add(i32::wrapping_mul(1103515245, self.iRec8[1]), 12345);
 			let mut fTemp18: F32 = (self.iRec8[0]) as F32;
 			self.fVec6[0] = fTemp18;
 			self.fRec7[0] = self.fConst12 * (self.fConst13 * (fTemp18 - self.fVec6[1]) - self.fConst14 * self.fRec7[1]);
-			*output0 = fSlow1 * fTemp0 + fSlow0 * ((if (F32::abs(fTemp17) <= 0.001) as i32 != 0 {F32::tanh(0.5 * (fTemp16 + self.fVec5[1]))} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp16)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec5[1])), std::f32::consts::E)) / fTemp17}) + fSlow12 * fSlow13 * self.fRec7[0]);
+			*output0 = self.fSlow1 * fTemp0 + self.fSlow0 * ((if (F32::abs(fTemp17) <= 0.001) as i32 != 0 {F32::tanh(0.5 * (fTemp16 + self.fVec5[1]))} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp16)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec5[1])), std::f32::consts::E)) / fTemp17}) + self.fSlow12 * self.fSlow13 * self.fRec7[0]);
 			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);
 			self.iVec1[1] = self.iVec1[0];
 			self.fRec4[1] = self.fRec4[0];

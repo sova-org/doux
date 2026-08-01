@@ -197,8 +197,9 @@ impl Voice {
                         // Mono samples read ch0 for both; stereo (linked L/R) pairs
                         // read their two interleaved channels.
                         let gain = rs.attenuation * 0.7;
-                        self.scratch[i][0] = rs.read(0) * gain;
-                        self.scratch[i][1] = rs.read(1) * gain;
+                        let s = rs.read_stereo();
+                        self.scratch[i][0] = s[0] * gain;
+                        self.scratch[i][1] = s[1] * gain;
                         if !done {
                             let ratio = freq / rs.root_freq;
                             let pitch = if rs.scale_tuning == 1.0 {
@@ -332,10 +333,9 @@ impl Voice {
                             if done_a && done_b {
                                 self.dahdsr.force_release();
                             }
-                            self.scratch[i][0] =
-                                (a.read(0) + blend * (b.read(0) - a.read(0))) * 0.7;
-                            self.scratch[i][1] =
-                                (a.read(1) + blend * (b.read(1) - a.read(1))) * 0.7;
+                            let (sa, sb) = (a.read_stereo(), b.read_stereo());
+                            self.scratch[i][0] = (sa[0] + blend * (sb[0] - sa[0])) * 0.7;
+                            self.scratch[i][1] = (sa[1] + blend * (sb[1] - sa[1])) * 0.7;
                             if scan.is_none() {
                                 if !done_a {
                                     a.advance(speed);
@@ -353,8 +353,9 @@ impl Voice {
                             if done {
                                 self.dahdsr.force_release();
                             }
-                            self.scratch[i][0] = rs.read(0) * 0.7;
-                            self.scratch[i][1] = rs.read(1) * 0.7;
+                            let s = rs.read_stereo();
+                            self.scratch[i][0] = s[0] * 0.7;
+                            self.scratch[i][1] = s[1] * 0.7;
                             if scan.is_none() && !done {
                                 rs.advance(speed);
                             }

@@ -2,12 +2,13 @@
 /* ------------------------------------------------------------
 name: "coarse"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn CoarseDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn CoarseDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct CoarseDsp {
 	iRec1: [i32;2],
 	fHslider0: F32,
+	iSlow0: i32,
 	fRec0: [F32;2],
 	fSampleRate: i32,
 }
@@ -32,6 +33,7 @@ impl CoarseDsp {
 		CoarseDsp {
 			iRec1: [0;2],
 			fHslider0: 0.0,
+			iSlow0: 0,
 			fRec0: [0.0;2],
 			fSampleRate: 0,
 		}
@@ -40,7 +42,7 @@ impl CoarseDsp {
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/sAndH:author", r"Romain Michon");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn CoarseDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn CoarseDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"coarse.dsp");
 		m.declare("name", r"coarse");
 	}
@@ -99,6 +101,11 @@ impl CoarseDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.iSlow0 = std::cmp::max(1, (self.fHslider0) as i32);
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -111,11 +118,10 @@ impl CoarseDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut iSlow0: i32 = std::cmp::max(1, (self.fHslider0) as i32);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			self.iRec1[0] = i32::wrapping_add(self.iRec1[1], 1);
-			self.fRec0[0] = (if ((self.iRec1[1] % iSlow0) == 0) as i32 != 0 {*input0} else {self.fRec0[1]});
+			self.fRec0[0] = (if ((self.iRec1[1] % self.iSlow0) == 0) as i32 != 0 {*input0} else {self.fRec0[1]});
 			*output0 = self.fRec0[0];
 			self.iRec1[1] = self.iRec1[0];
 			self.fRec0[1] = self.fRec0[0];

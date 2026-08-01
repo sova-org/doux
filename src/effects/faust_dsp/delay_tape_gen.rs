@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "delay_tape"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct DelayTapeDsp {
@@ -12,12 +12,14 @@ pub struct DelayTapeDsp {
 	fConst1: F32,
 	fConst2: F32,
 	fHslider0: F32,
+	fSlow0: F32,
 	fRec2: [F32;2],
 	IOTA0: i32,
 	fVec0: [F32;65536],
 	fConst3: F32,
 	fConst4: F32,
 	fHslider1: F32,
+	fSlow1: F32,
 	fRec3: [F32;2],
 	fRec0: [F32;2],
 	fRec5: [F32;2],
@@ -49,12 +51,14 @@ impl DelayTapeDsp {
 			fConst1: 0.0,
 			fConst2: 0.0,
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			fRec2: [0.0;2],
 			IOTA0: 0,
 			fVec0: [0.0;65536],
 			fConst3: 0.0,
 			fConst4: 0.0,
 			fHslider1: 0.0,
+			fSlow1: 0.0,
 			fRec3: [0.0;2],
 			fRec0: [0.0;2],
 			fRec5: [0.0;2],
@@ -65,7 +69,7 @@ impl DelayTapeDsp {
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn DelayTapeDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("delays.lib/name", r"Faust Delay Library");
 		m.declare("delays.lib/version", r"1.2.0");
 		m.declare("filename", r"delay_tape.dsp");
@@ -169,6 +173,12 @@ impl DelayTapeDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fConst2 * self.fHslider0;
+		self.fSlow1 = self.fConst4 * self.fHslider1;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -183,18 +193,16 @@ impl DelayTapeDsp {
 		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let outputs1 = outputs1.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fConst2 * self.fHslider0;
-		let mut fSlow1: F32 = self.fConst4 * self.fHslider1;
 		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
 		for (((input0, input1), output0), output1) in zipped_iterators {
 			let mut fTemp0: F32 = 0.65 * self.fRec1[1] + 0.35 * self.fRec0[1];
 			self.fRec1[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
-			let mut fTemp1: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
+			let mut fTemp1: F32 = self.fSlow0 + self.fConst1 * self.fRec2[1];
 			self.fRec2[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
 			let mut fTemp2: F32 = F32::max(0.0, F32::min(0.95, self.fRec2[0]));
 			let mut fTemp3: F32 = *input0 + self.fRec1[0] * fTemp2;
 			self.fVec0[(self.IOTA0 & 65535) as usize] = fTemp3;
-			let mut fTemp4: F32 = fSlow1 + self.fConst3 * self.fRec3[1];
+			let mut fTemp4: F32 = self.fSlow1 + self.fConst3 * self.fRec3[1];
 			self.fRec3[0] = (if (F32::abs(fTemp4) > 1.1754944e-38) as i32 != 0 {fTemp4} else {0.0});
 			let mut fTemp5: F32 = F32::max(1.0, F32::min(65534.0, self.fRec3[0]));
 			let mut iTemp6: i32 = (fTemp5) as i32;

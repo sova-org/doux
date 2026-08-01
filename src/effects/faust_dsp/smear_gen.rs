@@ -2,18 +2,23 @@
 /* ------------------------------------------------------------
 name: "smear"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn SmearDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn SmearDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct SmearDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fHslider1: F32,
+	fSlow2: F32,
 	fVec0: [F32;2],
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fHslider2: F32,
 	fConst2: F32,
+	fSlow3: F32,
+	fSlow4: F32,
 	fRec12: [F32;2],
 	fRec11: [F32;2],
 	fRec10: [F32;2],
@@ -48,13 +53,18 @@ impl SmearDsp {
 	pub fn new() -> SmearDsp { 
 		SmearDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fHslider1: 0.0,
+			fSlow2: 0.0,
 			fVec0: [0.0;2],
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fHslider2: 0.0,
 			fConst2: 0.0,
+			fSlow3: 0.0,
+			fSlow4: 0.0,
 			fRec12: [0.0;2],
 			fRec11: [0.0;2],
 			fRec10: [0.0;2],
@@ -71,7 +81,7 @@ impl SmearDsp {
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn SmearDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn SmearDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("filename", r"smear.dsp");
 		m.declare("filters.lib/lowpass0_highpass1", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
 		m.declare("filters.lib/name", r"Faust Filters Library");
@@ -190,6 +200,15 @@ impl SmearDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fHslider0;
+		self.fSlow1 = 1.0 - self.fSlow0;
+		self.fSlow2 = F32::max(0.0, F32::min(0.95, self.fHslider1));
+		self.fSlow3 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider2, self.fConst2)));
+		self.fSlow4 = (self.fSlow3 + -1.0) / (self.fSlow3 + 1.0);
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -202,42 +221,37 @@ impl SmearDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = 1.0 - fSlow0;
-		let mut fSlow2: F32 = F32::max(0.0, F32::min(0.95, self.fHslider1));
-		let mut fSlow3: F32 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider2, self.fConst2)));
-		let mut fSlow4: F32 = (fSlow3 + -1.0) / (fSlow3 + 1.0);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
-			let mut fTemp1: F32 = fTemp0 + fSlow2 * self.fRec0[1];
+			let mut fTemp1: F32 = fTemp0 + self.fSlow2 * self.fRec0[1];
 			self.fVec0[0] = fTemp1;
-			let mut fTemp2: F32 = self.fVec0[1] - fSlow4 * (self.fRec12[1] - fTemp1);
+			let mut fTemp2: F32 = self.fVec0[1] - self.fSlow4 * (self.fRec12[1] - fTemp1);
 			self.fRec12[0] = (if (F32::abs(fTemp2) > 1.1754944e-38) as i32 != 0 {fTemp2} else {0.0});
-			let mut fTemp3: F32 = self.fRec12[1] - fSlow4 * (self.fRec11[1] - self.fRec12[0]);
+			let mut fTemp3: F32 = self.fRec12[1] - self.fSlow4 * (self.fRec11[1] - self.fRec12[0]);
 			self.fRec11[0] = (if (F32::abs(fTemp3) > 1.1754944e-38) as i32 != 0 {fTemp3} else {0.0});
-			let mut fTemp4: F32 = self.fRec11[1] - fSlow4 * (self.fRec10[1] - self.fRec11[0]);
+			let mut fTemp4: F32 = self.fRec11[1] - self.fSlow4 * (self.fRec10[1] - self.fRec11[0]);
 			self.fRec10[0] = (if (F32::abs(fTemp4) > 1.1754944e-38) as i32 != 0 {fTemp4} else {0.0});
-			let mut fTemp5: F32 = self.fRec10[1] - fSlow4 * (self.fRec9[1] - self.fRec10[0]);
+			let mut fTemp5: F32 = self.fRec10[1] - self.fSlow4 * (self.fRec9[1] - self.fRec10[0]);
 			self.fRec9[0] = (if (F32::abs(fTemp5) > 1.1754944e-38) as i32 != 0 {fTemp5} else {0.0});
-			let mut fTemp6: F32 = self.fRec9[1] - fSlow4 * (self.fRec8[1] - self.fRec9[0]);
+			let mut fTemp6: F32 = self.fRec9[1] - self.fSlow4 * (self.fRec8[1] - self.fRec9[0]);
 			self.fRec8[0] = (if (F32::abs(fTemp6) > 1.1754944e-38) as i32 != 0 {fTemp6} else {0.0});
-			let mut fTemp7: F32 = self.fRec8[1] - fSlow4 * (self.fRec7[1] - self.fRec8[0]);
+			let mut fTemp7: F32 = self.fRec8[1] - self.fSlow4 * (self.fRec7[1] - self.fRec8[0]);
 			self.fRec7[0] = (if (F32::abs(fTemp7) > 1.1754944e-38) as i32 != 0 {fTemp7} else {0.0});
-			let mut fTemp8: F32 = self.fRec7[1] - fSlow4 * (self.fRec6[1] - self.fRec7[0]);
+			let mut fTemp8: F32 = self.fRec7[1] - self.fSlow4 * (self.fRec6[1] - self.fRec7[0]);
 			self.fRec6[0] = (if (F32::abs(fTemp8) > 1.1754944e-38) as i32 != 0 {fTemp8} else {0.0});
-			let mut fTemp9: F32 = self.fRec6[1] - fSlow4 * (self.fRec5[1] - self.fRec6[0]);
+			let mut fTemp9: F32 = self.fRec6[1] - self.fSlow4 * (self.fRec5[1] - self.fRec6[0]);
 			self.fRec5[0] = (if (F32::abs(fTemp9) > 1.1754944e-38) as i32 != 0 {fTemp9} else {0.0});
-			let mut fTemp10: F32 = self.fRec5[1] - fSlow4 * (self.fRec4[1] - self.fRec5[0]);
+			let mut fTemp10: F32 = self.fRec5[1] - self.fSlow4 * (self.fRec4[1] - self.fRec5[0]);
 			self.fRec4[0] = (if (F32::abs(fTemp10) > 1.1754944e-38) as i32 != 0 {fTemp10} else {0.0});
-			let mut fTemp11: F32 = self.fRec4[1] - fSlow4 * (self.fRec3[1] - self.fRec4[0]);
+			let mut fTemp11: F32 = self.fRec4[1] - self.fSlow4 * (self.fRec3[1] - self.fRec4[0]);
 			self.fRec3[0] = (if (F32::abs(fTemp11) > 1.1754944e-38) as i32 != 0 {fTemp11} else {0.0});
-			let mut fTemp12: F32 = self.fRec3[1] - fSlow4 * (self.fRec2[1] - self.fRec3[0]);
+			let mut fTemp12: F32 = self.fRec3[1] - self.fSlow4 * (self.fRec2[1] - self.fRec3[0]);
 			self.fRec2[0] = (if (F32::abs(fTemp12) > 1.1754944e-38) as i32 != 0 {fTemp12} else {0.0});
-			let mut fTemp13: F32 = self.fRec2[1] - fSlow4 * (self.fRec1[1] - self.fRec2[0]);
+			let mut fTemp13: F32 = self.fRec2[1] - self.fSlow4 * (self.fRec1[1] - self.fRec2[0]);
 			self.fRec1[0] = (if (F32::abs(fTemp13) > 1.1754944e-38) as i32 != 0 {fTemp13} else {0.0});
 			self.fRec0[0] = (if (F32::abs(self.fRec1[0]) > 1.1754944e-38) as i32 != 0 {self.fRec1[0]} else {0.0});
-			*output0 = fSlow1 * fTemp0 + fSlow0 * self.fRec0[0];
+			*output0 = self.fSlow1 * fTemp0 + self.fSlow0 * self.fRec0[0];
 			self.fVec0[1] = self.fVec0[0];
 			self.fRec12[1] = self.fRec12[0];
 			self.fRec11[1] = self.fRec11[0];

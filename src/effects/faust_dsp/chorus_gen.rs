@@ -2,24 +2,33 @@
 /* ------------------------------------------------------------
 name: "chorus"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn ChorusDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn ChorusDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct ChorusDsp {
 	fHslider0: F32,
+	iSlow0: i32,
+	iSlow1: i32,
 	iVec0: [i32;2],
+	iSlow2: i32,
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fConst2: F32,
 	fHslider1: F32,
+	fSlow3: F32,
 	fRec0: [F32;2],
 	fHslider2: F32,
+	fSlow4: F32,
+	fSlow5: F32,
 	fConst3: F32,
 	fHslider3: F32,
+	fSlow6: F32,
 	fRec2: [F32;2],
 	IOTA0: i32,
 	fVec2: [F32;8192],
+	fSlow7: F32,
+	fSlow8: F32,
 }
 
 pub type FaustFloat = F32;
@@ -129,25 +138,34 @@ impl ChorusDsp {
 	pub fn new() -> ChorusDsp { 
 		ChorusDsp {
 			fHslider0: 0.0,
+			iSlow0: 0,
+			iSlow1: 0,
 			iVec0: [0;2],
+			iSlow2: 0,
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fConst2: 0.0,
 			fHslider1: 0.0,
+			fSlow3: 0.0,
 			fRec0: [0.0;2],
 			fHslider2: 0.0,
+			fSlow4: 0.0,
+			fSlow5: 0.0,
 			fConst3: 0.0,
 			fHslider3: 0.0,
+			fSlow6: 0.0,
 			fRec2: [0.0;2],
 			IOTA0: 0,
 			fVec2: [0.0;8192],
+			fSlow7: 0.0,
+			fSlow8: 0.0,
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn ChorusDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn ChorusDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("delays.lib/fdelay4:author", r"Julius O. Smith III");
 		m.declare("delays.lib/fdelayltv:author", r"Julius O. Smith III");
 		m.declare("delays.lib/name", r"Faust Delay Library");
@@ -254,6 +272,21 @@ impl ChorusDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 2 static var(s)
+	let ftbl0ChorusDspSIG0_guard = ftbl0ChorusDspSIG0.read().unwrap();
+	let ftbl1ChorusDspSIG1_guard = ftbl1ChorusDspSIG1.read().unwrap();
+	self.iSlow0 = (self.fHslider0) as i32;
+		self.iSlow1 = (self.iSlow0 >= 2) as i32;
+		self.iSlow2 = (self.iSlow0 >= 1) as i32;
+		self.fSlow3 = self.fConst2 * self.fHslider1;
+		self.fSlow4 = self.fHslider2;
+		self.fSlow5 = 0.8 * self.fSlow4;
+		self.fSlow6 = self.fConst3 * self.fHslider3;
+		self.fSlow7 = 1.2 * self.fSlow4;
+		self.fSlow8 = 1.6 * self.fSlow4;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -270,25 +303,16 @@ impl ChorusDsp {
 		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let outputs1 = outputs1.as_mut()[..count].iter_mut();
-		let mut iSlow0: i32 = (self.fHslider0) as i32;
-		let mut iSlow1: i32 = (iSlow0 >= 2) as i32;
-		let mut iSlow2: i32 = (iSlow0 >= 1) as i32;
-		let mut fSlow3: F32 = self.fConst2 * self.fHslider1;
-		let mut fSlow4: F32 = self.fHslider2;
-		let mut fSlow5: F32 = 0.8 * fSlow4;
-		let mut fSlow6: F32 = self.fConst3 * self.fHslider3;
-		let mut fSlow7: F32 = 1.2 * fSlow4;
-		let mut fSlow8: F32 = 1.6 * fSlow4;
 		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
 		for (((input0, input1), output0), output1) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
 			self.iVec0[0] = 1;
-			self.fRec0[0] = fSlow3 + self.fConst1 * self.fRec0[1];
-			let mut fTemp1: F32 = (if i32::wrapping_sub(1, self.iVec0[1]) != 0 {0.0} else {fSlow6 + self.fRec2[1]});
+			self.fRec0[0] = self.fSlow3 + self.fConst1 * self.fRec0[1];
+			let mut fTemp1: F32 = (if i32::wrapping_sub(1, self.iVec0[1]) != 0 {0.0} else {self.fSlow6 + self.fRec2[1]});
 			self.fRec2[0] = fTemp1 - F32::floor(fTemp1);
 			let mut iTemp2: i32 = std::cmp::max(0, std::cmp::min((65536.0 * self.fRec2[0]) as i32, 65535));
 			let mut fTemp3: F32 = ftbl0ChorusDspSIG0_guard[iTemp2 as usize];
-			let mut fTemp4: F32 = fSlow5 * fTemp3;
+			let mut fTemp4: F32 = self.fSlow5 * fTemp3;
 			let mut fTemp5: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (fTemp4 + 1.0)));
 			let mut fTemp6: F32 = fTemp5 + -1.499995;
 			let mut fTemp7: F32 = F32::floor(fTemp6);
@@ -303,7 +327,7 @@ impl ChorusDsp {
 			self.fVec2[(self.IOTA0 & 8191) as usize] = fTemp15;
 			let mut iTemp16: i32 = (fTemp6) as i32;
 			let mut fTemp17: F32 = ftbl1ChorusDspSIG1_guard[iTemp2 as usize];
-			let mut fTemp18: F32 = fSlow5 * (0.8660254 * fTemp17 - 0.5 * fTemp3);
+			let mut fTemp18: F32 = self.fSlow5 * (0.8660254 * fTemp17 - 0.5 * fTemp3);
 			let mut fTemp19: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (fTemp18 + 1.0)));
 			let mut fTemp20: F32 = fTemp19 + -1.499995;
 			let mut fTemp21: F32 = F32::floor(fTemp20);
@@ -314,7 +338,7 @@ impl ChorusDsp {
 			let mut fTemp26: F32 = fTemp24 * fTemp25;
 			let mut fTemp27: F32 = fTemp19 + (-3.0 - fTemp21);
 			let mut iTemp28: i32 = (fTemp20) as i32;
-			let mut fTemp29: F32 = fSlow5 * (0.5 * fTemp3 + 0.8660254 * fTemp17);
+			let mut fTemp29: F32 = self.fSlow5 * (0.5 * fTemp3 + 0.8660254 * fTemp17);
 			let mut fTemp30: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (1.0 - fTemp29)));
 			let mut fTemp31: F32 = fTemp30 + -1.499995;
 			let mut fTemp32: F32 = F32::floor(fTemp31);
@@ -325,7 +349,7 @@ impl ChorusDsp {
 			let mut fTemp37: F32 = fTemp35 * fTemp36;
 			let mut fTemp38: F32 = fTemp30 + (-3.0 - fTemp32);
 			let mut iTemp39: i32 = (fTemp31) as i32;
-			let mut fTemp40: F32 = fSlow7 * fTemp3;
+			let mut fTemp40: F32 = self.fSlow7 * fTemp3;
 			let mut fTemp41: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (fTemp40 + 1.0)));
 			let mut fTemp42: F32 = fTemp41 + -1.499995;
 			let mut fTemp43: F32 = F32::floor(fTemp42);
@@ -337,7 +361,7 @@ impl ChorusDsp {
 			let mut fTemp49: F32 = fTemp41 + (-3.0 - fTemp43);
 			let mut iTemp50: i32 = (fTemp42) as i32;
 			let mut fTemp51: F32 = fTemp48 * fTemp49 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp50, 4))))) & 8191) as usize];
-			let mut fTemp52: F32 = fSlow7 * fTemp17;
+			let mut fTemp52: F32 = self.fSlow7 * fTemp17;
 			let mut fTemp53: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (fTemp52 + 1.0)));
 			let mut fTemp54: F32 = fTemp53 + -1.499995;
 			let mut fTemp55: F32 = F32::floor(fTemp54);
@@ -372,7 +396,7 @@ impl ChorusDsp {
 			let mut iTemp84: i32 = (fTemp76) as i32;
 			let mut fTemp85: F32 = fTemp82 * fTemp83 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp84, 4))))) & 8191) as usize];
 			let mut fTemp86: F32 = (fTemp41 + (-4.0 - fTemp43)) * (fTemp49 * (fTemp47 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp50)))) & 8191) as usize] * fTemp45 - 0.083333336 * fTemp44 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp50, 1))))) & 8191) as usize]) + 0.125 * fTemp46 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp50, 2))))) & 8191) as usize]) - 0.083333336 * fTemp48 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp50, 3))))) & 8191) as usize]) + (fTemp53 + (-4.0 - fTemp55)) * (fTemp61 * (fTemp59 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp62)))) & 8191) as usize] * fTemp57 - 0.083333336 * fTemp56 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp62, 1))))) & 8191) as usize]) + 0.125 * fTemp58 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp62, 2))))) & 8191) as usize]) - 0.083333336 * fTemp60 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp62, 3))))) & 8191) as usize]) + (fTemp64 + (-4.0 - fTemp66)) * (fTemp72 * (fTemp70 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp73)))) & 8191) as usize] * fTemp68 - 0.083333336 * fTemp67 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp73, 1))))) & 8191) as usize]) + 0.125 * fTemp69 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp73, 2))))) & 8191) as usize]) - 0.083333336 * fTemp71 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp73, 3))))) & 8191) as usize]) + (fTemp75 + (-4.0 - fTemp77)) * (fTemp83 * (fTemp81 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp84)))) & 8191) as usize] * fTemp79 - 0.083333336 * fTemp78 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp84, 1))))) & 8191) as usize]) + 0.125 * fTemp80 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp84, 2))))) & 8191) as usize]) - 0.083333336 * fTemp82 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp84, 3))))) & 8191) as usize]);
-			let mut fTemp87: F32 = fSlow8 * fTemp17;
+			let mut fTemp87: F32 = self.fSlow8 * fTemp17;
 			let mut fTemp88: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (fTemp87 + 1.0)));
 			let mut fTemp89: F32 = fTemp88 + -1.499995;
 			let mut fTemp90: F32 = F32::floor(fTemp89);
@@ -394,7 +418,7 @@ impl ChorusDsp {
 			let mut fTemp106: F32 = fTemp98 + (-3.0 - fTemp100);
 			let mut iTemp107: i32 = (fTemp99) as i32;
 			let mut fTemp108: F32 = 0.5 * (0.020833334 * (fTemp95 * fTemp96 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp97, 4))))) & 8191) as usize] + fTemp105 * fTemp106 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp107, 4))))) & 8191) as usize]) + (fTemp88 + (-4.0 - fTemp90)) * (fTemp96 * (fTemp94 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp97)))) & 8191) as usize] * fTemp92 - 0.083333336 * fTemp91 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp97, 1))))) & 8191) as usize]) + 0.125 * fTemp93 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp97, 2))))) & 8191) as usize]) - 0.083333336 * fTemp95 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp97, 3))))) & 8191) as usize]) + (fTemp98 + (-4.0 - fTemp100)) * (fTemp106 * (fTemp104 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp107)))) & 8191) as usize] * fTemp102 - 0.083333336 * fTemp101 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp107, 1))))) & 8191) as usize]) + 0.125 * fTemp103 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp107, 2))))) & 8191) as usize]) - 0.083333336 * fTemp105 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp107, 3))))) & 8191) as usize]));
-			*output0 = 0.70710677 * (fTemp0 + (if iSlow1 != 0 {fTemp108} else {(if iSlow2 != 0 {0.25 * (0.020833334 * (fTemp51 + fTemp63 + fTemp74 + fTemp85) + fTemp86)} else {0.33333334 * (0.020833334 * (fTemp12 * fTemp13 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 4))))) & 8191) as usize] + fTemp26 * fTemp27 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 4))))) & 8191) as usize] + fTemp37 * fTemp38 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 4))))) & 8191) as usize]) + (fTemp5 + (-4.0 - fTemp7)) * (fTemp13 * (fTemp11 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp16)))) & 8191) as usize] * fTemp9 - 0.083333336 * fTemp8 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 1))))) & 8191) as usize]) + 0.125 * fTemp10 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 2))))) & 8191) as usize]) - 0.083333336 * fTemp12 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 3))))) & 8191) as usize]) + (fTemp19 + (-4.0 - fTemp21)) * (fTemp27 * (fTemp25 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp28)))) & 8191) as usize] * fTemp23 - 0.083333336 * fTemp22 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 1))))) & 8191) as usize]) + 0.125 * fTemp24 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 2))))) & 8191) as usize]) - 0.083333336 * fTemp26 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 3))))) & 8191) as usize]) + (fTemp30 + (-4.0 - fTemp32)) * (fTemp38 * (fTemp36 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp39)))) & 8191) as usize] * fTemp34 - 0.083333336 * fTemp33 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 1))))) & 8191) as usize]) + 0.125 * fTemp35 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 2))))) & 8191) as usize]) - 0.083333336 * fTemp37 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 3))))) & 8191) as usize]))})}));
+			*output0 = 0.70710677 * (fTemp0 + (if self.iSlow1 != 0 {fTemp108} else {(if self.iSlow2 != 0 {0.25 * (0.020833334 * (fTemp51 + fTemp63 + fTemp74 + fTemp85) + fTemp86)} else {0.33333334 * (0.020833334 * (fTemp12 * fTemp13 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 4))))) & 8191) as usize] + fTemp26 * fTemp27 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 4))))) & 8191) as usize] + fTemp37 * fTemp38 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 4))))) & 8191) as usize]) + (fTemp5 + (-4.0 - fTemp7)) * (fTemp13 * (fTemp11 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp16)))) & 8191) as usize] * fTemp9 - 0.083333336 * fTemp8 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 1))))) & 8191) as usize]) + 0.125 * fTemp10 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 2))))) & 8191) as usize]) - 0.083333336 * fTemp12 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp16, 3))))) & 8191) as usize]) + (fTemp19 + (-4.0 - fTemp21)) * (fTemp27 * (fTemp25 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp28)))) & 8191) as usize] * fTemp23 - 0.083333336 * fTemp22 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 1))))) & 8191) as usize]) + 0.125 * fTemp24 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 2))))) & 8191) as usize]) - 0.083333336 * fTemp26 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp28, 3))))) & 8191) as usize]) + (fTemp30 + (-4.0 - fTemp32)) * (fTemp38 * (fTemp36 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp39)))) & 8191) as usize] * fTemp34 - 0.083333336 * fTemp33 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 1))))) & 8191) as usize]) + 0.125 * fTemp35 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 2))))) & 8191) as usize]) - 0.083333336 * fTemp37 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp39, 3))))) & 8191) as usize]))})}));
 			let mut fTemp109: F32 = F32::max(2.0, F32::min(8189.0, self.fRec0[0] * (1.0 - fTemp4)));
 			let mut fTemp110: F32 = fTemp109 + -1.499995;
 			let mut fTemp111: F32 = F32::floor(fTemp110);
@@ -425,7 +449,7 @@ impl ChorusDsp {
 			let mut fTemp136: F32 = fTemp134 * fTemp135;
 			let mut fTemp137: F32 = fTemp129 + (-3.0 - fTemp131);
 			let mut iTemp138: i32 = (fTemp130) as i32;
-			*output1 = 0.70710677 * (fTemp14 + (if iSlow1 != 0 {fTemp108} else {(if iSlow2 != 0 {0.25 * (fTemp86 + 0.020833334 * (fTemp63 + fTemp51 + fTemp74 + fTemp85))} else {0.33333334 * (0.020833334 * (fTemp116 * fTemp117 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 4))))) & 8191) as usize] + fTemp126 * fTemp127 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 4))))) & 8191) as usize] + fTemp136 * fTemp137 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 4))))) & 8191) as usize]) + (fTemp109 + (-4.0 - fTemp111)) * (fTemp117 * (fTemp115 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp118)))) & 8191) as usize] * fTemp113 - 0.083333336 * fTemp112 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 1))))) & 8191) as usize]) + 0.125 * fTemp114 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 2))))) & 8191) as usize]) - 0.083333336 * fTemp116 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 3))))) & 8191) as usize]) + (fTemp119 + (-4.0 - fTemp121)) * (fTemp127 * (fTemp125 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp128)))) & 8191) as usize] * fTemp123 - 0.083333336 * fTemp122 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 1))))) & 8191) as usize]) + 0.125 * fTemp124 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 2))))) & 8191) as usize]) - 0.083333336 * fTemp126 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 3))))) & 8191) as usize]) + (fTemp129 + (-4.0 - fTemp131)) * (fTemp137 * (fTemp135 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp138)))) & 8191) as usize] * fTemp133 - 0.083333336 * fTemp132 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 1))))) & 8191) as usize]) + 0.125 * fTemp134 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 2))))) & 8191) as usize]) - 0.083333336 * fTemp136 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 3))))) & 8191) as usize]))})}));
+			*output1 = 0.70710677 * (fTemp14 + (if self.iSlow1 != 0 {fTemp108} else {(if self.iSlow2 != 0 {0.25 * (fTemp86 + 0.020833334 * (fTemp63 + fTemp51 + fTemp74 + fTemp85))} else {0.33333334 * (0.020833334 * (fTemp116 * fTemp117 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 4))))) & 8191) as usize] + fTemp126 * fTemp127 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 4))))) & 8191) as usize] + fTemp136 * fTemp137 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 4))))) & 8191) as usize]) + (fTemp109 + (-4.0 - fTemp111)) * (fTemp117 * (fTemp115 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp118)))) & 8191) as usize] * fTemp113 - 0.083333336 * fTemp112 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 1))))) & 8191) as usize]) + 0.125 * fTemp114 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 2))))) & 8191) as usize]) - 0.083333336 * fTemp116 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp118, 3))))) & 8191) as usize]) + (fTemp119 + (-4.0 - fTemp121)) * (fTemp127 * (fTemp125 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp128)))) & 8191) as usize] * fTemp123 - 0.083333336 * fTemp122 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 1))))) & 8191) as usize]) + 0.125 * fTemp124 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 2))))) & 8191) as usize]) - 0.083333336 * fTemp126 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp128, 3))))) & 8191) as usize]) + (fTemp129 + (-4.0 - fTemp131)) * (fTemp137 * (fTemp135 * (0.020833334 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp138)))) & 8191) as usize] * fTemp133 - 0.083333336 * fTemp132 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 1))))) & 8191) as usize]) + 0.125 * fTemp134 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 2))))) & 8191) as usize]) - 0.083333336 * fTemp136 * self.fVec2[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp138, 3))))) & 8191) as usize]))})}));
 			self.iVec0[1] = self.iVec0[0];
 			self.fRec0[1] = self.fRec0[0];
 			self.fRec2[1] = self.fRec2[0];

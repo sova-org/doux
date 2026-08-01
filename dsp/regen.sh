@@ -72,7 +72,14 @@ for spec in "${specs[@]}"; do
   name="${spec%%:*}"; cn="${spec##*:}"
   gen="$out/${name}_gen.rs"
   ftz=0; [[ "$ftz_stems" == *" $name "* ]] && ftz=1
-  faust -lang rust -ftz "$ftz" -cn "$cn" "dsp/$name.dsp" -o "$gen"
+  # -ec ("external control") lifts the slow/control section — the tan/sqrt/powf
+  # coefficient recipes — out of compute() into a separate control() that caches
+  # its results in struct fields. compute() then only reads them, so a block (or
+  # a per-sample dispatch) on unchanged params pays none of it. The wrappers in
+  # src/effects/faust_dsp/mod.rs own the contract: control() must be called at
+  # every init/reset/sample-rate change and after any param write, because
+  # instance_init does NOT call it.
+  faust -lang rust -ftz "$ftz" -ec -cn "$cn" "dsp/$name.dsp" -o "$gen"
   # 1. Drop the `default-boxed` derive: the feature is never enabled and the
   #    unknown cfg value trips a check-cfg warning module-level allow can't catch.
   sed -i '' '/cfg_attr(feature = "default-boxed"/d' "$gen"

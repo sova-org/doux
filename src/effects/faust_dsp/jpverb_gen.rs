@@ -2,161 +2,251 @@
 /* ------------------------------------------------------------
 name: "jpverb"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn JpverbDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn JpverbDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct JpverbDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fHslider1: F32,
+	fSlow2: F32,
+	fSlow3: F32,
 	fHslider2: F32,
+	fSlow4: F32,
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fHslider3: F32,
+	fSlow5: F32,
+	fSlow6: F32,
 	iVec0: [i32;2],
+	fSlow7: F32,
 	fRec15: [F32;2],
 	fRec16: [F32;2],
 	fHslider4: F32,
+	fSlow8: F32,
 	fHslider5: F32,
+	fSlow9: F32,
 	fHslider6: F32,
+	fSlow10: F32,
 	fConst2: F32,
 	fHslider7: F32,
+	fSlow11: F32,
+	fSlow12: F32,
+	fSlow13: F32,
+	fSlow14: F32,
+	fSlow15: F32,
+	fSlow16: F32,
+	fSlow17: F32,
+	fSlow18: F32,
+	fSlow19: F32,
 	IOTA0: i32,
 	fVec1: [F32;16384],
+	iSlow20: i32,
+	fSlow21: F32,
 	fRec53: [F32;2],
 	fVec2: [F32;2],
 	fRec52: [F32;2],
 	fRec50: [F32;2],
 	fVec3: [F32;16384],
+	iSlow22: i32,
+	fSlow23: F32,
 	fRec55: [F32;2],
 	fVec4: [F32;2],
 	fRec54: [F32;2],
 	fRec51: [F32;2],
 	fVec5: [F32;16384],
+	iSlow24: i32,
+	fSlow25: F32,
 	fRec56: [F32;2],
 	fVec6: [F32;2],
 	fRec49: [F32;2],
 	fRec47: [F32;2],
 	fVec7: [F32;16384],
+	iSlow26: i32,
+	fSlow27: F32,
 	fRec58: [F32;2],
 	fVec8: [F32;2],
 	fRec57: [F32;2],
 	fRec48: [F32;2],
 	fVec9: [F32;16384],
+	iSlow28: i32,
+	fSlow29: F32,
 	fRec59: [F32;2],
 	fVec10: [F32;2],
 	fRec46: [F32;2],
 	fRec44: [F32;2],
 	fVec11: [F32;16384],
+	iSlow30: i32,
+	fSlow31: F32,
 	fRec61: [F32;2],
 	fVec12: [F32;2],
 	fRec60: [F32;2],
 	fRec45: [F32;2],
 	fVec13: [F32;16384],
+	iSlow32: i32,
+	fSlow33: F32,
 	fRec62: [F32;2],
 	fVec14: [F32;2],
 	fRec43: [F32;2],
 	fRec41: [F32;2],
 	fVec15: [F32;16384],
+	iSlow34: i32,
+	fSlow35: F32,
 	fRec64: [F32;2],
 	fVec16: [F32;2],
 	fRec63: [F32;2],
 	fRec42: [F32;2],
 	fVec17: [F32;16384],
+	iSlow36: i32,
+	fSlow37: F32,
 	fRec65: [F32;2],
 	fVec18: [F32;2],
 	fRec40: [F32;2],
 	fRec38: [F32;2],
 	fVec19: [F32;16384],
+	iSlow38: i32,
+	fSlow39: F32,
 	fRec67: [F32;2],
 	fVec20: [F32;2],
 	fRec66: [F32;2],
 	fRec39: [F32;2],
 	fVec21: [F32;1024],
 	fVec22: [F32;16384],
+	iSlow40: i32,
+	fSlow41: F32,
 	fRec68: [F32;2],
 	fVec23: [F32;2],
 	fRec37: [F32;2],
 	fVec24: [F32;1024],
 	fVec25: [F32;16384],
+	iSlow42: i32,
+	fSlow43: F32,
 	fRec70: [F32;2],
 	fVec26: [F32;2],
 	fRec69: [F32;2],
 	fVec27: [F32;16384],
+	iSlow44: i32,
+	fSlow45: F32,
 	fRec71: [F32;2],
 	fVec28: [F32;2],
 	fRec36: [F32;2],
 	fRec34: [F32;2],
 	fVec29: [F32;16384],
+	iSlow46: i32,
+	fSlow47: F32,
 	fRec73: [F32;2],
 	fVec30: [F32;2],
 	fRec72: [F32;2],
 	fRec35: [F32;2],
 	fVec31: [F32;16384],
+	iSlow48: i32,
+	fSlow49: F32,
 	fRec74: [F32;2],
 	fVec32: [F32;2],
 	fRec33: [F32;2],
 	fRec31: [F32;2],
 	fVec33: [F32;16384],
+	iSlow50: i32,
+	fSlow51: F32,
 	fRec76: [F32;2],
 	fVec34: [F32;2],
 	fRec75: [F32;2],
 	fRec32: [F32;2],
 	fVec35: [F32;16384],
+	iSlow52: i32,
+	fSlow53: F32,
 	fRec77: [F32;2],
 	fVec36: [F32;2],
 	fRec30: [F32;2],
 	fRec28: [F32;2],
 	fVec37: [F32;16384],
+	iSlow54: i32,
+	fSlow55: F32,
 	fRec79: [F32;2],
 	fVec38: [F32;2],
 	fRec78: [F32;2],
 	fRec29: [F32;2],
 	fVec39: [F32;16384],
+	iSlow56: i32,
+	fSlow57: F32,
 	fRec80: [F32;2],
 	fVec40: [F32;2],
 	fRec27: [F32;2],
 	fRec25: [F32;2],
 	fVec41: [F32;16384],
+	iSlow58: i32,
+	fSlow59: F32,
 	fRec82: [F32;2],
 	fVec42: [F32;2],
 	fRec81: [F32;2],
 	fRec26: [F32;2],
 	fVec43: [F32;16384],
+	iSlow60: i32,
+	fSlow61: F32,
 	fRec83: [F32;2],
 	fVec44: [F32;2],
 	fRec24: [F32;2],
 	fRec22: [F32;2],
 	fVec45: [F32;16384],
+	iSlow62: i32,
+	fSlow63: F32,
 	fRec85: [F32;2],
 	fVec46: [F32;2],
 	fRec84: [F32;2],
 	fRec23: [F32;2],
 	fVec47: [F32;16384],
 	fVec48: [F32;16384],
+	iSlow64: i32,
+	fSlow65: F32,
 	fRec86: [F32;2],
 	fVec49: [F32;2],
 	fRec21: [F32;2],
 	fRec20: [F32;2],
+	fSlow66: F32,
+	fSlow67: F32,
+	fSlow68: F32,
 	fRec19: [F32;3],
+	fSlow69: F32,
+	fSlow70: F32,
 	fRec18: [F32;3],
 	fHslider8: F32,
+	fSlow71: F32,
+	fSlow72: F32,
+	fSlow73: F32,
+	fSlow74: F32,
+	fSlow75: F32,
+	fSlow76: F32,
+	fSlow77: F32,
 	fRec17: [F32;3],
+	fSlow78: F32,
+	fSlow79: F32,
+	fSlow80: F32,
+	fSlow81: F32,
+	fSlow82: F32,
 	fRec92: [F32;2],
 	fRec91: [F32;3],
 	fRec90: [F32;3],
 	fVec50: [F32;2],
 	fRec89: [F32;2],
+	fSlow83: F32,
+	fSlow84: F32,
 	fRec88: [F32;3],
+	fSlow85: F32,
 	fRec87: [F32;3],
 	fHslider9: F32,
+	fSlow86: F32,
 	fRec95: [F32;2],
 	fRec94: [F32;3],
 	fRec93: [F32;3],
 	fVec51: [F32;1024],
 	fRec14: [F32;2],
+	fSlow87: F32,
 	fVec52: [F32;16384],
 	fVec53: [F32;16384],
+	iSlow88: i32,
+	fSlow89: F32,
 	fRec102: [F32;2],
 	fVec54: [F32;2],
 	fRec101: [F32;2],
@@ -181,6 +271,8 @@ pub struct JpverbDsp {
 	fRec13: [F32;2],
 	fRec11: [F32;2],
 	fVec59: [F32;16384],
+	iSlow90: i32,
+	fSlow91: F32,
 	fRec113: [F32;2],
 	fVec60: [F32;2],
 	fRec112: [F32;2],
@@ -198,11 +290,15 @@ pub struct JpverbDsp {
 	fRec7: [F32;2],
 	fRec5: [F32;2],
 	fVec67: [F32;16384],
+	iSlow92: i32,
+	fSlow93: F32,
 	fRec116: [F32;2],
 	fVec68: [F32;2],
 	fRec115: [F32;2],
 	fRec6: [F32;2],
 	fVec69: [F32;16384],
+	iSlow94: i32,
+	fSlow95: F32,
 	fRec117: [F32;2],
 	fVec70: [F32;2],
 	fRec4: [F32;2],
@@ -272,156 +368,246 @@ impl JpverbDsp {
 	pub fn new() -> JpverbDsp { 
 		JpverbDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fHslider1: 0.0,
+			fSlow2: 0.0,
+			fSlow3: 0.0,
 			fHslider2: 0.0,
+			fSlow4: 0.0,
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fHslider3: 0.0,
+			fSlow5: 0.0,
+			fSlow6: 0.0,
 			iVec0: [0;2],
+			fSlow7: 0.0,
 			fRec15: [0.0;2],
 			fRec16: [0.0;2],
 			fHslider4: 0.0,
+			fSlow8: 0.0,
 			fHslider5: 0.0,
+			fSlow9: 0.0,
 			fHslider6: 0.0,
+			fSlow10: 0.0,
 			fConst2: 0.0,
 			fHslider7: 0.0,
+			fSlow11: 0.0,
+			fSlow12: 0.0,
+			fSlow13: 0.0,
+			fSlow14: 0.0,
+			fSlow15: 0.0,
+			fSlow16: 0.0,
+			fSlow17: 0.0,
+			fSlow18: 0.0,
+			fSlow19: 0.0,
 			IOTA0: 0,
 			fVec1: [0.0;16384],
+			iSlow20: 0,
+			fSlow21: 0.0,
 			fRec53: [0.0;2],
 			fVec2: [0.0;2],
 			fRec52: [0.0;2],
 			fRec50: [0.0;2],
 			fVec3: [0.0;16384],
+			iSlow22: 0,
+			fSlow23: 0.0,
 			fRec55: [0.0;2],
 			fVec4: [0.0;2],
 			fRec54: [0.0;2],
 			fRec51: [0.0;2],
 			fVec5: [0.0;16384],
+			iSlow24: 0,
+			fSlow25: 0.0,
 			fRec56: [0.0;2],
 			fVec6: [0.0;2],
 			fRec49: [0.0;2],
 			fRec47: [0.0;2],
 			fVec7: [0.0;16384],
+			iSlow26: 0,
+			fSlow27: 0.0,
 			fRec58: [0.0;2],
 			fVec8: [0.0;2],
 			fRec57: [0.0;2],
 			fRec48: [0.0;2],
 			fVec9: [0.0;16384],
+			iSlow28: 0,
+			fSlow29: 0.0,
 			fRec59: [0.0;2],
 			fVec10: [0.0;2],
 			fRec46: [0.0;2],
 			fRec44: [0.0;2],
 			fVec11: [0.0;16384],
+			iSlow30: 0,
+			fSlow31: 0.0,
 			fRec61: [0.0;2],
 			fVec12: [0.0;2],
 			fRec60: [0.0;2],
 			fRec45: [0.0;2],
 			fVec13: [0.0;16384],
+			iSlow32: 0,
+			fSlow33: 0.0,
 			fRec62: [0.0;2],
 			fVec14: [0.0;2],
 			fRec43: [0.0;2],
 			fRec41: [0.0;2],
 			fVec15: [0.0;16384],
+			iSlow34: 0,
+			fSlow35: 0.0,
 			fRec64: [0.0;2],
 			fVec16: [0.0;2],
 			fRec63: [0.0;2],
 			fRec42: [0.0;2],
 			fVec17: [0.0;16384],
+			iSlow36: 0,
+			fSlow37: 0.0,
 			fRec65: [0.0;2],
 			fVec18: [0.0;2],
 			fRec40: [0.0;2],
 			fRec38: [0.0;2],
 			fVec19: [0.0;16384],
+			iSlow38: 0,
+			fSlow39: 0.0,
 			fRec67: [0.0;2],
 			fVec20: [0.0;2],
 			fRec66: [0.0;2],
 			fRec39: [0.0;2],
 			fVec21: [0.0;1024],
 			fVec22: [0.0;16384],
+			iSlow40: 0,
+			fSlow41: 0.0,
 			fRec68: [0.0;2],
 			fVec23: [0.0;2],
 			fRec37: [0.0;2],
 			fVec24: [0.0;1024],
 			fVec25: [0.0;16384],
+			iSlow42: 0,
+			fSlow43: 0.0,
 			fRec70: [0.0;2],
 			fVec26: [0.0;2],
 			fRec69: [0.0;2],
 			fVec27: [0.0;16384],
+			iSlow44: 0,
+			fSlow45: 0.0,
 			fRec71: [0.0;2],
 			fVec28: [0.0;2],
 			fRec36: [0.0;2],
 			fRec34: [0.0;2],
 			fVec29: [0.0;16384],
+			iSlow46: 0,
+			fSlow47: 0.0,
 			fRec73: [0.0;2],
 			fVec30: [0.0;2],
 			fRec72: [0.0;2],
 			fRec35: [0.0;2],
 			fVec31: [0.0;16384],
+			iSlow48: 0,
+			fSlow49: 0.0,
 			fRec74: [0.0;2],
 			fVec32: [0.0;2],
 			fRec33: [0.0;2],
 			fRec31: [0.0;2],
 			fVec33: [0.0;16384],
+			iSlow50: 0,
+			fSlow51: 0.0,
 			fRec76: [0.0;2],
 			fVec34: [0.0;2],
 			fRec75: [0.0;2],
 			fRec32: [0.0;2],
 			fVec35: [0.0;16384],
+			iSlow52: 0,
+			fSlow53: 0.0,
 			fRec77: [0.0;2],
 			fVec36: [0.0;2],
 			fRec30: [0.0;2],
 			fRec28: [0.0;2],
 			fVec37: [0.0;16384],
+			iSlow54: 0,
+			fSlow55: 0.0,
 			fRec79: [0.0;2],
 			fVec38: [0.0;2],
 			fRec78: [0.0;2],
 			fRec29: [0.0;2],
 			fVec39: [0.0;16384],
+			iSlow56: 0,
+			fSlow57: 0.0,
 			fRec80: [0.0;2],
 			fVec40: [0.0;2],
 			fRec27: [0.0;2],
 			fRec25: [0.0;2],
 			fVec41: [0.0;16384],
+			iSlow58: 0,
+			fSlow59: 0.0,
 			fRec82: [0.0;2],
 			fVec42: [0.0;2],
 			fRec81: [0.0;2],
 			fRec26: [0.0;2],
 			fVec43: [0.0;16384],
+			iSlow60: 0,
+			fSlow61: 0.0,
 			fRec83: [0.0;2],
 			fVec44: [0.0;2],
 			fRec24: [0.0;2],
 			fRec22: [0.0;2],
 			fVec45: [0.0;16384],
+			iSlow62: 0,
+			fSlow63: 0.0,
 			fRec85: [0.0;2],
 			fVec46: [0.0;2],
 			fRec84: [0.0;2],
 			fRec23: [0.0;2],
 			fVec47: [0.0;16384],
 			fVec48: [0.0;16384],
+			iSlow64: 0,
+			fSlow65: 0.0,
 			fRec86: [0.0;2],
 			fVec49: [0.0;2],
 			fRec21: [0.0;2],
 			fRec20: [0.0;2],
+			fSlow66: 0.0,
+			fSlow67: 0.0,
+			fSlow68: 0.0,
 			fRec19: [0.0;3],
+			fSlow69: 0.0,
+			fSlow70: 0.0,
 			fRec18: [0.0;3],
 			fHslider8: 0.0,
+			fSlow71: 0.0,
+			fSlow72: 0.0,
+			fSlow73: 0.0,
+			fSlow74: 0.0,
+			fSlow75: 0.0,
+			fSlow76: 0.0,
+			fSlow77: 0.0,
 			fRec17: [0.0;3],
+			fSlow78: 0.0,
+			fSlow79: 0.0,
+			fSlow80: 0.0,
+			fSlow81: 0.0,
+			fSlow82: 0.0,
 			fRec92: [0.0;2],
 			fRec91: [0.0;3],
 			fRec90: [0.0;3],
 			fVec50: [0.0;2],
 			fRec89: [0.0;2],
+			fSlow83: 0.0,
+			fSlow84: 0.0,
 			fRec88: [0.0;3],
+			fSlow85: 0.0,
 			fRec87: [0.0;3],
 			fHslider9: 0.0,
+			fSlow86: 0.0,
 			fRec95: [0.0;2],
 			fRec94: [0.0;3],
 			fRec93: [0.0;3],
 			fVec51: [0.0;1024],
 			fRec14: [0.0;2],
+			fSlow87: 0.0,
 			fVec52: [0.0;16384],
 			fVec53: [0.0;16384],
+			iSlow88: 0,
+			fSlow89: 0.0,
 			fRec102: [0.0;2],
 			fVec54: [0.0;2],
 			fRec101: [0.0;2],
@@ -446,6 +632,8 @@ impl JpverbDsp {
 			fRec13: [0.0;2],
 			fRec11: [0.0;2],
 			fVec59: [0.0;16384],
+			iSlow90: 0,
+			fSlow91: 0.0,
 			fRec113: [0.0;2],
 			fVec60: [0.0;2],
 			fRec112: [0.0;2],
@@ -463,11 +651,15 @@ impl JpverbDsp {
 			fRec7: [0.0;2],
 			fRec5: [0.0;2],
 			fVec67: [0.0;16384],
+			iSlow92: 0,
+			fSlow93: 0.0,
 			fRec116: [0.0;2],
 			fVec68: [0.0;2],
 			fRec115: [0.0;2],
 			fRec6: [0.0;2],
 			fVec69: [0.0;16384],
+			iSlow94: 0,
+			fSlow95: 0.0,
 			fRec117: [0.0;2],
 			fVec70: [0.0;2],
 			fRec4: [0.0;2],
@@ -485,7 +677,7 @@ impl JpverbDsp {
 		m.declare("analyzers.lib/version", r"1.2.0");
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn JpverbDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn JpverbDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("delays.lib/fdelay1a:author", r"Julius O. Smith III");
 		m.declare("delays.lib/fdelay4:author", r"Julius O. Smith III");
 		m.declare("delays.lib/fdelayltv:author", r"Julius O. Smith III");
@@ -1215,6 +1407,107 @@ impl JpverbDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 1 static var(s)
+	let itbl0JpverbDspSIG0_guard = itbl0JpverbDspSIG0.read().unwrap();
+	self.fSlow0 = self.fHslider0;
+		self.fSlow1 = F32::cos(self.fSlow0);
+		self.fSlow2 = self.fHslider1;
+		self.fSlow3 = 1.0 - self.fSlow2;
+		self.fSlow4 = 5e+01 * self.fHslider2;
+		self.fSlow5 = self.fConst1 * self.fHslider3;
+		self.fSlow6 = F32::sin(self.fSlow5);
+		self.fSlow7 = F32::cos(self.fSlow5);
+		self.fSlow8 = 4.5 * self.fHslider4 + 0.5;
+		self.fSlow9 = F32::powf(1e+01, -(5.1 * ((1.25 * self.fSlow8 + -0.25) / F32::powf(2e+02, self.fHslider5))));
+		self.fSlow10 = self.fHslider6;
+		self.fSlow11 = F32::tan(self.fConst2 * (9e+03 * self.fHslider7 + 1e+03));
+		self.fSlow12 = JpverbDsp_faustpower2_f(self.fSlow11);
+		self.fSlow13 = 1.0 / self.fSlow11;
+		self.fSlow14 = (self.fSlow13 + 0.618034) / self.fSlow11 + 1.0;
+		self.fSlow15 = 1.0 / (self.fSlow12 * self.fSlow14);
+		self.fSlow16 = (self.fSlow13 + 1.618034) / self.fSlow11 + 1.0;
+		self.fSlow17 = 1.0 / (self.fSlow12 * self.fSlow16);
+		self.fSlow18 = 1.0 / (self.fSlow13 + 1.0);
+		self.fSlow19 = 1.0 - self.fSlow13;
+		self.iSlow20 = itbl0JpverbDspSIG0_guard[((1e+01 * self.fSlow8) as i32) as usize];
+		self.fSlow21 = 0.0001 * (self.iSlow20) as F32;
+		self.iSlow22 = itbl0JpverbDspSIG0_guard[((1.1e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow23 = 0.0001 * (self.iSlow22) as F32;
+		self.iSlow24 = itbl0JpverbDspSIG0_guard[((4e+01 * self.fSlow8) as i32) as usize];
+		self.fSlow25 = 0.0001 * (self.iSlow24) as F32;
+		self.iSlow26 = itbl0JpverbDspSIG0_guard[((1.4e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow27 = 0.0001 * (self.iSlow26) as F32;
+		self.iSlow28 = itbl0JpverbDspSIG0_guard[((7e+01 * self.fSlow8) as i32) as usize];
+		self.fSlow29 = 0.0001 * (self.iSlow28) as F32;
+		self.iSlow30 = itbl0JpverbDspSIG0_guard[((1.7e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow31 = 0.0001 * (self.iSlow30) as F32;
+		self.iSlow32 = itbl0JpverbDspSIG0_guard[((1e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow33 = 0.0001 * (self.iSlow32) as F32;
+		self.iSlow34 = itbl0JpverbDspSIG0_guard[((2e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow35 = 0.0001 * (self.iSlow34) as F32;
+		self.iSlow36 = itbl0JpverbDspSIG0_guard[((1.3e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow37 = 0.0001 * (self.iSlow36) as F32;
+		self.iSlow38 = itbl0JpverbDspSIG0_guard[((2.3e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow39 = 0.0001 * (self.iSlow38) as F32;
+		self.iSlow40 = itbl0JpverbDspSIG0_guard[((54.0 * self.fSlow8) as i32) as usize];
+		self.fSlow41 = 0.005 * (self.iSlow40) as F32;
+		self.iSlow42 = itbl0JpverbDspSIG0_guard[((204.0 * self.fSlow8) as i32) as usize];
+		self.fSlow43 = 0.005 * (self.iSlow42) as F32;
+		self.iSlow44 = itbl0JpverbDspSIG0_guard[((125.0 * self.fSlow8) as i32) as usize];
+		self.fSlow45 = 0.0001 * (self.iSlow44) as F32;
+		self.iSlow46 = itbl0JpverbDspSIG0_guard[((25.0 * self.fSlow8) as i32) as usize];
+		self.fSlow47 = 0.0001 * (self.iSlow46) as F32;
+		self.iSlow48 = itbl0JpverbDspSIG0_guard[((155.0 * self.fSlow8) as i32) as usize];
+		self.fSlow49 = 0.0001 * (self.iSlow48) as F32;
+		self.iSlow50 = itbl0JpverbDspSIG0_guard[((55.0 * self.fSlow8) as i32) as usize];
+		self.fSlow51 = 0.0001 * (self.iSlow50) as F32;
+		self.iSlow52 = itbl0JpverbDspSIG0_guard[((185.0 * self.fSlow8) as i32) as usize];
+		self.fSlow53 = 0.0001 * (self.iSlow52) as F32;
+		self.iSlow54 = itbl0JpverbDspSIG0_guard[((85.0 * self.fSlow8) as i32) as usize];
+		self.fSlow55 = 0.0001 * (self.iSlow54) as F32;
+		self.iSlow56 = itbl0JpverbDspSIG0_guard[((215.0 * self.fSlow8) as i32) as usize];
+		self.fSlow57 = 0.0001 * (self.iSlow56) as F32;
+		self.iSlow58 = itbl0JpverbDspSIG0_guard[((115.0 * self.fSlow8) as i32) as usize];
+		self.fSlow59 = 0.0001 * (self.iSlow58) as F32;
+		self.iSlow60 = itbl0JpverbDspSIG0_guard[((245.0 * self.fSlow8) as i32) as usize];
+		self.fSlow61 = 0.0001 * (self.iSlow60) as F32;
+		self.iSlow62 = itbl0JpverbDspSIG0_guard[((145.0 * self.fSlow8) as i32) as usize];
+		self.fSlow63 = 0.0001 * (self.iSlow62) as F32;
+		self.iSlow64 = itbl0JpverbDspSIG0_guard[((134.0 * self.fSlow8) as i32) as usize];
+		self.fSlow65 = 0.005 * (self.iSlow64) as F32;
+		self.fSlow66 = 1.0 / self.fSlow16;
+		self.fSlow67 = (self.fSlow13 + -1.618034) / self.fSlow11 + 1.0;
+		self.fSlow68 = 2.0 * (1.0 - 1.0 / self.fSlow12);
+		self.fSlow69 = 1.0 / self.fSlow14;
+		self.fSlow70 = (self.fSlow13 + -0.618034) / self.fSlow11 + 1.0;
+		self.fSlow71 = F32::tan(self.fConst2 * (5.9e+03 * self.fHslider8 + 1e+02));
+		self.fSlow72 = 1.0 / self.fSlow71;
+		self.fSlow73 = 1.0 / ((self.fSlow72 + 1.618034) / self.fSlow71 + 1.0);
+		self.fSlow74 = (self.fSlow72 + -1.618034) / self.fSlow71 + 1.0;
+		self.fSlow75 = JpverbDsp_faustpower2_f(self.fSlow71);
+		self.fSlow76 = 1.0 / self.fSlow75;
+		self.fSlow77 = 2.0 * (1.0 - self.fSlow76);
+		self.fSlow78 = 1.0 / ((self.fSlow72 + 0.618034) / self.fSlow71 + 1.0);
+		self.fSlow79 = (self.fSlow72 + 1.618034) / self.fSlow71 + 1.0;
+		self.fSlow80 = 1.0 / (self.fSlow75 * self.fSlow79);
+		self.fSlow81 = 1.0 / (self.fSlow72 + 1.0);
+		self.fSlow82 = 1.0 - self.fSlow72;
+		self.fSlow83 = 1.0 / self.fSlow79;
+		self.fSlow84 = (self.fSlow72 + -1.618034) / self.fSlow71 + 1.0;
+		self.fSlow85 = (self.fSlow72 + -0.618034) / self.fSlow71 + 1.0;
+		self.fSlow86 = self.fHslider9;
+		self.fSlow87 = F32::sin(self.fSlow0);
+		self.iSlow88 = itbl0JpverbDspSIG0_guard[((34.0 * self.fSlow8) as i32) as usize];
+		self.fSlow89 = 0.005 * (self.iSlow88) as F32;
+		self.iSlow90 = itbl0JpverbDspSIG0_guard[((2.4e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow91 = 0.0001 * (self.iSlow90) as F32;
+		self.iSlow92 = itbl0JpverbDspSIG0_guard[((1.9e+02 * self.fSlow8) as i32) as usize];
+		self.fSlow93 = 0.0001 * (self.iSlow92) as F32;
+		self.iSlow94 = itbl0JpverbDspSIG0_guard[((175.0 * self.fSlow8) as i32) as usize];
+		self.fSlow95 = 0.0001 * (self.iSlow94) as F32;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -1230,118 +1523,22 @@ impl JpverbDsp {
 		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let outputs1 = outputs1.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = F32::cos(fSlow0);
-		let mut fSlow2: F32 = self.fHslider1;
-		let mut fSlow3: F32 = 1.0 - fSlow2;
-		let mut fSlow4: F32 = 5e+01 * self.fHslider2;
-		let mut fSlow5: F32 = self.fConst1 * self.fHslider3;
-		let mut fSlow6: F32 = F32::sin(fSlow5);
-		let mut fSlow7: F32 = F32::cos(fSlow5);
-		let mut fSlow8: F32 = 4.5 * self.fHslider4 + 0.5;
-		let mut fSlow9: F32 = F32::powf(1e+01, -(5.1 * ((1.25 * fSlow8 + -0.25) / F32::powf(2e+02, self.fHslider5))));
-		let mut fSlow10: F32 = self.fHslider6;
-		let mut fSlow11: F32 = F32::tan(self.fConst2 * (9e+03 * self.fHslider7 + 1e+03));
-		let mut fSlow12: F32 = JpverbDsp_faustpower2_f(fSlow11);
-		let mut fSlow13: F32 = 1.0 / fSlow11;
-		let mut fSlow14: F32 = (fSlow13 + 0.618034) / fSlow11 + 1.0;
-		let mut fSlow15: F32 = 1.0 / (fSlow12 * fSlow14);
-		let mut fSlow16: F32 = (fSlow13 + 1.618034) / fSlow11 + 1.0;
-		let mut fSlow17: F32 = 1.0 / (fSlow12 * fSlow16);
-		let mut fSlow18: F32 = 1.0 / (fSlow13 + 1.0);
-		let mut fSlow19: F32 = 1.0 - fSlow13;
-		let mut iSlow20: i32 = itbl0JpverbDspSIG0_guard[((1e+01 * fSlow8) as i32) as usize];
-		let mut fSlow21: F32 = 0.0001 * (iSlow20) as F32;
-		let mut iSlow22: i32 = itbl0JpverbDspSIG0_guard[((1.1e+02 * fSlow8) as i32) as usize];
-		let mut fSlow23: F32 = 0.0001 * (iSlow22) as F32;
-		let mut iSlow24: i32 = itbl0JpverbDspSIG0_guard[((4e+01 * fSlow8) as i32) as usize];
-		let mut fSlow25: F32 = 0.0001 * (iSlow24) as F32;
-		let mut iSlow26: i32 = itbl0JpverbDspSIG0_guard[((1.4e+02 * fSlow8) as i32) as usize];
-		let mut fSlow27: F32 = 0.0001 * (iSlow26) as F32;
-		let mut iSlow28: i32 = itbl0JpverbDspSIG0_guard[((7e+01 * fSlow8) as i32) as usize];
-		let mut fSlow29: F32 = 0.0001 * (iSlow28) as F32;
-		let mut iSlow30: i32 = itbl0JpverbDspSIG0_guard[((1.7e+02 * fSlow8) as i32) as usize];
-		let mut fSlow31: F32 = 0.0001 * (iSlow30) as F32;
-		let mut iSlow32: i32 = itbl0JpverbDspSIG0_guard[((1e+02 * fSlow8) as i32) as usize];
-		let mut fSlow33: F32 = 0.0001 * (iSlow32) as F32;
-		let mut iSlow34: i32 = itbl0JpverbDspSIG0_guard[((2e+02 * fSlow8) as i32) as usize];
-		let mut fSlow35: F32 = 0.0001 * (iSlow34) as F32;
-		let mut iSlow36: i32 = itbl0JpverbDspSIG0_guard[((1.3e+02 * fSlow8) as i32) as usize];
-		let mut fSlow37: F32 = 0.0001 * (iSlow36) as F32;
-		let mut iSlow38: i32 = itbl0JpverbDspSIG0_guard[((2.3e+02 * fSlow8) as i32) as usize];
-		let mut fSlow39: F32 = 0.0001 * (iSlow38) as F32;
-		let mut iSlow40: i32 = itbl0JpverbDspSIG0_guard[((54.0 * fSlow8) as i32) as usize];
-		let mut fSlow41: F32 = 0.005 * (iSlow40) as F32;
-		let mut iSlow42: i32 = itbl0JpverbDspSIG0_guard[((204.0 * fSlow8) as i32) as usize];
-		let mut fSlow43: F32 = 0.005 * (iSlow42) as F32;
-		let mut iSlow44: i32 = itbl0JpverbDspSIG0_guard[((125.0 * fSlow8) as i32) as usize];
-		let mut fSlow45: F32 = 0.0001 * (iSlow44) as F32;
-		let mut iSlow46: i32 = itbl0JpverbDspSIG0_guard[((25.0 * fSlow8) as i32) as usize];
-		let mut fSlow47: F32 = 0.0001 * (iSlow46) as F32;
-		let mut iSlow48: i32 = itbl0JpverbDspSIG0_guard[((155.0 * fSlow8) as i32) as usize];
-		let mut fSlow49: F32 = 0.0001 * (iSlow48) as F32;
-		let mut iSlow50: i32 = itbl0JpverbDspSIG0_guard[((55.0 * fSlow8) as i32) as usize];
-		let mut fSlow51: F32 = 0.0001 * (iSlow50) as F32;
-		let mut iSlow52: i32 = itbl0JpverbDspSIG0_guard[((185.0 * fSlow8) as i32) as usize];
-		let mut fSlow53: F32 = 0.0001 * (iSlow52) as F32;
-		let mut iSlow54: i32 = itbl0JpverbDspSIG0_guard[((85.0 * fSlow8) as i32) as usize];
-		let mut fSlow55: F32 = 0.0001 * (iSlow54) as F32;
-		let mut iSlow56: i32 = itbl0JpverbDspSIG0_guard[((215.0 * fSlow8) as i32) as usize];
-		let mut fSlow57: F32 = 0.0001 * (iSlow56) as F32;
-		let mut iSlow58: i32 = itbl0JpverbDspSIG0_guard[((115.0 * fSlow8) as i32) as usize];
-		let mut fSlow59: F32 = 0.0001 * (iSlow58) as F32;
-		let mut iSlow60: i32 = itbl0JpverbDspSIG0_guard[((245.0 * fSlow8) as i32) as usize];
-		let mut fSlow61: F32 = 0.0001 * (iSlow60) as F32;
-		let mut iSlow62: i32 = itbl0JpverbDspSIG0_guard[((145.0 * fSlow8) as i32) as usize];
-		let mut fSlow63: F32 = 0.0001 * (iSlow62) as F32;
-		let mut iSlow64: i32 = itbl0JpverbDspSIG0_guard[((134.0 * fSlow8) as i32) as usize];
-		let mut fSlow65: F32 = 0.005 * (iSlow64) as F32;
-		let mut fSlow66: F32 = 1.0 / fSlow16;
-		let mut fSlow67: F32 = (fSlow13 + -1.618034) / fSlow11 + 1.0;
-		let mut fSlow68: F32 = 2.0 * (1.0 - 1.0 / fSlow12);
-		let mut fSlow69: F32 = 1.0 / fSlow14;
-		let mut fSlow70: F32 = (fSlow13 + -0.618034) / fSlow11 + 1.0;
-		let mut fSlow71: F32 = F32::tan(self.fConst2 * (5.9e+03 * self.fHslider8 + 1e+02));
-		let mut fSlow72: F32 = 1.0 / fSlow71;
-		let mut fSlow73: F32 = 1.0 / ((fSlow72 + 1.618034) / fSlow71 + 1.0);
-		let mut fSlow74: F32 = (fSlow72 + -1.618034) / fSlow71 + 1.0;
-		let mut fSlow75: F32 = JpverbDsp_faustpower2_f(fSlow71);
-		let mut fSlow76: F32 = 1.0 / fSlow75;
-		let mut fSlow77: F32 = 2.0 * (1.0 - fSlow76);
-		let mut fSlow78: F32 = 1.0 / ((fSlow72 + 0.618034) / fSlow71 + 1.0);
-		let mut fSlow79: F32 = (fSlow72 + 1.618034) / fSlow71 + 1.0;
-		let mut fSlow80: F32 = 1.0 / (fSlow75 * fSlow79);
-		let mut fSlow81: F32 = 1.0 / (fSlow72 + 1.0);
-		let mut fSlow82: F32 = 1.0 - fSlow72;
-		let mut fSlow83: F32 = 1.0 / fSlow79;
-		let mut fSlow84: F32 = (fSlow72 + -1.618034) / fSlow71 + 1.0;
-		let mut fSlow85: F32 = (fSlow72 + -0.618034) / fSlow71 + 1.0;
-		let mut fSlow86: F32 = self.fHslider9;
-		let mut fSlow87: F32 = F32::sin(fSlow0);
-		let mut iSlow88: i32 = itbl0JpverbDspSIG0_guard[((34.0 * fSlow8) as i32) as usize];
-		let mut fSlow89: F32 = 0.005 * (iSlow88) as F32;
-		let mut iSlow90: i32 = itbl0JpverbDspSIG0_guard[((2.4e+02 * fSlow8) as i32) as usize];
-		let mut fSlow91: F32 = 0.0001 * (iSlow90) as F32;
-		let mut iSlow92: i32 = itbl0JpverbDspSIG0_guard[((1.9e+02 * fSlow8) as i32) as usize];
-		let mut fSlow93: F32 = 0.0001 * (iSlow92) as F32;
-		let mut iSlow94: i32 = itbl0JpverbDspSIG0_guard[((175.0 * fSlow8) as i32) as usize];
-		let mut fSlow95: F32 = 0.0001 * (iSlow94) as F32;
 		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
 		for (((input0, input1), output0), output1) in zipped_iterators {
 			self.iVec0[0] = 1;
-			let mut fTemp0: F32 = fSlow6 * self.fRec16[1] + fSlow7 * self.fRec15[1];
+			let mut fTemp0: F32 = self.fSlow6 * self.fRec16[1] + self.fSlow7 * self.fRec15[1];
 			self.fRec15[0] = (if (F32::abs(fTemp0) > 1.1754944e-38) as i32 != 0 {fTemp0} else {0.0});
 			let mut iTemp1: i32 = i32::wrapping_sub(1, self.iVec0[1]);
-			let mut fTemp2: F32 = (iTemp1) as F32 + fSlow7 * self.fRec16[1] - fSlow6 * self.fRec15[1];
+			let mut fTemp2: F32 = (iTemp1) as F32 + self.fSlow7 * self.fRec16[1] - self.fSlow6 * self.fRec15[1];
 			self.fRec16[0] = (if (F32::abs(fTemp2) > 1.1754944e-38) as i32 != 0 {fTemp2} else {0.0});
-			let mut fTemp3: F32 = fSlow4 * (self.fRec15[0] + 1.0);
+			let mut fTemp3: F32 = self.fSlow4 * (self.fRec15[0] + 1.0);
 			let mut fTemp4: F32 = fTemp3 + 3.500005;
 			let mut fTemp5: F32 = F32::floor(fTemp4);
 			let mut fTemp6: F32 = fTemp3 + (1.0 - fTemp5);
 			let mut fTemp7: F32 = fTemp3 + (2.0 - fTemp5);
 			let mut fTemp8: F32 = fTemp3 + (3.0 - fTemp5);
 			let mut fTemp9: F32 = fTemp3 + (4.0 - fTemp5);
-			let mut fTemp10: F32 = fSlow4 * (self.fRec16[0] + 1.0);
+			let mut fTemp10: F32 = self.fSlow4 * (self.fRec16[0] + 1.0);
 			let mut fTemp11: F32 = fTemp10 + 3.500005;
 			let mut fTemp12: F32 = F32::floor(fTemp11);
 			let mut fTemp13: F32 = fTemp10 + (1.0 - fTemp12);
@@ -1351,7 +1548,7 @@ impl JpverbDsp {
 			let mut fTemp17: F32 = 0.6496369 * self.fRec51[1];
 			let mut fTemp18: F32 = 0.7602446 * self.fRec1[1];
 			self.fVec1[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp16 + 0.70710677 * (fTemp17 - fTemp18);
-			let mut fTemp19: F32 = 0.9999 * (self.fRec53[1] + (i32::wrapping_mul(iTemp1, iSlow20)) as F32) + fSlow21;
+			let mut fTemp19: F32 = 0.9999 * (self.fRec53[1] + (i32::wrapping_mul(iTemp1, self.iSlow20)) as F32) + self.fSlow21;
 			self.fRec53[0] = (if (F32::abs(fTemp19) > 1.1754944e-38) as i32 != 0 {fTemp19} else {0.0});
 			let mut fTemp20: F32 = self.fRec53[0] + -1.49999;
 			let mut fTemp21: F32 = self.fVec1[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp20) as i32)))) & 16383) as usize];
@@ -1361,7 +1558,7 @@ impl JpverbDsp {
 			self.fRec52[0] = (if (F32::abs(fTemp23) > 1.1754944e-38) as i32 != 0 {fTemp23} else {0.0});
 			self.fRec50[0] = (if (F32::abs(self.fRec52[0]) > 1.1754944e-38) as i32 != 0 {self.fRec52[0]} else {0.0});
 			self.fVec3[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp16 + 0.70710677 * (fTemp18 - fTemp17);
-			let mut fTemp24: F32 = 0.9999 * (self.fRec55[1] + (i32::wrapping_mul(iTemp1, iSlow22)) as F32) + fSlow23;
+			let mut fTemp24: F32 = 0.9999 * (self.fRec55[1] + (i32::wrapping_mul(iTemp1, self.iSlow22)) as F32) + self.fSlow23;
 			self.fRec55[0] = (if (F32::abs(fTemp24) > 1.1754944e-38) as i32 != 0 {fTemp24} else {0.0});
 			let mut fTemp25: F32 = self.fRec55[0] + -1.49999;
 			let mut fTemp26: F32 = self.fVec3[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp25) as i32)))) & 16383) as usize];
@@ -1376,7 +1573,7 @@ impl JpverbDsp {
 			let mut fTemp32: F32 = 0.7602446 * self.fRec51[1] + 0.6496369 * self.fRec1[1];
 			let mut fTemp33: F32 = 0.7602446 * fTemp32;
 			self.fVec5[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp30 + 0.70710677 * (fTemp31 - fTemp33);
-			let mut fTemp34: F32 = 0.9999 * (self.fRec56[1] + (i32::wrapping_mul(iTemp1, iSlow24)) as F32) + fSlow25;
+			let mut fTemp34: F32 = 0.9999 * (self.fRec56[1] + (i32::wrapping_mul(iTemp1, self.iSlow24)) as F32) + self.fSlow25;
 			self.fRec56[0] = (if (F32::abs(fTemp34) > 1.1754944e-38) as i32 != 0 {fTemp34} else {0.0});
 			let mut fTemp35: F32 = self.fRec56[0] + -1.49999;
 			let mut fTemp36: F32 = self.fVec5[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp35) as i32)))) & 16383) as usize];
@@ -1386,7 +1583,7 @@ impl JpverbDsp {
 			self.fRec49[0] = (if (F32::abs(fTemp38) > 1.1754944e-38) as i32 != 0 {fTemp38} else {0.0});
 			self.fRec47[0] = (if (F32::abs(self.fRec49[0]) > 1.1754944e-38) as i32 != 0 {self.fRec49[0]} else {0.0});
 			self.fVec7[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp30 + 0.70710677 * (fTemp33 - fTemp31);
-			let mut fTemp39: F32 = 0.9999 * (self.fRec58[1] + (i32::wrapping_mul(iTemp1, iSlow26)) as F32) + fSlow27;
+			let mut fTemp39: F32 = 0.9999 * (self.fRec58[1] + (i32::wrapping_mul(iTemp1, self.iSlow26)) as F32) + self.fSlow27;
 			self.fRec58[0] = (if (F32::abs(fTemp39) > 1.1754944e-38) as i32 != 0 {fTemp39} else {0.0});
 			let mut fTemp40: F32 = self.fRec58[0] + -1.49999;
 			let mut fTemp41: F32 = self.fVec7[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp40) as i32)))) & 16383) as usize];
@@ -1401,7 +1598,7 @@ impl JpverbDsp {
 			let mut fTemp47: F32 = 0.7602446 * self.fRec48[1] + 0.6496369 * fTemp32;
 			let mut fTemp48: F32 = 0.7602446 * fTemp47;
 			self.fVec9[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp45 + 0.70710677 * (fTemp46 - fTemp48);
-			let mut fTemp49: F32 = 0.9999 * (self.fRec59[1] + (i32::wrapping_mul(iTemp1, iSlow28)) as F32) + fSlow29;
+			let mut fTemp49: F32 = 0.9999 * (self.fRec59[1] + (i32::wrapping_mul(iTemp1, self.iSlow28)) as F32) + self.fSlow29;
 			self.fRec59[0] = (if (F32::abs(fTemp49) > 1.1754944e-38) as i32 != 0 {fTemp49} else {0.0});
 			let mut fTemp50: F32 = self.fRec59[0] + -1.49999;
 			let mut fTemp51: F32 = self.fVec9[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp50) as i32)))) & 16383) as usize];
@@ -1411,7 +1608,7 @@ impl JpverbDsp {
 			self.fRec46[0] = (if (F32::abs(fTemp53) > 1.1754944e-38) as i32 != 0 {fTemp53} else {0.0});
 			self.fRec44[0] = (if (F32::abs(self.fRec46[0]) > 1.1754944e-38) as i32 != 0 {self.fRec46[0]} else {0.0});
 			self.fVec11[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp45 + 0.70710677 * (fTemp48 - fTemp46);
-			let mut fTemp54: F32 = 0.9999 * (self.fRec61[1] + (i32::wrapping_mul(iTemp1, iSlow30)) as F32) + fSlow31;
+			let mut fTemp54: F32 = 0.9999 * (self.fRec61[1] + (i32::wrapping_mul(iTemp1, self.iSlow30)) as F32) + self.fSlow31;
 			self.fRec61[0] = (if (F32::abs(fTemp54) > 1.1754944e-38) as i32 != 0 {fTemp54} else {0.0});
 			let mut fTemp55: F32 = self.fRec61[0] + -1.49999;
 			let mut fTemp56: F32 = self.fVec11[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp55) as i32)))) & 16383) as usize];
@@ -1426,7 +1623,7 @@ impl JpverbDsp {
 			let mut fTemp62: F32 = 0.7602446 * self.fRec45[1] + 0.6496369 * fTemp47;
 			let mut fTemp63: F32 = 0.7602446 * fTemp62;
 			self.fVec13[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp60 + 0.70710677 * (fTemp61 - fTemp63);
-			let mut fTemp64: F32 = 0.9999 * (self.fRec62[1] + (i32::wrapping_mul(iTemp1, iSlow32)) as F32) + fSlow33;
+			let mut fTemp64: F32 = 0.9999 * (self.fRec62[1] + (i32::wrapping_mul(iTemp1, self.iSlow32)) as F32) + self.fSlow33;
 			self.fRec62[0] = (if (F32::abs(fTemp64) > 1.1754944e-38) as i32 != 0 {fTemp64} else {0.0});
 			let mut fTemp65: F32 = self.fRec62[0] + -1.49999;
 			let mut fTemp66: F32 = self.fVec13[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp65) as i32)))) & 16383) as usize];
@@ -1436,7 +1633,7 @@ impl JpverbDsp {
 			self.fRec43[0] = (if (F32::abs(fTemp68) > 1.1754944e-38) as i32 != 0 {fTemp68} else {0.0});
 			self.fRec41[0] = (if (F32::abs(self.fRec43[0]) > 1.1754944e-38) as i32 != 0 {self.fRec43[0]} else {0.0});
 			self.fVec15[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp60 + 0.70710677 * (fTemp63 - fTemp61);
-			let mut fTemp69: F32 = 0.9999 * (self.fRec64[1] + (i32::wrapping_mul(iTemp1, iSlow34)) as F32) + fSlow35;
+			let mut fTemp69: F32 = 0.9999 * (self.fRec64[1] + (i32::wrapping_mul(iTemp1, self.iSlow34)) as F32) + self.fSlow35;
 			self.fRec64[0] = (if (F32::abs(fTemp69) > 1.1754944e-38) as i32 != 0 {fTemp69} else {0.0});
 			let mut fTemp70: F32 = self.fRec64[0] + -1.49999;
 			let mut fTemp71: F32 = self.fVec15[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp70) as i32)))) & 16383) as usize];
@@ -1451,7 +1648,7 @@ impl JpverbDsp {
 			let mut fTemp77: F32 = 0.7602446 * self.fRec42[1] + 0.6496369 * fTemp62;
 			let mut fTemp78: F32 = 0.7602446 * fTemp77;
 			self.fVec17[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp75 + 0.70710677 * (fTemp76 - fTemp78);
-			let mut fTemp79: F32 = 0.9999 * (self.fRec65[1] + (i32::wrapping_mul(iTemp1, iSlow36)) as F32) + fSlow37;
+			let mut fTemp79: F32 = 0.9999 * (self.fRec65[1] + (i32::wrapping_mul(iTemp1, self.iSlow36)) as F32) + self.fSlow37;
 			self.fRec65[0] = (if (F32::abs(fTemp79) > 1.1754944e-38) as i32 != 0 {fTemp79} else {0.0});
 			let mut fTemp80: F32 = self.fRec65[0] + -1.49999;
 			let mut fTemp81: F32 = self.fVec17[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp80) as i32)))) & 16383) as usize];
@@ -1461,7 +1658,7 @@ impl JpverbDsp {
 			self.fRec40[0] = (if (F32::abs(fTemp83) > 1.1754944e-38) as i32 != 0 {fTemp83} else {0.0});
 			self.fRec38[0] = (if (F32::abs(self.fRec40[0]) > 1.1754944e-38) as i32 != 0 {self.fRec40[0]} else {0.0});
 			self.fVec19[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp75 + 0.70710677 * (fTemp78 - fTemp76);
-			let mut fTemp84: F32 = 0.9999 * (self.fRec67[1] + (i32::wrapping_mul(iTemp1, iSlow38)) as F32) + fSlow39;
+			let mut fTemp84: F32 = 0.9999 * (self.fRec67[1] + (i32::wrapping_mul(iTemp1, self.iSlow38)) as F32) + self.fSlow39;
 			self.fRec67[0] = (if (F32::abs(fTemp84) > 1.1754944e-38) as i32 != 0 {fTemp84} else {0.0});
 			let mut fTemp85: F32 = self.fRec67[0] + -1.49999;
 			let mut fTemp86: F32 = self.fVec19[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp85) as i32)))) & 16383) as usize];
@@ -1484,7 +1681,7 @@ impl JpverbDsp {
 			let mut fTemp99: F32 = fTemp97 * fTemp14;
 			let mut iTemp100: i32 = std::cmp::min(512, std::cmp::max(0, i32::wrapping_add(iTemp90, 4)));
 			self.fVec22[(self.IOTA0 & 16383) as usize] = fTemp13 * (fTemp14 * (fTemp15 * (0.041666668 * self.fVec21[((i32::wrapping_sub(self.IOTA0, iTemp91)) & 1023) as usize] * fTemp92 - 0.16666667 * fTemp93 * self.fVec21[((i32::wrapping_sub(self.IOTA0, iTemp94)) & 1023) as usize]) + 0.25 * fTemp95 * self.fVec21[((i32::wrapping_sub(self.IOTA0, iTemp96)) & 1023) as usize]) - 0.16666667 * fTemp97 * self.fVec21[((i32::wrapping_sub(self.IOTA0, iTemp98)) & 1023) as usize]) + 0.041666668 * fTemp99 * self.fVec21[((i32::wrapping_sub(self.IOTA0, iTemp100)) & 1023) as usize];
-			let mut fTemp101: F32 = 0.995 * (self.fRec68[1] + (i32::wrapping_mul(iTemp1, iSlow40)) as F32) + fSlow41;
+			let mut fTemp101: F32 = 0.995 * (self.fRec68[1] + (i32::wrapping_mul(iTemp1, self.iSlow40)) as F32) + self.fSlow41;
 			self.fRec68[0] = (if (F32::abs(fTemp101) > 1.1754944e-38) as i32 != 0 {fTemp101} else {0.0});
 			let mut fTemp102: F32 = self.fRec68[0] + -1.49999;
 			let mut fTemp103: F32 = self.fVec22[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp102) as i32)))) & 16383) as usize];
@@ -1494,7 +1691,7 @@ impl JpverbDsp {
 			self.fRec37[0] = (if (F32::abs(fTemp105) > 1.1754944e-38) as i32 != 0 {fTemp105} else {0.0});
 			let mut fTemp106: F32 = 0.7602446 * self.fRec37[0] - 0.6496369 * self.fRec34[1];
 			let mut fTemp107: F32 = 0.6496369 * self.fRec35[1];
-			let mut fTemp108: F32 = fSlow4 * (1.0 - self.fRec16[0]);
+			let mut fTemp108: F32 = self.fSlow4 * (1.0 - self.fRec16[0]);
 			let mut fTemp109: F32 = fTemp108 + 3.500005;
 			let mut fTemp110: F32 = F32::floor(fTemp109);
 			let mut fTemp111: F32 = fTemp108 + (2.0 - fTemp110);
@@ -1507,7 +1704,7 @@ impl JpverbDsp {
 			let mut fTemp117: F32 = fTemp116 * fTemp115;
 			let mut fTemp118: F32 = fTemp117 * fTemp112;
 			self.fVec25[(self.IOTA0 & 16383) as usize] = (fTemp108 + (1.0 - fTemp110)) * (fTemp111 * (fTemp112 * (0.041666668 * self.fVec24[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, std::cmp::max(0, iTemp114)))) & 1023) as usize] * fTemp115 - 0.16666667 * fTemp116 * self.fVec24[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, std::cmp::max(0, i32::wrapping_add(iTemp114, 1))))) & 1023) as usize]) + 0.25 * fTemp117 * self.fVec24[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, std::cmp::max(0, i32::wrapping_add(iTemp114, 2))))) & 1023) as usize]) - 0.16666667 * fTemp118 * self.fVec24[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, std::cmp::max(0, i32::wrapping_add(iTemp114, 3))))) & 1023) as usize]) + 0.041666668 * fTemp118 * fTemp111 * self.fVec24[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, std::cmp::max(0, i32::wrapping_add(iTemp114, 4))))) & 1023) as usize];
-			let mut fTemp119: F32 = 0.995 * (self.fRec70[1] + (i32::wrapping_mul(iTemp1, iSlow42)) as F32) + fSlow43;
+			let mut fTemp119: F32 = 0.995 * (self.fRec70[1] + (i32::wrapping_mul(iTemp1, self.iSlow42)) as F32) + self.fSlow43;
 			self.fRec70[0] = (if (F32::abs(fTemp119) > 1.1754944e-38) as i32 != 0 {fTemp119} else {0.0});
 			let mut fTemp120: F32 = self.fRec70[0] + -1.49999;
 			let mut fTemp121: F32 = self.fVec25[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp120) as i32)))) & 16383) as usize];
@@ -1517,7 +1714,7 @@ impl JpverbDsp {
 			self.fRec69[0] = (if (F32::abs(fTemp123) > 1.1754944e-38) as i32 != 0 {fTemp123} else {0.0});
 			let mut fTemp124: F32 = 0.7602446 * self.fRec69[0];
 			self.fVec27[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp106 + 0.70710677 * (fTemp107 - fTemp124);
-			let mut fTemp125: F32 = 0.9999 * (self.fRec71[1] + (i32::wrapping_mul(iTemp1, iSlow44)) as F32) + fSlow45;
+			let mut fTemp125: F32 = 0.9999 * (self.fRec71[1] + (i32::wrapping_mul(iTemp1, self.iSlow44)) as F32) + self.fSlow45;
 			self.fRec71[0] = (if (F32::abs(fTemp125) > 1.1754944e-38) as i32 != 0 {fTemp125} else {0.0});
 			let mut fTemp126: F32 = self.fRec71[0] + -1.49999;
 			let mut fTemp127: F32 = self.fVec27[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp126) as i32)))) & 16383) as usize];
@@ -1527,7 +1724,7 @@ impl JpverbDsp {
 			self.fRec36[0] = (if (F32::abs(fTemp129) > 1.1754944e-38) as i32 != 0 {fTemp129} else {0.0});
 			self.fRec34[0] = (if (F32::abs(self.fRec36[0]) > 1.1754944e-38) as i32 != 0 {self.fRec36[0]} else {0.0});
 			self.fVec29[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp106 + 0.70710677 * (fTemp124 - fTemp107);
-			let mut fTemp130: F32 = 0.9999 * (self.fRec73[1] + (i32::wrapping_mul(iTemp1, iSlow46)) as F32) + fSlow47;
+			let mut fTemp130: F32 = 0.9999 * (self.fRec73[1] + (i32::wrapping_mul(iTemp1, self.iSlow46)) as F32) + self.fSlow47;
 			self.fRec73[0] = (if (F32::abs(fTemp130) > 1.1754944e-38) as i32 != 0 {fTemp130} else {0.0});
 			let mut fTemp131: F32 = self.fRec73[0] + -1.49999;
 			let mut fTemp132: F32 = self.fVec29[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp131) as i32)))) & 16383) as usize];
@@ -1542,7 +1739,7 @@ impl JpverbDsp {
 			let mut fTemp138: F32 = 0.7602446 * self.fRec35[1] + 0.6496369 * self.fRec69[0];
 			let mut fTemp139: F32 = 0.7602446 * fTemp138;
 			self.fVec31[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp136 + 0.70710677 * (fTemp137 - fTemp139);
-			let mut fTemp140: F32 = 0.9999 * (self.fRec74[1] + (i32::wrapping_mul(iTemp1, iSlow48)) as F32) + fSlow49;
+			let mut fTemp140: F32 = 0.9999 * (self.fRec74[1] + (i32::wrapping_mul(iTemp1, self.iSlow48)) as F32) + self.fSlow49;
 			self.fRec74[0] = (if (F32::abs(fTemp140) > 1.1754944e-38) as i32 != 0 {fTemp140} else {0.0});
 			let mut fTemp141: F32 = self.fRec74[0] + -1.49999;
 			let mut fTemp142: F32 = self.fVec31[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp141) as i32)))) & 16383) as usize];
@@ -1552,7 +1749,7 @@ impl JpverbDsp {
 			self.fRec33[0] = (if (F32::abs(fTemp144) > 1.1754944e-38) as i32 != 0 {fTemp144} else {0.0});
 			self.fRec31[0] = (if (F32::abs(self.fRec33[0]) > 1.1754944e-38) as i32 != 0 {self.fRec33[0]} else {0.0});
 			self.fVec33[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp136 + 0.70710677 * (fTemp139 - fTemp137);
-			let mut fTemp145: F32 = 0.9999 * (self.fRec76[1] + (i32::wrapping_mul(iTemp1, iSlow50)) as F32) + fSlow51;
+			let mut fTemp145: F32 = 0.9999 * (self.fRec76[1] + (i32::wrapping_mul(iTemp1, self.iSlow50)) as F32) + self.fSlow51;
 			self.fRec76[0] = (if (F32::abs(fTemp145) > 1.1754944e-38) as i32 != 0 {fTemp145} else {0.0});
 			let mut fTemp146: F32 = self.fRec76[0] + -1.49999;
 			let mut iTemp147: i32 = std::cmp::min(8192, std::cmp::max(0, (fTemp146) as i32));
@@ -1570,7 +1767,7 @@ impl JpverbDsp {
 			let mut fTemp156: F32 = 0.7602446 * self.fRec32[1] + 0.6496369 * fTemp138;
 			let mut fTemp157: F32 = 0.7602446 * fTemp156;
 			self.fVec35[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp154 + 0.70710677 * (fTemp155 - fTemp157);
-			let mut fTemp158: F32 = 0.9999 * (self.fRec77[1] + (i32::wrapping_mul(iTemp1, iSlow52)) as F32) + fSlow53;
+			let mut fTemp158: F32 = 0.9999 * (self.fRec77[1] + (i32::wrapping_mul(iTemp1, self.iSlow52)) as F32) + self.fSlow53;
 			self.fRec77[0] = (if (F32::abs(fTemp158) > 1.1754944e-38) as i32 != 0 {fTemp158} else {0.0});
 			let mut fTemp159: F32 = self.fRec77[0] + -1.49999;
 			let mut fTemp160: F32 = self.fVec35[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp159) as i32)))) & 16383) as usize];
@@ -1580,7 +1777,7 @@ impl JpverbDsp {
 			self.fRec30[0] = (if (F32::abs(fTemp162) > 1.1754944e-38) as i32 != 0 {fTemp162} else {0.0});
 			self.fRec28[0] = (if (F32::abs(self.fRec30[0]) > 1.1754944e-38) as i32 != 0 {self.fRec30[0]} else {0.0});
 			self.fVec37[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp154 + 0.70710677 * (fTemp157 - fTemp155);
-			let mut fTemp163: F32 = 0.9999 * (self.fRec79[1] + (i32::wrapping_mul(iTemp1, iSlow54)) as F32) + fSlow55;
+			let mut fTemp163: F32 = 0.9999 * (self.fRec79[1] + (i32::wrapping_mul(iTemp1, self.iSlow54)) as F32) + self.fSlow55;
 			self.fRec79[0] = (if (F32::abs(fTemp163) > 1.1754944e-38) as i32 != 0 {fTemp163} else {0.0});
 			let mut fTemp164: F32 = self.fRec79[0] + -1.49999;
 			let mut iTemp165: i32 = std::cmp::min(8192, std::cmp::max(0, (fTemp164) as i32));
@@ -1598,7 +1795,7 @@ impl JpverbDsp {
 			let mut fTemp174: F32 = 0.7602446 * self.fRec29[1] + 0.6496369 * fTemp156;
 			let mut fTemp175: F32 = 0.7602446 * fTemp174;
 			self.fVec39[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp172 + 0.70710677 * (fTemp173 - fTemp175);
-			let mut fTemp176: F32 = 0.9999 * (self.fRec80[1] + (i32::wrapping_mul(iTemp1, iSlow56)) as F32) + fSlow57;
+			let mut fTemp176: F32 = 0.9999 * (self.fRec80[1] + (i32::wrapping_mul(iTemp1, self.iSlow56)) as F32) + self.fSlow57;
 			self.fRec80[0] = (if (F32::abs(fTemp176) > 1.1754944e-38) as i32 != 0 {fTemp176} else {0.0});
 			let mut fTemp177: F32 = self.fRec80[0] + -1.49999;
 			let mut iTemp178: i32 = std::cmp::min(8192, std::cmp::max(0, (fTemp177) as i32));
@@ -1611,7 +1808,7 @@ impl JpverbDsp {
 			self.fRec27[0] = (if (F32::abs(fTemp183) > 1.1754944e-38) as i32 != 0 {fTemp183} else {0.0});
 			self.fRec25[0] = (if (F32::abs(self.fRec27[0]) > 1.1754944e-38) as i32 != 0 {self.fRec27[0]} else {0.0});
 			self.fVec41[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp172 + 0.70710677 * (fTemp175 - fTemp173);
-			let mut fTemp184: F32 = 0.9999 * (self.fRec82[1] + (i32::wrapping_mul(iTemp1, iSlow58)) as F32) + fSlow59;
+			let mut fTemp184: F32 = 0.9999 * (self.fRec82[1] + (i32::wrapping_mul(iTemp1, self.iSlow58)) as F32) + self.fSlow59;
 			self.fRec82[0] = (if (F32::abs(fTemp184) > 1.1754944e-38) as i32 != 0 {fTemp184} else {0.0});
 			let mut fTemp185: F32 = self.fRec82[0] + -1.49999;
 			let mut iTemp186: i32 = std::cmp::min(8192, std::cmp::max(0, (fTemp185) as i32));
@@ -1629,7 +1826,7 @@ impl JpverbDsp {
 			let mut fTemp195: F32 = 0.7602446 * self.fRec26[1] + 0.6496369 * fTemp174;
 			let mut fTemp196: F32 = 0.7602446 * fTemp195;
 			self.fVec43[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp193 + 0.70710677 * (fTemp194 - fTemp196);
-			let mut fTemp197: F32 = 0.9999 * (self.fRec83[1] + (i32::wrapping_mul(iTemp1, iSlow60)) as F32) + fSlow61;
+			let mut fTemp197: F32 = 0.9999 * (self.fRec83[1] + (i32::wrapping_mul(iTemp1, self.iSlow60)) as F32) + self.fSlow61;
 			self.fRec83[0] = (if (F32::abs(fTemp197) > 1.1754944e-38) as i32 != 0 {fTemp197} else {0.0});
 			let mut fTemp198: F32 = self.fRec83[0] + -1.49999;
 			let mut fTemp199: F32 = self.fVec43[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp198) as i32)))) & 16383) as usize];
@@ -1639,7 +1836,7 @@ impl JpverbDsp {
 			self.fRec24[0] = (if (F32::abs(fTemp201) > 1.1754944e-38) as i32 != 0 {fTemp201} else {0.0});
 			self.fRec22[0] = (if (F32::abs(self.fRec24[0]) > 1.1754944e-38) as i32 != 0 {self.fRec24[0]} else {0.0});
 			self.fVec45[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp193 + 0.70710677 * (fTemp196 - fTemp194);
-			let mut fTemp202: F32 = 0.9999 * (self.fRec85[1] + (i32::wrapping_mul(iTemp1, iSlow62)) as F32) + fSlow63;
+			let mut fTemp202: F32 = 0.9999 * (self.fRec85[1] + (i32::wrapping_mul(iTemp1, self.iSlow62)) as F32) + self.fSlow63;
 			self.fRec85[0] = (if (F32::abs(fTemp202) > 1.1754944e-38) as i32 != 0 {fTemp202} else {0.0});
 			let mut fTemp203: F32 = self.fRec85[0] + -1.49999;
 			let mut iTemp204: i32 = std::cmp::min(8192, std::cmp::max(0, (fTemp203) as i32));
@@ -1664,7 +1861,7 @@ impl JpverbDsp {
 			let mut fTemp219: F32 = fTemp217 * fTemp7;
 			let mut iTemp220: i32 = std::cmp::max(0, i32::wrapping_add(iTemp211, 4));
 			self.fVec48[(self.IOTA0 & 16383) as usize] = fTemp6 * (fTemp7 * (fTemp8 * (0.041666668 * self.fVec47[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, iTemp212))) & 16383) as usize] * fTemp9 - 0.16666667 * fTemp213 * self.fVec47[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, iTemp214))) & 16383) as usize]) + 0.25 * fTemp215 * self.fVec47[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, iTemp216))) & 16383) as usize]) - 0.16666667 * fTemp217 * self.fVec47[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, iTemp218))) & 16383) as usize]) + 0.041666668 * fTemp219 * self.fVec47[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, iTemp220))) & 16383) as usize];
-			let mut fTemp221: F32 = 0.995 * (self.fRec86[1] + (i32::wrapping_mul(iTemp1, iSlow64)) as F32) + fSlow65;
+			let mut fTemp221: F32 = 0.995 * (self.fRec86[1] + (i32::wrapping_mul(iTemp1, self.iSlow64)) as F32) + self.fSlow65;
 			self.fRec86[0] = (if (F32::abs(fTemp221) > 1.1754944e-38) as i32 != 0 {fTemp221} else {0.0});
 			let mut fTemp222: F32 = self.fRec86[0] + -1.49999;
 			let mut fTemp223: F32 = self.fVec48[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp222) as i32)))) & 16383) as usize];
@@ -1672,42 +1869,42 @@ impl JpverbDsp {
 			let mut fTemp224: F32 = F32::floor(fTemp222);
 			let mut fTemp225: F32 = self.fVec49[1] - (fTemp224 + (2.0 - self.fRec86[0])) * (self.fRec21[1] - fTemp223) / (self.fRec86[0] - fTemp224);
 			self.fRec21[0] = (if (F32::abs(fTemp225) > 1.1754944e-38) as i32 != 0 {fTemp225} else {0.0});
-			let mut fTemp226: F32 = fSlow18 * (fSlow19 * self.fRec20[1] - fSlow13 * (self.fRec21[0] - self.fRec21[1]));
+			let mut fTemp226: F32 = self.fSlow18 * (self.fSlow19 * self.fRec20[1] - self.fSlow13 * (self.fRec21[0] - self.fRec21[1]));
 			self.fRec20[0] = (if (F32::abs(-fTemp226) > 1.1754944e-38) as i32 != 0 {-fTemp226} else {0.0});
-			let mut fTemp227: F32 = self.fRec20[0] - fSlow66 * (fSlow67 * self.fRec19[2] + fSlow68 * self.fRec19[1]);
+			let mut fTemp227: F32 = self.fRec20[0] - self.fSlow66 * (self.fSlow67 * self.fRec19[2] + self.fSlow68 * self.fRec19[1]);
 			self.fRec19[0] = (if (F32::abs(fTemp227) > 1.1754944e-38) as i32 != 0 {fTemp227} else {0.0});
-			let mut fTemp228: F32 = fSlow17 * (self.fRec19[2] + (self.fRec19[0] - 2.0 * self.fRec19[1])) - fSlow69 * (fSlow70 * self.fRec18[2] + fSlow68 * self.fRec18[1]);
+			let mut fTemp228: F32 = self.fSlow17 * (self.fRec19[2] + (self.fRec19[0] - 2.0 * self.fRec19[1])) - self.fSlow69 * (self.fSlow70 * self.fRec18[2] + self.fSlow68 * self.fRec18[1]);
 			self.fRec18[0] = (if (F32::abs(fTemp228) > 1.1754944e-38) as i32 != 0 {fTemp228} else {0.0});
-			let mut fTemp229: F32 = fSlow77 * self.fRec17[1];
-			let mut fTemp230: F32 = fSlow15 * (self.fRec18[2] + (self.fRec18[0] - 2.0 * self.fRec18[1])) - fSlow73 * (fSlow74 * self.fRec17[2] + fTemp229);
+			let mut fTemp229: F32 = self.fSlow77 * self.fRec17[1];
+			let mut fTemp230: F32 = self.fSlow15 * (self.fRec18[2] + (self.fRec18[0] - 2.0 * self.fRec18[1])) - self.fSlow73 * (self.fSlow74 * self.fRec17[2] + fTemp229);
 			self.fRec17[0] = (if (F32::abs(fTemp230) > 1.1754944e-38) as i32 != 0 {fTemp230} else {0.0});
-			let mut fTemp231: F32 = fSlow18 * (fSlow19 * self.fRec92[1] - (self.fRec21[0] + self.fRec21[1]));
+			let mut fTemp231: F32 = self.fSlow18 * (self.fSlow19 * self.fRec92[1] - (self.fRec21[0] + self.fRec21[1]));
 			self.fRec92[0] = (if (F32::abs(-fTemp231) > 1.1754944e-38) as i32 != 0 {-fTemp231} else {0.0});
-			let mut fTemp232: F32 = self.fRec92[0] - fSlow66 * (fSlow67 * self.fRec91[2] + fSlow68 * self.fRec91[1]);
+			let mut fTemp232: F32 = self.fRec92[0] - self.fSlow66 * (self.fSlow67 * self.fRec91[2] + self.fSlow68 * self.fRec91[1]);
 			self.fRec91[0] = (if (F32::abs(fTemp232) > 1.1754944e-38) as i32 != 0 {fTemp232} else {0.0});
-			let mut fTemp233: F32 = fSlow66 * (self.fRec91[2] + self.fRec91[0] + 2.0 * self.fRec91[1]) - fSlow69 * (fSlow70 * self.fRec90[2] + fSlow68 * self.fRec90[1]);
+			let mut fTemp233: F32 = self.fSlow66 * (self.fRec91[2] + self.fRec91[0] + 2.0 * self.fRec91[1]) - self.fSlow69 * (self.fSlow70 * self.fRec90[2] + self.fSlow68 * self.fRec90[1]);
 			self.fRec90[0] = (if (F32::abs(fTemp233) > 1.1754944e-38) as i32 != 0 {fTemp233} else {0.0});
-			let mut fTemp234: F32 = fSlow69 * (self.fRec90[2] + self.fRec90[0] + 2.0 * self.fRec90[1]);
+			let mut fTemp234: F32 = self.fSlow69 * (self.fRec90[2] + self.fRec90[0] + 2.0 * self.fRec90[1]);
 			self.fVec50[0] = fTemp234;
-			let mut fTemp235: F32 = fSlow81 * (fSlow82 * self.fRec89[1] - fSlow72 * (fTemp234 - self.fVec50[1]));
+			let mut fTemp235: F32 = self.fSlow81 * (self.fSlow82 * self.fRec89[1] - self.fSlow72 * (fTemp234 - self.fVec50[1]));
 			self.fRec89[0] = (if (F32::abs(-fTemp235) > 1.1754944e-38) as i32 != 0 {-fTemp235} else {0.0});
-			let mut fTemp236: F32 = self.fRec89[0] - fSlow83 * (fSlow84 * self.fRec88[2] + fSlow77 * self.fRec88[1]);
+			let mut fTemp236: F32 = self.fRec89[0] - self.fSlow83 * (self.fSlow84 * self.fRec88[2] + self.fSlow77 * self.fRec88[1]);
 			self.fRec88[0] = (if (F32::abs(fTemp236) > 1.1754944e-38) as i32 != 0 {fTemp236} else {0.0});
-			let mut fTemp237: F32 = fSlow80 * (self.fRec88[2] + (self.fRec88[0] - 2.0 * self.fRec88[1])) - fSlow78 * (fSlow85 * self.fRec87[2] + fSlow77 * self.fRec87[1]);
+			let mut fTemp237: F32 = self.fSlow80 * (self.fRec88[2] + (self.fRec88[0] - 2.0 * self.fRec88[1])) - self.fSlow78 * (self.fSlow85 * self.fRec87[2] + self.fSlow77 * self.fRec87[1]);
 			self.fRec87[0] = (if (F32::abs(fTemp237) > 1.1754944e-38) as i32 != 0 {fTemp237} else {0.0});
-			let mut fTemp238: F32 = fSlow81 * (fSlow82 * self.fRec95[1] - (fTemp234 + self.fVec50[1]));
+			let mut fTemp238: F32 = self.fSlow81 * (self.fSlow82 * self.fRec95[1] - (fTemp234 + self.fVec50[1]));
 			self.fRec95[0] = (if (F32::abs(-fTemp238) > 1.1754944e-38) as i32 != 0 {-fTemp238} else {0.0});
-			let mut fTemp239: F32 = self.fRec95[0] - fSlow83 * (fSlow84 * self.fRec94[2] + fSlow77 * self.fRec94[1]);
+			let mut fTemp239: F32 = self.fRec95[0] - self.fSlow83 * (self.fSlow84 * self.fRec94[2] + self.fSlow77 * self.fRec94[1]);
 			self.fRec94[0] = (if (F32::abs(fTemp239) > 1.1754944e-38) as i32 != 0 {fTemp239} else {0.0});
-			let mut fTemp240: F32 = fSlow83 * (self.fRec94[2] + self.fRec94[0] + 2.0 * self.fRec94[1]) - fSlow78 * (fSlow85 * self.fRec93[2] + fSlow77 * self.fRec93[1]);
+			let mut fTemp240: F32 = self.fSlow83 * (self.fRec94[2] + self.fRec94[0] + 2.0 * self.fRec94[1]) - self.fSlow78 * (self.fSlow85 * self.fRec93[2] + self.fSlow77 * self.fRec93[1]);
 			self.fRec93[0] = (if (F32::abs(fTemp240) > 1.1754944e-38) as i32 != 0 {fTemp240} else {0.0});
-			let mut fTemp241: F32 = *input0 + fSlow9 * (fSlow10 * (self.fRec17[2] + fSlow73 * (fTemp229 + fSlow74 * self.fRec17[0])) + fSlow78 * (fSlow76 * (self.fRec87[2] + (self.fRec87[0] - 2.0 * self.fRec87[1])) + fSlow86 * (self.fRec93[2] + self.fRec93[0] + 2.0 * self.fRec93[1])));
+			let mut fTemp241: F32 = *input0 + self.fSlow9 * (self.fSlow10 * (self.fRec17[2] + self.fSlow73 * (fTemp229 + self.fSlow74 * self.fRec17[0])) + self.fSlow78 * (self.fSlow76 * (self.fRec87[2] + (self.fRec87[0] - 2.0 * self.fRec87[1])) + self.fSlow86 * (self.fRec93[2] + self.fRec93[0] + 2.0 * self.fRec93[1])));
 			self.fVec51[(self.IOTA0 & 1023) as usize] = fTemp241;
-			let mut fTemp242: F32 = fSlow3 * (fTemp6 * (fTemp7 * (fTemp8 * (0.041666668 * fTemp9 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp212))) & 1023) as usize] - 0.16666667 * fTemp213 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp214))) & 1023) as usize]) + 0.25 * fTemp215 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp216))) & 1023) as usize]) - 0.16666667 * fTemp217 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp218))) & 1023) as usize]) + 0.041666668 * fTemp219 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp220))) & 1023) as usize]) + fSlow2 * self.fRec14[1];
+			let mut fTemp242: F32 = self.fSlow3 * (fTemp6 * (fTemp7 * (fTemp8 * (0.041666668 * fTemp9 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp212))) & 1023) as usize] - 0.16666667 * fTemp213 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp214))) & 1023) as usize]) + 0.25 * fTemp215 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp216))) & 1023) as usize]) - 0.16666667 * fTemp217 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp218))) & 1023) as usize]) + 0.041666668 * fTemp219 * self.fVec51[((i32::wrapping_sub(self.IOTA0, std::cmp::min(512, iTemp220))) & 1023) as usize]) + self.fSlow2 * self.fRec14[1];
 			self.fRec14[0] = (if (F32::abs(fTemp242) > 1.1754944e-38) as i32 != 0 {fTemp242} else {0.0});
-			let mut fTemp243: F32 = fSlow1 * self.fRec14[0] - fSlow87 * self.fRec11[1];
-			let mut fTemp244: F32 = fSlow87 * self.fRec12[1];
-			let mut fTemp245: F32 = fSlow4 * (1.0 - self.fRec15[0]);
+			let mut fTemp243: F32 = self.fSlow1 * self.fRec14[0] - self.fSlow87 * self.fRec11[1];
+			let mut fTemp244: F32 = self.fSlow87 * self.fRec12[1];
+			let mut fTemp245: F32 = self.fSlow4 * (1.0 - self.fRec15[0]);
 			let mut fTemp246: F32 = fTemp245 + 3.500005;
 			let mut fTemp247: F32 = F32::floor(fTemp246);
 			let mut fTemp248: F32 = fTemp245 + (2.0 - fTemp247);
@@ -1720,7 +1917,7 @@ impl JpverbDsp {
 			let mut fTemp254: F32 = fTemp253 * fTemp252;
 			let mut fTemp255: F32 = fTemp254 * fTemp249;
 			self.fVec53[(self.IOTA0 & 16383) as usize] = (fTemp245 + (1.0 - fTemp247)) * (fTemp248 * (fTemp249 * (0.041666668 * self.fVec52[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, iTemp251)))) & 16383) as usize] * fTemp252 - 0.16666667 * fTemp253 * self.fVec52[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp251, 1))))) & 16383) as usize]) + 0.25 * fTemp254 * self.fVec52[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp251, 2))))) & 16383) as usize]) - 0.16666667 * fTemp255 * self.fVec52[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp251, 3))))) & 16383) as usize]) + 0.041666668 * fTemp255 * fTemp248 * self.fVec52[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, i32::wrapping_add(iTemp251, 4))))) & 16383) as usize];
-			let mut fTemp256: F32 = 0.995 * (self.fRec102[1] + (i32::wrapping_mul(iTemp1, iSlow88)) as F32) + fSlow89;
+			let mut fTemp256: F32 = 0.995 * (self.fRec102[1] + (i32::wrapping_mul(iTemp1, self.iSlow88)) as F32) + self.fSlow89;
 			self.fRec102[0] = (if (F32::abs(fTemp256) > 1.1754944e-38) as i32 != 0 {fTemp256} else {0.0});
 			let mut fTemp257: F32 = self.fRec102[0] + -1.49999;
 			let mut fTemp258: F32 = self.fVec53[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp257) as i32)))) & 16383) as usize];
@@ -1728,40 +1925,40 @@ impl JpverbDsp {
 			let mut fTemp259: F32 = F32::floor(fTemp257);
 			let mut fTemp260: F32 = self.fVec54[1] - (fTemp259 + (2.0 - self.fRec102[0])) * (self.fRec101[1] - fTemp258) / (self.fRec102[0] - fTemp259);
 			self.fRec101[0] = (if (F32::abs(fTemp260) > 1.1754944e-38) as i32 != 0 {fTemp260} else {0.0});
-			let mut fTemp261: F32 = fSlow18 * (fSlow19 * self.fRec100[1] - fSlow13 * (self.fRec101[0] - self.fRec101[1]));
+			let mut fTemp261: F32 = self.fSlow18 * (self.fSlow19 * self.fRec100[1] - self.fSlow13 * (self.fRec101[0] - self.fRec101[1]));
 			self.fRec100[0] = (if (F32::abs(-fTemp261) > 1.1754944e-38) as i32 != 0 {-fTemp261} else {0.0});
-			let mut fTemp262: F32 = self.fRec100[0] - fSlow66 * (fSlow67 * self.fRec99[2] + fSlow68 * self.fRec99[1]);
+			let mut fTemp262: F32 = self.fRec100[0] - self.fSlow66 * (self.fSlow67 * self.fRec99[2] + self.fSlow68 * self.fRec99[1]);
 			self.fRec99[0] = (if (F32::abs(fTemp262) > 1.1754944e-38) as i32 != 0 {fTemp262} else {0.0});
-			let mut fTemp263: F32 = fSlow17 * (self.fRec99[2] + (self.fRec99[0] - 2.0 * self.fRec99[1])) - fSlow69 * (fSlow70 * self.fRec98[2] + fSlow68 * self.fRec98[1]);
+			let mut fTemp263: F32 = self.fSlow17 * (self.fRec99[2] + (self.fRec99[0] - 2.0 * self.fRec99[1])) - self.fSlow69 * (self.fSlow70 * self.fRec98[2] + self.fSlow68 * self.fRec98[1]);
 			self.fRec98[0] = (if (F32::abs(fTemp263) > 1.1754944e-38) as i32 != 0 {fTemp263} else {0.0});
-			let mut fTemp264: F32 = fSlow77 * self.fRec97[1];
-			let mut fTemp265: F32 = fSlow15 * (self.fRec98[2] + (self.fRec98[0] - 2.0 * self.fRec98[1])) - fSlow73 * (fSlow74 * self.fRec97[2] + fTemp264);
+			let mut fTemp264: F32 = self.fSlow77 * self.fRec97[1];
+			let mut fTemp265: F32 = self.fSlow15 * (self.fRec98[2] + (self.fRec98[0] - 2.0 * self.fRec98[1])) - self.fSlow73 * (self.fSlow74 * self.fRec97[2] + fTemp264);
 			self.fRec97[0] = (if (F32::abs(fTemp265) > 1.1754944e-38) as i32 != 0 {fTemp265} else {0.0});
-			let mut fTemp266: F32 = fSlow18 * (fSlow19 * self.fRec108[1] - (self.fRec101[0] + self.fRec101[1]));
+			let mut fTemp266: F32 = self.fSlow18 * (self.fSlow19 * self.fRec108[1] - (self.fRec101[0] + self.fRec101[1]));
 			self.fRec108[0] = (if (F32::abs(-fTemp266) > 1.1754944e-38) as i32 != 0 {-fTemp266} else {0.0});
-			let mut fTemp267: F32 = self.fRec108[0] - fSlow66 * (fSlow67 * self.fRec107[2] + fSlow68 * self.fRec107[1]);
+			let mut fTemp267: F32 = self.fRec108[0] - self.fSlow66 * (self.fSlow67 * self.fRec107[2] + self.fSlow68 * self.fRec107[1]);
 			self.fRec107[0] = (if (F32::abs(fTemp267) > 1.1754944e-38) as i32 != 0 {fTemp267} else {0.0});
-			let mut fTemp268: F32 = fSlow66 * (self.fRec107[2] + self.fRec107[0] + 2.0 * self.fRec107[1]) - fSlow69 * (fSlow70 * self.fRec106[2] + fSlow68 * self.fRec106[1]);
+			let mut fTemp268: F32 = self.fSlow66 * (self.fRec107[2] + self.fRec107[0] + 2.0 * self.fRec107[1]) - self.fSlow69 * (self.fSlow70 * self.fRec106[2] + self.fSlow68 * self.fRec106[1]);
 			self.fRec106[0] = (if (F32::abs(fTemp268) > 1.1754944e-38) as i32 != 0 {fTemp268} else {0.0});
-			let mut fTemp269: F32 = fSlow69 * (self.fRec106[2] + self.fRec106[0] + 2.0 * self.fRec106[1]);
+			let mut fTemp269: F32 = self.fSlow69 * (self.fRec106[2] + self.fRec106[0] + 2.0 * self.fRec106[1]);
 			self.fVec55[0] = fTemp269;
-			let mut fTemp270: F32 = fSlow81 * (fSlow82 * self.fRec105[1] - fSlow72 * (fTemp269 - self.fVec55[1]));
+			let mut fTemp270: F32 = self.fSlow81 * (self.fSlow82 * self.fRec105[1] - self.fSlow72 * (fTemp269 - self.fVec55[1]));
 			self.fRec105[0] = (if (F32::abs(-fTemp270) > 1.1754944e-38) as i32 != 0 {-fTemp270} else {0.0});
-			let mut fTemp271: F32 = self.fRec105[0] - fSlow83 * (fSlow84 * self.fRec104[2] + fSlow77 * self.fRec104[1]);
+			let mut fTemp271: F32 = self.fRec105[0] - self.fSlow83 * (self.fSlow84 * self.fRec104[2] + self.fSlow77 * self.fRec104[1]);
 			self.fRec104[0] = (if (F32::abs(fTemp271) > 1.1754944e-38) as i32 != 0 {fTemp271} else {0.0});
-			let mut fTemp272: F32 = fSlow80 * (self.fRec104[2] + (self.fRec104[0] - 2.0 * self.fRec104[1])) - fSlow78 * (fSlow85 * self.fRec103[2] + fSlow77 * self.fRec103[1]);
+			let mut fTemp272: F32 = self.fSlow80 * (self.fRec104[2] + (self.fRec104[0] - 2.0 * self.fRec104[1])) - self.fSlow78 * (self.fSlow85 * self.fRec103[2] + self.fSlow77 * self.fRec103[1]);
 			self.fRec103[0] = (if (F32::abs(fTemp272) > 1.1754944e-38) as i32 != 0 {fTemp272} else {0.0});
-			let mut fTemp273: F32 = fSlow81 * (fSlow82 * self.fRec111[1] - (fTemp269 + self.fVec55[1]));
+			let mut fTemp273: F32 = self.fSlow81 * (self.fSlow82 * self.fRec111[1] - (fTemp269 + self.fVec55[1]));
 			self.fRec111[0] = (if (F32::abs(-fTemp273) > 1.1754944e-38) as i32 != 0 {-fTemp273} else {0.0});
-			let mut fTemp274: F32 = self.fRec111[0] - fSlow83 * (fSlow84 * self.fRec110[2] + fSlow77 * self.fRec110[1]);
+			let mut fTemp274: F32 = self.fRec111[0] - self.fSlow83 * (self.fSlow84 * self.fRec110[2] + self.fSlow77 * self.fRec110[1]);
 			self.fRec110[0] = (if (F32::abs(fTemp274) > 1.1754944e-38) as i32 != 0 {fTemp274} else {0.0});
-			let mut fTemp275: F32 = fSlow83 * (self.fRec110[2] + self.fRec110[0] + 2.0 * self.fRec110[1]) - fSlow78 * (fSlow85 * self.fRec109[2] + fSlow77 * self.fRec109[1]);
+			let mut fTemp275: F32 = self.fSlow83 * (self.fRec110[2] + self.fRec110[0] + 2.0 * self.fRec110[1]) - self.fSlow78 * (self.fSlow85 * self.fRec109[2] + self.fSlow77 * self.fRec109[1]);
 			self.fRec109[0] = (if (F32::abs(fTemp275) > 1.1754944e-38) as i32 != 0 {fTemp275} else {0.0});
-			let mut fTemp276: F32 = *input1 + fSlow9 * (fSlow10 * (self.fRec97[2] + fSlow73 * (fTemp264 + fSlow74 * self.fRec97[0])) + fSlow78 * (fSlow76 * (self.fRec103[2] + (self.fRec103[0] - 2.0 * self.fRec103[1])) + fSlow86 * (self.fRec109[2] + self.fRec109[0] + 2.0 * self.fRec109[1])));
+			let mut fTemp276: F32 = *input1 + self.fSlow9 * (self.fSlow10 * (self.fRec97[2] + self.fSlow73 * (fTemp264 + self.fSlow74 * self.fRec97[0])) + self.fSlow78 * (self.fSlow76 * (self.fRec103[2] + (self.fRec103[0] - 2.0 * self.fRec103[1])) + self.fSlow86 * (self.fRec109[2] + self.fRec109[0] + 2.0 * self.fRec109[1])));
 			self.fVec56[(self.IOTA0 & 1023) as usize] = fTemp276;
-			let mut fTemp277: F32 = fSlow3 * (fTemp13 * (fTemp14 * (fTemp15 * (0.041666668 * fTemp92 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp91)) & 1023) as usize] - 0.16666667 * fTemp93 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp94)) & 1023) as usize]) + 0.25 * fTemp95 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp96)) & 1023) as usize]) - 0.16666667 * fTemp97 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp98)) & 1023) as usize]) + 0.041666668 * fTemp99 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp100)) & 1023) as usize]) + fSlow2 * self.fRec96[1];
+			let mut fTemp277: F32 = self.fSlow3 * (fTemp13 * (fTemp14 * (fTemp15 * (0.041666668 * fTemp92 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp91)) & 1023) as usize] - 0.16666667 * fTemp93 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp94)) & 1023) as usize]) + 0.25 * fTemp95 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp96)) & 1023) as usize]) - 0.16666667 * fTemp97 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp98)) & 1023) as usize]) + 0.041666668 * fTemp99 * self.fVec56[((i32::wrapping_sub(self.IOTA0, iTemp100)) & 1023) as usize]) + self.fSlow2 * self.fRec96[1];
 			self.fRec96[0] = (if (F32::abs(fTemp277) > 1.1754944e-38) as i32 != 0 {fTemp277} else {0.0});
-			let mut fTemp278: F32 = fSlow1 * self.fRec96[0];
+			let mut fTemp278: F32 = self.fSlow1 * self.fRec96[0];
 			self.fVec57[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp243 + 0.70710677 * (fTemp244 - fTemp278);
 			let mut fTemp279: F32 = self.fVec57[((i32::wrapping_sub(self.IOTA0, iTemp147)) & 16383) as usize];
 			self.fVec58[0] = fTemp279;
@@ -1769,7 +1966,7 @@ impl JpverbDsp {
 			self.fRec13[0] = (if (F32::abs(fTemp280) > 1.1754944e-38) as i32 != 0 {fTemp280} else {0.0});
 			self.fRec11[0] = (if (F32::abs(self.fRec13[0]) > 1.1754944e-38) as i32 != 0 {self.fRec13[0]} else {0.0});
 			self.fVec59[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp243 + 0.70710677 * (fTemp278 - fTemp244);
-			let mut fTemp281: F32 = 0.9999 * (self.fRec113[1] + (i32::wrapping_mul(iTemp1, iSlow90)) as F32) + fSlow91;
+			let mut fTemp281: F32 = 0.9999 * (self.fRec113[1] + (i32::wrapping_mul(iTemp1, self.iSlow90)) as F32) + self.fSlow91;
 			self.fRec113[0] = (if (F32::abs(fTemp281) > 1.1754944e-38) as i32 != 0 {fTemp281} else {0.0});
 			let mut fTemp282: F32 = self.fRec113[0] + -1.49999;
 			let mut fTemp283: F32 = self.fVec59[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp282) as i32)))) & 16383) as usize];
@@ -1778,11 +1975,11 @@ impl JpverbDsp {
 			let mut fTemp285: F32 = self.fVec60[1] - (fTemp284 + (2.0 - self.fRec113[0])) * (self.fRec112[1] - fTemp283) / (self.fRec113[0] - fTemp284);
 			self.fRec112[0] = (if (F32::abs(fTemp285) > 1.1754944e-38) as i32 != 0 {fTemp285} else {0.0});
 			self.fRec12[0] = (if (F32::abs(self.fRec112[0]) > 1.1754944e-38) as i32 != 0 {self.fRec112[0]} else {0.0});
-			let mut fTemp286: F32 = fSlow1 * self.fRec11[1] + fSlow87 * self.fRec14[0];
-			let mut fTemp287: F32 = fSlow1 * fTemp286 - fSlow87 * self.fRec8[1];
-			let mut fTemp288: F32 = fSlow87 * self.fRec9[1];
-			let mut fTemp289: F32 = fSlow1 * self.fRec12[1] + fSlow87 * self.fRec96[0];
-			let mut fTemp290: F32 = fSlow1 * fTemp289;
+			let mut fTemp286: F32 = self.fSlow1 * self.fRec11[1] + self.fSlow87 * self.fRec14[0];
+			let mut fTemp287: F32 = self.fSlow1 * fTemp286 - self.fSlow87 * self.fRec8[1];
+			let mut fTemp288: F32 = self.fSlow87 * self.fRec9[1];
+			let mut fTemp289: F32 = self.fSlow1 * self.fRec12[1] + self.fSlow87 * self.fRec96[0];
+			let mut fTemp290: F32 = self.fSlow1 * fTemp289;
 			self.fVec61[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp287 + 0.70710677 * (fTemp288 - fTemp290);
 			let mut fTemp291: F32 = self.fVec61[((i32::wrapping_sub(self.IOTA0, iTemp178)) & 16383) as usize];
 			self.fVec62[0] = fTemp291;
@@ -1795,11 +1992,11 @@ impl JpverbDsp {
 			let mut fTemp294: F32 = self.fVec64[1] - fTemp168 * (self.fRec114[1] - fTemp293) / fTemp169;
 			self.fRec114[0] = (if (F32::abs(fTemp294) > 1.1754944e-38) as i32 != 0 {fTemp294} else {0.0});
 			self.fRec9[0] = (if (F32::abs(self.fRec114[0]) > 1.1754944e-38) as i32 != 0 {self.fRec114[0]} else {0.0});
-			let mut fTemp295: F32 = fSlow1 * self.fRec8[1] + fSlow87 * fTemp286;
-			let mut fTemp296: F32 = fSlow1 * fTemp295 - fSlow87 * self.fRec5[1];
-			let mut fTemp297: F32 = fSlow87 * self.fRec6[1];
-			let mut fTemp298: F32 = fSlow1 * self.fRec9[1] + fSlow87 * fTemp289;
-			let mut fTemp299: F32 = fSlow1 * fTemp298;
+			let mut fTemp295: F32 = self.fSlow1 * self.fRec8[1] + self.fSlow87 * fTemp286;
+			let mut fTemp296: F32 = self.fSlow1 * fTemp295 - self.fSlow87 * self.fRec5[1];
+			let mut fTemp297: F32 = self.fSlow87 * self.fRec6[1];
+			let mut fTemp298: F32 = self.fSlow1 * self.fRec9[1] + self.fSlow87 * fTemp289;
+			let mut fTemp299: F32 = self.fSlow1 * fTemp298;
 			self.fVec65[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp296 + 0.70710677 * (fTemp297 - fTemp299);
 			let mut fTemp300: F32 = self.fVec65[((i32::wrapping_sub(self.IOTA0, iTemp186)) & 16383) as usize];
 			self.fVec66[0] = fTemp300;
@@ -1807,7 +2004,7 @@ impl JpverbDsp {
 			self.fRec7[0] = (if (F32::abs(fTemp301) > 1.1754944e-38) as i32 != 0 {fTemp301} else {0.0});
 			self.fRec5[0] = (if (F32::abs(self.fRec7[0]) > 1.1754944e-38) as i32 != 0 {self.fRec7[0]} else {0.0});
 			self.fVec67[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp296 + 0.70710677 * (fTemp299 - fTemp297);
-			let mut fTemp302: F32 = 0.9999 * (self.fRec116[1] + (i32::wrapping_mul(iTemp1, iSlow92)) as F32) + fSlow93;
+			let mut fTemp302: F32 = 0.9999 * (self.fRec116[1] + (i32::wrapping_mul(iTemp1, self.iSlow92)) as F32) + self.fSlow93;
 			self.fRec116[0] = (if (F32::abs(fTemp302) > 1.1754944e-38) as i32 != 0 {fTemp302} else {0.0});
 			let mut fTemp303: F32 = self.fRec116[0] + -1.49999;
 			let mut fTemp304: F32 = self.fVec67[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp303) as i32)))) & 16383) as usize];
@@ -1816,13 +2013,13 @@ impl JpverbDsp {
 			let mut fTemp306: F32 = self.fVec68[1] - (fTemp305 + (2.0 - self.fRec116[0])) * (self.fRec115[1] - fTemp304) / (self.fRec116[0] - fTemp305);
 			self.fRec115[0] = (if (F32::abs(fTemp306) > 1.1754944e-38) as i32 != 0 {fTemp306} else {0.0});
 			self.fRec6[0] = (if (F32::abs(self.fRec115[0]) > 1.1754944e-38) as i32 != 0 {self.fRec115[0]} else {0.0});
-			let mut fTemp307: F32 = fSlow1 * self.fRec5[1] + fSlow87 * fTemp295;
-			let mut fTemp308: F32 = fSlow1 * fTemp307 - fSlow87 * self.fRec2[1];
-			let mut fTemp309: F32 = fSlow87 * self.fRec3[1];
-			let mut fTemp310: F32 = fSlow1 * self.fRec6[1] + fSlow87 * fTemp298;
-			let mut fTemp311: F32 = fSlow1 * fTemp310;
+			let mut fTemp307: F32 = self.fSlow1 * self.fRec5[1] + self.fSlow87 * fTemp295;
+			let mut fTemp308: F32 = self.fSlow1 * fTemp307 - self.fSlow87 * self.fRec2[1];
+			let mut fTemp309: F32 = self.fSlow87 * self.fRec3[1];
+			let mut fTemp310: F32 = self.fSlow1 * self.fRec6[1] + self.fSlow87 * fTemp298;
+			let mut fTemp311: F32 = self.fSlow1 * fTemp310;
 			self.fVec69[(self.IOTA0 & 16383) as usize] = 0.70710677 * fTemp308 + 0.70710677 * (fTemp309 - fTemp311);
-			let mut fTemp312: F32 = 0.9999 * (self.fRec117[1] + (i32::wrapping_mul(iTemp1, iSlow94)) as F32) + fSlow95;
+			let mut fTemp312: F32 = 0.9999 * (self.fRec117[1] + (i32::wrapping_mul(iTemp1, self.iSlow94)) as F32) + self.fSlow95;
 			self.fRec117[0] = (if (F32::abs(fTemp312) > 1.1754944e-38) as i32 != 0 {fTemp312} else {0.0});
 			let mut fTemp313: F32 = self.fRec117[0] + -1.49999;
 			let mut fTemp314: F32 = self.fVec69[((i32::wrapping_sub(self.IOTA0, std::cmp::min(8192, std::cmp::max(0, (fTemp313) as i32)))) & 16383) as usize];
@@ -1837,9 +2034,9 @@ impl JpverbDsp {
 			let mut fTemp318: F32 = self.fVec72[1] - fTemp207 * (self.fRec118[1] - fTemp317) / fTemp208;
 			self.fRec118[0] = (if (F32::abs(fTemp318) > 1.1754944e-38) as i32 != 0 {fTemp318} else {0.0});
 			self.fRec3[0] = (if (F32::abs(self.fRec118[0]) > 1.1754944e-38) as i32 != 0 {self.fRec118[0]} else {0.0});
-			let mut fTemp319: F32 = fSlow1 * self.fRec2[1] + fSlow87 * fTemp307;
+			let mut fTemp319: F32 = self.fSlow1 * self.fRec2[1] + self.fSlow87 * fTemp307;
 			self.fRec0[0] = (if (F32::abs(fTemp319) > 1.1754944e-38) as i32 != 0 {fTemp319} else {0.0});
-			let mut fTemp320: F32 = fSlow1 * self.fRec3[1] + fSlow87 * fTemp310;
+			let mut fTemp320: F32 = self.fSlow1 * self.fRec3[1] + self.fSlow87 * fTemp310;
 			self.fRec1[0] = (if (F32::abs(fTemp320) > 1.1754944e-38) as i32 != 0 {fTemp320} else {0.0});
 			*output0 = self.fRec0[0];
 			*output1 = self.fRec1[0];

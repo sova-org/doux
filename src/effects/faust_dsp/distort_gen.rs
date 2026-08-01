@@ -2,15 +2,29 @@
 /* ------------------------------------------------------------
 name: "distort"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn DistortDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn DistortDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct DistortDsp {
 	fHslider0: F32,
+	fSlow0: F32,
 	fHslider1: F32,
+	iSlow1: i32,
+	iSlow2: i32,
+	iSlow3: i32,
+	iSlow4: i32,
 	fHslider2: F32,
+	fSlow5: F32,
+	fSlow6: F32,
+	fSlow7: F32,
+	fSlow8: F32,
 	fHslider3: F32,
+	fSlow9: F32,
+	fSlow10: F32,
 	fVec0: [F32;2],
+	fSlow11: F32,
+	iSlow12: i32,
+	iSlow13: i32,
 	fSampleRate: i32,
 }
 
@@ -36,10 +50,24 @@ impl DistortDsp {
 	pub fn new() -> DistortDsp { 
 		DistortDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			fHslider1: 0.0,
+			iSlow1: 0,
+			iSlow2: 0,
+			iSlow3: 0,
+			iSlow4: 0,
 			fHslider2: 0.0,
+			fSlow5: 0.0,
+			fSlow6: 0.0,
+			fSlow7: 0.0,
+			fSlow8: 0.0,
 			fHslider3: 0.0,
+			fSlow9: 0.0,
+			fSlow10: 0.0,
 			fVec0: [0.0;2],
+			fSlow11: 0.0,
+			iSlow12: 0,
+			iSlow13: 0,
 			fSampleRate: 0,
 		}
 	}
@@ -66,7 +94,7 @@ impl DistortDsp {
 		m.declare("aanl.lib/version", r"1.4.1");
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn DistortDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn DistortDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"distort.dsp");
 		m.declare("maths.lib/author", r"GRAME");
 		m.declare("maths.lib/copyright", r"GRAME");
@@ -139,6 +167,24 @@ impl DistortDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fHslider0;
+		self.iSlow1 = (self.fHslider1) as i32;
+		self.iSlow2 = (self.iSlow1 >= 3) as i32;
+		self.iSlow3 = (self.iSlow1 >= 2) as i32;
+		self.iSlow4 = (self.iSlow1 >= 1) as i32;
+		self.fSlow5 = F32::max(self.fHslider2, 0.0);
+		self.fSlow6 = self.fSlow5 + 1.0;
+		self.fSlow7 = F32::powf(self.fSlow6, -0.12);
+		self.fSlow8 = self.fSlow6 * self.fSlow7;
+		self.fSlow9 = self.fHslider3;
+		self.fSlow10 = 0.05 / (0.05 * self.fSlow5 + 1.0);
+		self.fSlow11 = 0.63661975 * self.fSlow7;
+		self.iSlow12 = (self.iSlow1 >= 5) as i32;
+		self.iSlow13 = (self.iSlow1 >= 4) as i32;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -151,26 +197,12 @@ impl DistortDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut iSlow1: i32 = (self.fHslider1) as i32;
-		let mut iSlow2: i32 = (iSlow1 >= 3) as i32;
-		let mut iSlow3: i32 = (iSlow1 >= 2) as i32;
-		let mut iSlow4: i32 = (iSlow1 >= 1) as i32;
-		let mut fSlow5: F32 = F32::max(self.fHslider2, 0.0);
-		let mut fSlow6: F32 = fSlow5 + 1.0;
-		let mut fSlow7: F32 = F32::powf(fSlow6, -0.12);
-		let mut fSlow8: F32 = fSlow6 * fSlow7;
-		let mut fSlow9: F32 = self.fHslider3;
-		let mut fSlow10: F32 = 0.05 / (0.05 * fSlow5 + 1.0);
-		let mut fSlow11: F32 = 0.63661975 * fSlow7;
-		let mut iSlow12: i32 = (iSlow1 >= 5) as i32;
-		let mut iSlow13: i32 = (iSlow1 >= 4) as i32;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
-			let mut fTemp1: F32 = fSlow9 + fTemp0 + 0.05;
-			let mut fTemp2: F32 = fSlow9 + fTemp0;
-			let mut fTemp3: F32 = fSlow6 * fTemp2;
+			let mut fTemp1: F32 = self.fSlow9 + fTemp0 + 0.05;
+			let mut fTemp2: F32 = self.fSlow9 + fTemp0;
+			let mut fTemp3: F32 = self.fSlow6 * fTemp2;
 			self.fVec0[0] = fTemp3;
 			let mut fTemp4: F32 = fTemp3 - self.fVec0[1];
 			let mut iTemp5: i32 = (F32::abs(fTemp4) <= 0.001) as i32;
@@ -180,12 +212,12 @@ impl DistortDsp {
 			let mut fTemp9: F32 = fTemp8 + 1.0;
 			let mut fTemp10: F32 = DistortDsp_faustpower2_f(self.fVec0[1]);
 			let mut fTemp11: F32 = fTemp10 + 1.0;
-			let mut fTemp12: F32 = fSlow6 * fTemp2 * (((fTemp3 > 0.0) as i32) - ((fTemp3 < 0.0) as i32)) as F32;
+			let mut fTemp12: F32 = self.fSlow6 * fTemp2 * (((fTemp3 > 0.0) as i32) - ((fTemp3 < 0.0) as i32)) as F32;
 			let mut fTemp13: F32 = self.fVec0[1] * (((self.fVec0[1] > 0.0) as i32) - ((self.fVec0[1] < 0.0) as i32)) as F32;
 			let mut fTemp14: F32 = F32::abs(fTemp3);
 			let mut fTemp15: F32 = F32::abs(self.fVec0[1]);
 			let mut fTemp16: F32 = F32::abs(fTemp7);
-			*output0 = fSlow0 * (if iSlow2 != 0 {(if iSlow12 != 0 {fSlow7 * (if iTemp5 != 0 {0.5 * (fTemp6 / F32::sqrt(DistortDsp_faustpower2_f(fTemp7) + 1.0))} else {(F32::sqrt(fTemp9) - F32::sqrt(fTemp11)) / fTemp4})} else {(if iSlow13 != 0 {fSlow7 * (if iTemp5 != 0 {(if (fTemp16 <= 2.0) as i32 != 0 {0.5 * fTemp6 * (1.0 - 0.25 * fTemp16)} else {(((fTemp7 > 0.0) as i32) - ((fTemp7 < 0.0) as i32)) as F32})} else {((if (fTemp14 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp8 * (fTemp12 + -6.0))} else {fTemp14}) - (if (fTemp15 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp10 * (fTemp13 + -6.0))} else {fTemp15})) / fTemp4})} else {fSlow7 * (if iTemp5 != 0 {F32::max(-1.0, F32::min(1.0, fTemp7))} else {((if ((fTemp3 <= 1.0) as i32) & ((fTemp3 >= -1.0) as i32) != 0 {0.5 * fTemp8} else {fTemp12 + -0.5}) - (if ((self.fVec0[1] <= 1.0) as i32) & ((self.fVec0[1] >= -1.0) as i32) != 0 {0.5 * fTemp10} else {fTemp13 + -0.5})) / fTemp4})})})} else {(if iSlow3 != 0 {fSlow11 * (if iTemp5 != 0 {F32::atan(fTemp7)} else {(fSlow6 * fTemp2 * F32::atan(fTemp3) - (self.fVec0[1] * F32::atan(self.fVec0[1]) + 0.5 * (F32::log(fTemp9, std::f32::consts::E) - F32::log(fTemp11, std::f32::consts::E)))) / fTemp4})} else {(if iSlow4 != 0 {fSlow7 * (if iTemp5 != 0 {F32::tanh(fTemp7)} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp3)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec0[1])), std::f32::consts::E)) / fTemp4})} else {fSlow8 * (fTemp1 / (fSlow5 * F32::abs(fTemp1) + 1.0) - fSlow10)})})});
+			*output0 = self.fSlow0 * (if self.iSlow2 != 0 {(if self.iSlow12 != 0 {self.fSlow7 * (if iTemp5 != 0 {0.5 * (fTemp6 / F32::sqrt(DistortDsp_faustpower2_f(fTemp7) + 1.0))} else {(F32::sqrt(fTemp9) - F32::sqrt(fTemp11)) / fTemp4})} else {(if self.iSlow13 != 0 {self.fSlow7 * (if iTemp5 != 0 {(if (fTemp16 <= 2.0) as i32 != 0 {0.5 * fTemp6 * (1.0 - 0.25 * fTemp16)} else {(((fTemp7 > 0.0) as i32) - ((fTemp7 < 0.0) as i32)) as F32})} else {((if (fTemp14 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp8 * (fTemp12 + -6.0))} else {fTemp14}) - (if (fTemp15 <= 2.0) as i32 != 0 {-(0.083333336 * fTemp10 * (fTemp13 + -6.0))} else {fTemp15})) / fTemp4})} else {self.fSlow7 * (if iTemp5 != 0 {F32::max(-1.0, F32::min(1.0, fTemp7))} else {((if ((fTemp3 <= 1.0) as i32) & ((fTemp3 >= -1.0) as i32) != 0 {0.5 * fTemp8} else {fTemp12 + -0.5}) - (if ((self.fVec0[1] <= 1.0) as i32) & ((self.fVec0[1] >= -1.0) as i32) != 0 {0.5 * fTemp10} else {fTemp13 + -0.5})) / fTemp4})})})} else {(if self.iSlow3 != 0 {self.fSlow11 * (if iTemp5 != 0 {F32::atan(fTemp7)} else {(self.fSlow6 * fTemp2 * F32::atan(fTemp3) - (self.fVec0[1] * F32::atan(self.fVec0[1]) + 0.5 * (F32::log(fTemp9, std::f32::consts::E) - F32::log(fTemp11, std::f32::consts::E)))) / fTemp4})} else {(if self.iSlow4 != 0 {self.fSlow7 * (if iTemp5 != 0 {F32::tanh(fTemp7)} else {(F32::log(F32::min(3.4028235e+38, F32::cosh(fTemp3)), std::f32::consts::E) - F32::log(F32::min(3.4028235e+38, F32::cosh(self.fVec0[1])), std::f32::consts::E)) / fTemp4})} else {self.fSlow8 * (fTemp1 / (self.fSlow5 * F32::abs(fTemp1) + 1.0) - self.fSlow10)})})});
 			self.fVec0[1] = self.fVec0[0];
 		}
 		

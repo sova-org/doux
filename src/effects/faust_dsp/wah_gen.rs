@@ -2,21 +2,26 @@
 /* ------------------------------------------------------------
 name: "wah"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn WahDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn WahDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct WahDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fConst2: F32,
 	fHslider1: F32,
+	fSlow2: F32,
 	fHslider2: F32,
+	fSlow3: F32,
 	fConst3: F32,
 	fConst4: F32,
 	fRec3: [F32;2],
 	fHslider3: F32,
+	fSlow4: F32,
 	fRec0: [F32;2],
 	fRec1: [F32;2],
 }
@@ -40,16 +45,21 @@ impl WahDsp {
 	pub fn new() -> WahDsp { 
 		WahDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fConst2: 0.0,
 			fHslider1: 0.0,
+			fSlow2: 0.0,
 			fHslider2: 0.0,
+			fSlow3: 0.0,
 			fConst3: 0.0,
 			fConst4: 0.0,
 			fRec3: [0.0;2],
 			fHslider3: 0.0,
+			fSlow4: 0.0,
 			fRec0: [0.0;2],
 			fRec1: [0.0;2],
 		}
@@ -59,7 +69,7 @@ impl WahDsp {
 		m.declare("analyzers.lib/version", r"1.2.0");
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn WahDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn WahDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"wah.dsp");
 		m.declare("filters.lib/lowpass0_highpass1", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
 		m.declare("filters.lib/name", r"Faust Filters Library");
@@ -155,6 +165,15 @@ impl WahDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fHslider0;
+		self.fSlow1 = 1.0 - self.fSlow0;
+		self.fSlow2 = self.fHslider1;
+		self.fSlow3 = 4e+03 * self.fHslider2;
+		self.fSlow4 = 1.0 / (18.0 * F32::max(0.0, F32::min(1.0, self.fHslider3)) + 2.0);
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -167,25 +186,20 @@ impl WahDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = 1.0 - fSlow0;
-		let mut fSlow2: F32 = self.fHslider1;
-		let mut fSlow3: F32 = 4e+03 * self.fHslider2;
-		let mut fSlow4: F32 = 1.0 / (18.0 * F32::max(0.0, F32::min(1.0, self.fHslider3)) + 2.0);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
 			let mut fTemp1: F32 = F32::abs(fTemp0);
 			self.fRec3[0] = F32::max(fTemp1, self.fConst3 * self.fRec3[1] + self.fConst4 * fTemp1);
-			let mut fTemp2: F32 = F32::tan(self.fConst1 * F32::max(2e+01, F32::min(self.fConst2, fSlow2 + fSlow3 * self.fRec3[0])));
+			let mut fTemp2: F32 = F32::tan(self.fConst1 * F32::max(2e+01, F32::min(self.fConst2, self.fSlow2 + self.fSlow3 * self.fRec3[0])));
 			let mut fTemp3: F32 = self.fRec0[1] + fTemp2 * (fTemp0 - self.fRec1[1]);
-			let mut fTemp4: F32 = fTemp2 * (fSlow4 + fTemp2) + 1.0;
+			let mut fTemp4: F32 = fTemp2 * (self.fSlow4 + fTemp2) + 1.0;
 			let mut fTemp5: F32 = fTemp3 / fTemp4;
 			self.fRec0[0] = 2.0 * fTemp5 - self.fRec0[1];
 			let mut fTemp6: F32 = self.fRec1[1] + fTemp2 * fTemp3 / fTemp4;
 			self.fRec1[0] = 2.0 * fTemp6 - self.fRec1[1];
 			let mut fRec2: F32 = fTemp5;
-			*output0 = fSlow1 * fTemp0 + fSlow0 * fRec2;
+			*output0 = self.fSlow1 * fTemp0 + self.fSlow0 * fRec2;
 			self.fRec3[1] = self.fRec3[0];
 			self.fRec0[1] = self.fRec0[0];
 			self.fRec1[1] = self.fRec1[0];

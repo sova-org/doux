@@ -212,8 +212,9 @@ impl GrainState {
             };
 
             let read = (self.region_start + g.pos) as f32;
-            l += data.read_interpolated(read, 0) * w * g.gain_l;
-            r += data.read_interpolated(read, 1) * w * g.gain_r;
+            let s = data.read_interpolated_stereo(read);
+            l += s[0] * w * g.gain_l;
+            r += s[1] * w * g.gain_r;
 
             g.pos += cloud.pitch;
             // Fast path is two compares; the modulo runs once per wrap.

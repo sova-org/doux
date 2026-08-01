@@ -2,11 +2,13 @@
 /* ------------------------------------------------------------
 name: "crush"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn CrushDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn CrushDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct CrushDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fSampleRate: i32,
 }
 
@@ -29,11 +31,13 @@ impl CrushDsp {
 	pub fn new() -> CrushDsp { 
 		CrushDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fSampleRate: 0,
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn CrushDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn CrushDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"crush.dsp");
 		m.declare("name", r"crush");
 	}
@@ -86,6 +90,12 @@ impl CrushDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = F32::powf(2.0, F32::max(self.fHslider0, 1.0) + -1.0);
+		self.fSlow1 = 1.0 / self.fSlow0;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -98,11 +108,9 @@ impl CrushDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = F32::powf(2.0, F32::max(self.fHslider0, 1.0) + -1.0);
-		let mut fSlow1: F32 = 1.0 / fSlow0;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
-			*output0 = fSlow1 * F32::floor(fSlow0 * *input0 + 0.5);
+			*output0 = self.fSlow1 * F32::floor(self.fSlow0 * *input0 + 0.5);
 		}
 		
 	}

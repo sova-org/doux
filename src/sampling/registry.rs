@@ -88,6 +88,33 @@ impl SampleData {
         source_len as f32 * self.resample_ratio
     }
 
+    /// The four Hermite taps around `frame` on channel `ch`, clamped to the buffer's ends.
+    ///
+    /// The interior path — the whole window inside the buffer — takes one bounds-checked
+    /// sub-slice covering all four taps and indexes within it, so the three remaining reads
+    /// need no check of their own. It is bit-identical to the edge path: away from the ends
+    /// every clamp is a no-op, so both read the same four elements.
+    #[inline]
+    fn taps(&self, frame: usize, last: usize, ch: usize) -> (f32, f32, f32, f32) {
+        let channels = self.channels as usize;
+        let frames = &self.frames;
+        if frame >= 1 && frame + 2 <= last {
+            let base = (frame - 1) * channels + ch;
+            let w = &frames[base..base + 3 * channels + 1];
+            (w[0], w[channels], w[2 * channels], w[3 * channels])
+        } else {
+            let i0 = frame.saturating_sub(1);
+            let i2 = (frame + 1).min(last);
+            let i3 = (frame + 2).min(last);
+            (
+                frames[i0 * channels + ch],
+                frames[frame * channels + ch],
+                frames[i2 * channels + ch],
+                frames[i3 * channels + ch],
+            )
+        }
+    }
+
     /// Reads a sample at the given frame and channel with 4-tap cubic Hermite interpolation.
     #[inline]
     pub fn read_interpolated(&self, pos: f32, channel: usize) -> f32 {
@@ -96,24 +123,38 @@ impl SampleData {
             return 0.0;
         }
         let ch = channel.min(self.channels as usize - 1);
-        let channels = self.channels as usize;
         let last = frame_count - 1;
 
         let frame = (pos as usize).min(last);
         let frac = pos.fract();
 
-        let i0 = frame.saturating_sub(1);
-        let i1 = frame;
-        let i2 = (frame + 1).min(last);
-        let i3 = (frame + 2).min(last);
-
-        let frames = &self.frames;
-        let y0 = frames[i0 * channels + ch];
-        let y1 = frames[i1 * channels + ch];
-        let y2 = frames[i2 * channels + ch];
-        let y3 = frames[i3 * channels + ch];
-
+        let (y0, y1, y2, y3) = self.taps(frame, last, ch);
         crate::dsp::hermite4(y0, y1, y2, y3, frac)
+    }
+
+    /// Reads output channels 0 and 1 at one position, sharing the frame, fraction and tap
+    /// indices between them.
+    ///
+    /// Equal by construction to `read_interpolated(pos, 0)` and `read_interpolated(pos, 1)`:
+    /// mono data clamps both channels onto channel 0, so one Hermite evaluation feeds both.
+    #[inline]
+    pub fn read_interpolated_stereo(&self, pos: f32) -> [f32; 2] {
+        let frame_count = self.frame_count as usize;
+        if frame_count == 0 {
+            return [0.0; 2];
+        }
+        let last = frame_count - 1;
+
+        let frame = (pos as usize).min(last);
+        let frac = pos.fract();
+
+        let (y0, y1, y2, y3) = self.taps(frame, last, 0);
+        let left = crate::dsp::hermite4(y0, y1, y2, y3, frac);
+        if self.channels < 2 {
+            return [left, left];
+        }
+        let (z0, z1, z2, z3) = self.taps(frame, last, 1);
+        [left, crate::dsp::hermite4(z0, z1, z2, z3, frac)]
     }
 }
 

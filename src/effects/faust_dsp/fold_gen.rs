@@ -2,12 +2,19 @@
 /* ------------------------------------------------------------
 name: "fold"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct FoldDsp {
 	fHslider0: F32,
+	fSlow0: F32,
+	fSlow1: F32,
 	fHslider1: F32,
+	iSlow2: i32,
+	iSlow3: i32,
+	iSlow4: i32,
+	fSlow5: F32,
+	fSlow6: F32,
 	fSampleRate: i32,
 }
 
@@ -30,14 +37,21 @@ impl FoldDsp {
 	pub fn new() -> FoldDsp { 
 		FoldDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
+			fSlow1: 0.0,
 			fHslider1: 0.0,
+			iSlow2: 0,
+			iSlow3: 0,
+			iSlow4: 0,
+			fSlow5: 0.0,
+			fSlow6: 0.0,
 			fSampleRate: 0,
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn FoldDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"fold.dsp");
 		m.declare("maths.lib/author", r"GRAME");
 		m.declare("maths.lib/copyright", r"GRAME");
@@ -99,6 +113,17 @@ impl FoldDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fHslider0;
+		self.fSlow1 = F32::powf(2.0, -(1.5 * self.fSlow0));
+		self.iSlow2 = (self.fHslider1) as i32;
+		self.iSlow3 = (self.iSlow2 >= 2) as i32;
+		self.iSlow4 = (self.iSlow2 >= 1) as i32;
+		self.fSlow5 = F32::powf(2.0, 3.0 * self.fSlow0);
+		self.fSlow6 = 1.5707964 * self.fSlow5;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -111,20 +136,13 @@ impl FoldDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fHslider0;
-		let mut fSlow1: F32 = F32::powf(2.0, -(1.5 * fSlow0));
-		let mut iSlow2: i32 = (self.fHslider1) as i32;
-		let mut iSlow3: i32 = (iSlow2 >= 2) as i32;
-		let mut iSlow4: i32 = (iSlow2 >= 1) as i32;
-		let mut fSlow5: F32 = F32::powf(2.0, 3.0 * fSlow0);
-		let mut fSlow6: F32 = 1.5707964 * fSlow5;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
-			let mut fTemp1: F32 = fSlow5 * fTemp0 + 1.0;
+			let mut fTemp1: F32 = self.fSlow5 * fTemp0 + 1.0;
 			let mut fTemp2: F32 = 0.25 * fTemp1;
 			let mut fTemp3: F32 = 0.5 * fTemp1;
-			*output0 = fSlow1 * (if iSlow3 != 0 {2.0 * (fTemp3 - F32::floor(fTemp3)) + -1.0} else {(if iSlow4 != 0 {F32::sin(fSlow6 * fTemp0)} else {1.0 - F32::abs(4.0 * (fTemp2 - F32::floor(fTemp2)) + -2.0)})});
+			*output0 = self.fSlow1 * (if self.iSlow3 != 0 {2.0 * (fTemp3 - F32::floor(fTemp3)) + -1.0} else {(if self.iSlow4 != 0 {F32::sin(self.fSlow6 * fTemp0)} else {1.0 - F32::abs(4.0 * (fTemp2 - F32::floor(fTemp2)) + -2.0)})});
 		}
 		
 	}

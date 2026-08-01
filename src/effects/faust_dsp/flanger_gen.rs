@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "flanger"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn FlangerDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn FlangerDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct FlangerDsp {
@@ -10,17 +10,45 @@ pub struct FlangerDsp {
 	fConst0: F32,
 	fConst1: F32,
 	fHslider0: F32,
+	fSlow0: F32,
 	fHslider1: F32,
+	fSlow1: F32,
+	fSlow2: F32,
 	iVec1: [i32;2],
 	fConst2: F32,
 	fHslider2: F32,
+	fSlow3: F32,
 	fRec2: [F32;2],
+	fSlow4: F32,
 	IOTA0: i32,
 	fVec3: [F32;1024],
 	fHslider3: F32,
+	fSlow5: F32,
 	fVec4: [F32;1024],
 	fRec0: [F32;2],
 	fHslider4: F32,
+	iSlow6: i32,
+	fSlow7: F32,
+	fSlow8: F32,
+	fSlow9: F32,
+	fSlow10: F32,
+	fSlow11: F32,
+	fSlow12: F32,
+	fSlow13: F32,
+	fSlow14: F32,
+	iSlow15: i32,
+	iSlow16: i32,
+	fSlow17: F32,
+	fSlow18: F32,
+	iSlow19: i32,
+	fSlow20: F32,
+	fSlow21: F32,
+	iSlow22: i32,
+	fSlow23: F32,
+	fSlow24: F32,
+	iSlow25: i32,
+	fSlow26: F32,
+	iSlow27: i32,
 }
 
 pub type FaustFloat = F32;
@@ -136,23 +164,51 @@ impl FlangerDsp {
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			fHslider1: 0.0,
+			fSlow1: 0.0,
+			fSlow2: 0.0,
 			iVec1: [0;2],
 			fConst2: 0.0,
 			fHslider2: 0.0,
+			fSlow3: 0.0,
 			fRec2: [0.0;2],
+			fSlow4: 0.0,
 			IOTA0: 0,
 			fVec3: [0.0;1024],
 			fHslider3: 0.0,
+			fSlow5: 0.0,
 			fVec4: [0.0;1024],
 			fRec0: [0.0;2],
 			fHslider4: 0.0,
+			iSlow6: 0,
+			fSlow7: 0.0,
+			fSlow8: 0.0,
+			fSlow9: 0.0,
+			fSlow10: 0.0,
+			fSlow11: 0.0,
+			fSlow12: 0.0,
+			fSlow13: 0.0,
+			fSlow14: 0.0,
+			iSlow15: 0,
+			iSlow16: 0,
+			fSlow17: 0.0,
+			fSlow18: 0.0,
+			iSlow19: 0,
+			fSlow20: 0.0,
+			fSlow21: 0.0,
+			iSlow22: 0,
+			fSlow23: 0.0,
+			fSlow24: 0.0,
+			iSlow25: 0,
+			fSlow26: 0.0,
+			iSlow27: 0,
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn FlangerDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn FlangerDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("delays.lib/fdelay4:author", r"Julius O. Smith III");
 		m.declare("delays.lib/fdelayltv:author", r"Julius O. Smith III");
 		m.declare("delays.lib/name", r"Faust Delay Library");
@@ -263,6 +319,40 @@ impl FlangerDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 2 static var(s)
+	let ftbl0FlangerDspSIG0_guard = ftbl0FlangerDspSIG0.read().unwrap();
+	let ftbl1FlangerDspSIG1_guard = ftbl1FlangerDspSIG1.read().unwrap();
+	self.fSlow0 = 4.75 * FlangerDsp_faustpower2_f(self.fHslider0);
+		self.fSlow1 = 6.2831855 * self.fHslider1;
+		self.fSlow2 = F32::cos(self.fSlow1);
+		self.fSlow3 = self.fConst2 * self.fHslider2;
+		self.fSlow4 = F32::sin(self.fSlow1);
+		self.fSlow5 = F32::max(0.0, F32::min(0.95, self.fHslider3));
+		self.iSlow6 = (self.fHslider4) as i32;
+		self.fSlow7 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (self.fSlow0 + 0.5)));
+		self.fSlow8 = self.fSlow7 + -1.499995;
+		self.fSlow9 = F32::floor(self.fSlow8);
+		self.fSlow10 = self.fSlow7 + (-4.0 - self.fSlow9);
+		self.fSlow11 = self.fSlow7 + (-3.0 - self.fSlow9);
+		self.fSlow12 = self.fSlow7 + (-2.0 - self.fSlow9);
+		self.fSlow13 = self.fSlow7 + (-1.0 - self.fSlow9);
+		self.fSlow14 = 0.041666668 * self.fSlow13;
+		self.iSlow15 = (self.fSlow8) as i32;
+		self.iSlow16 = std::cmp::min(1024, std::cmp::max(0, self.iSlow15));
+		self.fSlow17 = self.fSlow7 - self.fSlow9;
+		self.fSlow18 = 0.16666667 * self.fSlow17;
+		self.iSlow19 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(self.iSlow15, 1)));
+		self.fSlow20 = self.fSlow17 * self.fSlow13;
+		self.fSlow21 = 0.25 * self.fSlow20;
+		self.iSlow22 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(self.iSlow15, 2)));
+		self.fSlow23 = self.fSlow20 * self.fSlow12;
+		self.fSlow24 = 0.16666667 * self.fSlow23;
+		self.iSlow25 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(self.iSlow15, 3)));
+		self.fSlow26 = 0.041666668 * self.fSlow23 * self.fSlow11;
+		self.iSlow27 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(self.iSlow15, 4)));
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -277,48 +367,20 @@ impl FlangerDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = 4.75 * FlangerDsp_faustpower2_f(self.fHslider0);
-		let mut fSlow1: F32 = 6.2831855 * self.fHslider1;
-		let mut fSlow2: F32 = F32::cos(fSlow1);
-		let mut fSlow3: F32 = self.fConst2 * self.fHslider2;
-		let mut fSlow4: F32 = F32::sin(fSlow1);
-		let mut fSlow5: F32 = F32::max(0.0, F32::min(0.95, self.fHslider3));
-		let mut iSlow6: i32 = (self.fHslider4) as i32;
-		let mut fSlow7: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 + 0.5)));
-		let mut fSlow8: F32 = fSlow7 + -1.499995;
-		let mut fSlow9: F32 = F32::floor(fSlow8);
-		let mut fSlow10: F32 = fSlow7 + (-4.0 - fSlow9);
-		let mut fSlow11: F32 = fSlow7 + (-3.0 - fSlow9);
-		let mut fSlow12: F32 = fSlow7 + (-2.0 - fSlow9);
-		let mut fSlow13: F32 = fSlow7 + (-1.0 - fSlow9);
-		let mut fSlow14: F32 = 0.041666668 * fSlow13;
-		let mut iSlow15: i32 = (fSlow8) as i32;
-		let mut iSlow16: i32 = std::cmp::min(1024, std::cmp::max(0, iSlow15));
-		let mut fSlow17: F32 = fSlow7 - fSlow9;
-		let mut fSlow18: F32 = 0.16666667 * fSlow17;
-		let mut iSlow19: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 1)));
-		let mut fSlow20: F32 = fSlow17 * fSlow13;
-		let mut fSlow21: F32 = 0.25 * fSlow20;
-		let mut iSlow22: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 2)));
-		let mut fSlow23: F32 = fSlow20 * fSlow12;
-		let mut fSlow24: F32 = 0.16666667 * fSlow23;
-		let mut iSlow25: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 3)));
-		let mut fSlow26: F32 = 0.041666668 * fSlow23 * fSlow11;
-		let mut iSlow27: i32 = std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iSlow15, 4)));
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			self.iVec1[0] = 1;
-			let mut fTemp0: F32 = (if i32::wrapping_sub(1, self.iVec1[1]) != 0 {0.0} else {fSlow3 + self.fRec2[1]});
+			let mut fTemp0: F32 = (if i32::wrapping_sub(1, self.iVec1[1]) != 0 {0.0} else {self.fSlow3 + self.fRec2[1]});
 			self.fRec2[0] = fTemp0 - F32::floor(fTemp0);
 			let mut iTemp1: i32 = std::cmp::max(0, std::cmp::min((65536.0 * self.fRec2[0]) as i32, 65535));
-			let mut fTemp2: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (fSlow0 * (fSlow2 * ftbl0FlangerDspSIG0_guard[iTemp1 as usize] + fSlow4 * ftbl1FlangerDspSIG1_guard[iTemp1 as usize] + 1.0) + 0.5)));
+			let mut fTemp2: F32 = F32::max(2.0, F32::min(1021.0, self.fConst1 * (self.fSlow0 * (self.fSlow2 * ftbl0FlangerDspSIG0_guard[iTemp1 as usize] + self.fSlow4 * ftbl1FlangerDspSIG1_guard[iTemp1 as usize] + 1.0) + 0.5)));
 			let mut fTemp3: F32 = fTemp2 + -1.499995;
 			let mut fTemp4: F32 = F32::floor(fTemp3);
 			let mut fTemp5: F32 = fTemp2 + (-3.0 - fTemp4);
 			let mut fTemp6: F32 = fTemp2 + (-2.0 - fTemp4);
 			let mut fTemp7: F32 = *input0;
 			self.fVec3[(self.IOTA0 & 1023) as usize] = fTemp7;
-			let mut fTemp8: F32 = fTemp7 + fSlow5 * self.fRec0[1];
+			let mut fTemp8: F32 = fTemp7 + self.fSlow5 * self.fRec0[1];
 			self.fVec4[(self.IOTA0 & 1023) as usize] = fTemp8;
 			let mut iTemp9: i32 = (fTemp3) as i32;
 			let mut fTemp10: F32 = fTemp2 + (-1.0 - fTemp4);
@@ -326,7 +388,7 @@ impl FlangerDsp {
 			let mut fTemp12: F32 = fTemp11 * fTemp10;
 			let mut fTemp13: F32 = fTemp12 * fTemp6;
 			self.fRec0[0] = (fTemp2 + (-4.0 - fTemp4)) * (fTemp5 * (fTemp6 * (0.041666668 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, iTemp9)))) & 1023) as usize] * fTemp10 - 0.16666667 * fTemp11 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 1))))) & 1023) as usize]) + 0.25 * fTemp12 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 2))))) & 1023) as usize]) - 0.16666667 * fTemp13 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 3))))) & 1023) as usize]) + 0.041666668 * fTemp13 * fTemp5 * self.fVec4[((i32::wrapping_sub(self.IOTA0, std::cmp::min(1024, std::cmp::max(0, i32::wrapping_add(iTemp9, 4))))) & 1023) as usize];
-			*output0 = 0.5 * (self.fRec0[0] + (if iSlow6 != 0 {fSlow10 * (fSlow11 * (fSlow12 * (fSlow14 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow16)) & 1023) as usize] - fSlow18 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow19)) & 1023) as usize]) + fSlow21 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow22)) & 1023) as usize]) - fSlow24 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow25)) & 1023) as usize]) + fSlow26 * self.fVec3[((i32::wrapping_sub(self.IOTA0, iSlow27)) & 1023) as usize]} else {fTemp7}));
+			*output0 = 0.5 * (self.fRec0[0] + (if self.iSlow6 != 0 {self.fSlow10 * (self.fSlow11 * (self.fSlow12 * (self.fSlow14 * self.fVec3[((i32::wrapping_sub(self.IOTA0, self.iSlow16)) & 1023) as usize] - self.fSlow18 * self.fVec3[((i32::wrapping_sub(self.IOTA0, self.iSlow19)) & 1023) as usize]) + self.fSlow21 * self.fVec3[((i32::wrapping_sub(self.IOTA0, self.iSlow22)) & 1023) as usize]) - self.fSlow24 * self.fVec3[((i32::wrapping_sub(self.IOTA0, self.iSlow25)) & 1023) as usize]) + self.fSlow26 * self.fVec3[((i32::wrapping_sub(self.IOTA0, self.iSlow27)) & 1023) as usize]} else {fTemp7}));
 			self.iVec1[1] = self.iVec1[0];
 			self.fRec2[1] = self.fRec2[0];
 			self.IOTA0 = i32::wrapping_add(self.IOTA0, 1);

@@ -2,11 +2,12 @@
 /* ------------------------------------------------------------
 name: "phaser"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn PhaserDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn PhaserDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct PhaserDsp {
 	fHslider0: F32,
+	fSlow0: F32,
 	iVec0: [i32;2],
 	fSampleRate: i32,
 	fConst0: F32,
@@ -15,12 +16,20 @@ pub struct PhaserDsp {
 	fConst3: F32,
 	fHslider1: F32,
 	fConst4: F32,
+	fSlow1: F32,
+	fSlow2: F32,
 	fHslider2: F32,
+	fSlow3: F32,
 	fHslider3: F32,
+	fSlow4: F32,
 	fConst5: F32,
 	fHslider4: F32,
+	fSlow5: F32,
+	fSlow6: F32,
+	fSlow7: F32,
 	fRec5: [F32;2],
 	fRec6: [F32;2],
+	fSlow8: F32,
 	fConst6: F32,
 	fRec4: [F32;3],
 	fConst7: F32,
@@ -54,6 +63,7 @@ impl PhaserDsp {
 	pub fn new() -> PhaserDsp { 
 		PhaserDsp {
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			iVec0: [0;2],
 			fSampleRate: 0,
 			fConst0: 0.0,
@@ -62,12 +72,20 @@ impl PhaserDsp {
 			fConst3: 0.0,
 			fHslider1: 0.0,
 			fConst4: 0.0,
+			fSlow1: 0.0,
+			fSlow2: 0.0,
 			fHslider2: 0.0,
+			fSlow3: 0.0,
 			fHslider3: 0.0,
+			fSlow4: 0.0,
 			fConst5: 0.0,
 			fHslider4: 0.0,
+			fSlow5: 0.0,
+			fSlow6: 0.0,
+			fSlow7: 0.0,
 			fRec5: [0.0;2],
 			fRec6: [0.0;2],
+			fSlow8: 0.0,
 			fConst6: 0.0,
 			fRec4: [0.0;3],
 			fConst7: 0.0,
@@ -80,7 +98,7 @@ impl PhaserDsp {
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn PhaserDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn PhaserDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"phaser.dsp");
 		m.declare("filters.lib/fir:author", r"Julius O. Smith III");
 		m.declare("filters.lib/fir:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
@@ -209,6 +227,19 @@ impl PhaserDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = F32::max(0.0, F32::min(0.95, self.fHslider0));
+		self.fSlow1 = F32::max(2e+01, F32::min(self.fHslider1, self.fConst4));
+		self.fSlow2 = 6.2831855 * self.fSlow1;
+		self.fSlow3 = 3.1415927 * (self.fSlow1 - F32::min(self.fConst4, F32::powf(2.0, 0.00083333335 * self.fHslider2) * self.fSlow1));
+		self.fSlow4 = self.fHslider3;
+		self.fSlow5 = self.fConst5 * self.fHslider4;
+		self.fSlow6 = F32::sin(self.fSlow5);
+		self.fSlow7 = F32::cos(self.fSlow5);
+		self.fSlow8 = 1.0 - self.fSlow4;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -221,24 +252,15 @@ impl PhaserDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = F32::max(0.0, F32::min(0.95, self.fHslider0));
-		let mut fSlow1: F32 = F32::max(2e+01, F32::min(self.fHslider1, self.fConst4));
-		let mut fSlow2: F32 = 6.2831855 * fSlow1;
-		let mut fSlow3: F32 = 3.1415927 * (fSlow1 - F32::min(self.fConst4, F32::powf(2.0, 0.00083333335 * self.fHslider2) * fSlow1));
-		let mut fSlow4: F32 = self.fHslider3;
-		let mut fSlow5: F32 = self.fConst5 * self.fHslider4;
-		let mut fSlow6: F32 = F32::sin(fSlow5);
-		let mut fSlow7: F32 = F32::cos(fSlow5);
-		let mut fSlow8: F32 = 1.0 - fSlow4;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
 			self.iVec0[0] = 1;
-			self.fRec5[0] = fSlow6 * self.fRec6[1] + fSlow7 * self.fRec5[1];
-			self.fRec6[0] = (i32::wrapping_sub(1, self.iVec0[1])) as F32 + fSlow7 * self.fRec6[1] - fSlow6 * self.fRec5[1];
-			let mut fTemp1: F32 = fSlow2 - fSlow3 * (1.0 - (fSlow4 * self.fRec6[0] + fSlow8 * self.fRec5[0]));
+			self.fRec5[0] = self.fSlow6 * self.fRec6[1] + self.fSlow7 * self.fRec5[1];
+			self.fRec6[0] = (i32::wrapping_sub(1, self.iVec0[1])) as F32 + self.fSlow7 * self.fRec6[1] - self.fSlow6 * self.fRec5[1];
+			let mut fTemp1: F32 = self.fSlow2 - self.fSlow3 * (1.0 - (self.fSlow4 * self.fRec6[0] + self.fSlow8 * self.fRec5[0]));
 			let mut fTemp2: F32 = self.fRec4[1] * F32::cos(self.fConst3 * fTemp1);
-			self.fRec4[0] = fTemp0 + fSlow0 * self.fRec0[1] + self.fConst2 * fTemp2 - self.fConst6 * self.fRec4[2];
+			self.fRec4[0] = fTemp0 + self.fSlow0 * self.fRec0[1] + self.fConst2 * fTemp2 - self.fConst6 * self.fRec4[2];
 			let mut fTemp3: F32 = self.fRec3[1] * F32::cos(self.fConst7 * fTemp1);
 			self.fRec3[0] = self.fRec4[2] + self.fConst6 * (self.fRec4[0] - self.fRec3[2]) - self.fConst2 * (fTemp2 - fTemp3);
 			let mut fTemp4: F32 = self.fRec2[1] * F32::cos(self.fConst8 * fTemp1);

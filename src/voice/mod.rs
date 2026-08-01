@@ -335,6 +335,12 @@ pub struct Voice {
     /// sample `i`; rows past `param_mod_count` and columns past the block
     /// length are stale.
     mod_traj: Box<[[f32; MAX_BLOCK]; MAX_PARAM_MODS]>,
+    /// Parallel to `param_mods`: true when mod `k` held one value for every
+    /// sample of the current block — a finished non-looping transition, an
+    /// envelope in sustain, a sample-and-hold between draws. Cleared at block
+    /// start and re-established by `apply_mods_one` from sample 0, so it is
+    /// never read from a block whose source loop did not run.
+    mod_constant: [bool; MAX_PARAM_MODS],
 }
 
 impl Default for Voice {
@@ -409,6 +415,7 @@ impl Default for Voice {
             stage_count: 0,
             stage_modded: [false; MAX_STAGES],
             mod_traj: Box::new([[0.0; MAX_BLOCK]; MAX_PARAM_MODS]),
+            mod_constant: [false; MAX_PARAM_MODS],
         }
     }
 }
@@ -623,6 +630,17 @@ impl Voice {
             .any(|k| param_in_stage(self.param_mods[k].0, stage))
     }
 
+    /// True iff every active mod `stage` reads held one value across the whole
+    /// block. Such a stage can take the block path even though it is flagged in
+    /// `stage_modded`: with `mod_traj[k][i] == mod_traj[k][n-1]` for every `i`,
+    /// `restore_mods_at(i)` writes the same params on every sample, so the
+    /// per-sample replay and the block dispatch run the same operation sequence
+    /// on the same values. A mod that is still moving keeps its stage per-sample.
+    fn stage_mods_constant(&self, stage: Stage) -> bool {
+        (0..self.param_mod_count as usize)
+            .all(|k| self.mod_constant[k] || !param_in_stage(self.param_mods[k].0, stage))
+    }
+
     /// Build the per-block stage program: a packed list of exactly the
     /// stages this voice needs this block. Called once per block before the
     /// per-sample source loop; iterated by [`Voice::finish_sample`].
@@ -763,6 +781,10 @@ impl Voice {
             for k in 0..count as usize {
                 self.stage_modded[k] = self.stage_uses_modded_param(self.stage_program[k]);
             }
+            // `apply_mods_one` re-establishes these from sample 0 of this block.
+            // Clearing here means a block whose source loop never ran cannot
+            // demote a stage on the previous block's verdict.
+            self.mod_constant = [false; MAX_PARAM_MODS];
         }
     }
 
@@ -844,7 +866,10 @@ impl Voice {
         let has_mods = self.param_mod_count > 0;
         for k in 0..self.stage_count as usize {
             let stage = self.stage_program[k];
-            if has_mods && self.stage_modded[k] {
+            // A flagged stage whose every mod went constant this block is
+            // demoted back to the block path: the per-sample replay would write
+            // the same params on all `n` samples, so the two paths agree.
+            if has_mods && self.stage_modded[k] && !self.stage_mods_constant(stage) {
                 for i in 0..n {
                     self.restore_mods_at(i);
                     self.tick_stage(stage, i, env[i], sr, isr);
@@ -1745,6 +1770,13 @@ impl Voice {
             let (id, ref mut m) = self.param_mods[k];
             let val = m.tick(isr);
             self.mod_traj[k][i] = val;
+            // Constancy over the block, for the stage demotion in `finish_block`.
+            // Sample 0 seeds it (the comparison is against the value just
+            // stored, so it holds trivially); later samples clear it on the
+            // first departure. Exact equality is the point — a value that only
+            // nearly repeats must stay on the per-sample path, and a NaN (which
+            // compares unequal to itself) falls back to it too.
+            self.mod_constant[k] = (i == 0 || self.mod_constant[k]) && val == self.mod_traj[k][0];
             self.write_param(id, val);
         }
     }

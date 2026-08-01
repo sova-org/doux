@@ -2,20 +2,33 @@
 /* ------------------------------------------------------------
 name: "svf24"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn Svf24Dsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn Svf24Dsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct Svf24Dsp {
 	fHslider0: F32,
+	iSlow0: i32,
+	iSlow1: i32,
+	iSlow2: i32,
 	fSampleRate: i32,
 	fConst0: F32,
 	fConst1: F32,
 	fHslider1: F32,
 	fConst2: F32,
+	fSlow3: F32,
+	fSlow4: F32,
+	fSlow5: F32,
 	fHslider2: F32,
+	fSlow6: F32,
+	fSlow7: F32,
+	fSlow8: F32,
+	fSlow9: F32,
+	fSlow10: F32,
 	fRec5: [F32;2],
+	fSlow11: F32,
 	fRec6: [F32;2],
 	fRec0: [F32;2],
+	fSlow12: F32,
 	fRec1: [F32;2],
 }
 
@@ -41,20 +54,33 @@ impl Svf24Dsp {
 	pub fn new() -> Svf24Dsp { 
 		Svf24Dsp {
 			fHslider0: 0.0,
+			iSlow0: 0,
+			iSlow1: 0,
+			iSlow2: 0,
 			fSampleRate: 0,
 			fConst0: 0.0,
 			fConst1: 0.0,
 			fHslider1: 0.0,
 			fConst2: 0.0,
+			fSlow3: 0.0,
+			fSlow4: 0.0,
+			fSlow5: 0.0,
 			fHslider2: 0.0,
+			fSlow6: 0.0,
+			fSlow7: 0.0,
+			fSlow8: 0.0,
+			fSlow9: 0.0,
+			fSlow10: 0.0,
 			fRec5: [0.0;2],
+			fSlow11: 0.0,
 			fRec6: [0.0;2],
 			fRec0: [0.0;2],
+			fSlow12: 0.0,
 			fRec1: [0.0;2],
 		}
 	}
 	pub fn metadata(&self, m: &mut dyn Meta) { 
-		m.declare("compile_options", r"-lang rust -ct 1 -cn Svf24Dsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn Svf24Dsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("filename", r"svf24.dsp");
 		m.declare("maths.lib/author", r"GRAME");
 		m.declare("maths.lib/copyright", r"GRAME");
@@ -139,6 +165,23 @@ impl Svf24Dsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.iSlow0 = (self.fHslider0) as i32;
+		self.iSlow1 = (self.iSlow0 == 0) as i32;
+		self.iSlow2 = (self.iSlow0 == 1) as i32;
+		self.fSlow3 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider1, self.fConst2)));
+		self.fSlow4 = self.fSlow3 * (self.fSlow3 + 1.4711188) + 1.0;
+		self.fSlow5 = 1.0 / self.fSlow4;
+		self.fSlow6 = F32::max(0.0, F32::min(1.0, self.fHslider2));
+		self.fSlow7 = 1.0 / (29.5 * Svf24Dsp_faustpower2_f(self.fSlow6) * F32::sqrt(self.fSlow6) + 0.5);
+		self.fSlow8 = self.fSlow3 * (self.fSlow7 + self.fSlow3) + 1.0;
+		self.fSlow9 = 1.0 / self.fSlow8;
+		self.fSlow10 = 1.0 - 0.5 * self.fSlow6;
+		self.fSlow11 = self.fSlow3 / self.fSlow8;
+		self.fSlow12 = self.fSlow3 / self.fSlow4;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -151,43 +194,30 @@ impl Svf24Dsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut iSlow0: i32 = (self.fHslider0) as i32;
-		let mut iSlow1: i32 = (iSlow0 == 0) as i32;
-		let mut iSlow2: i32 = (iSlow0 == 1) as i32;
-		let mut fSlow3: F32 = F32::tan(self.fConst1 * F32::max(1.0, F32::min(self.fHslider1, self.fConst2)));
-		let mut fSlow4: F32 = fSlow3 * (fSlow3 + 1.4711188) + 1.0;
-		let mut fSlow5: F32 = 1.0 / fSlow4;
-		let mut fSlow6: F32 = F32::max(0.0, F32::min(1.0, self.fHslider2));
-		let mut fSlow7: F32 = 1.0 / (29.5 * Svf24Dsp_faustpower2_f(fSlow6) * F32::sqrt(fSlow6) + 0.5);
-		let mut fSlow8: F32 = fSlow3 * (fSlow7 + fSlow3) + 1.0;
-		let mut fSlow9: F32 = 1.0 / fSlow8;
-		let mut fSlow10: F32 = 1.0 - 0.5 * fSlow6;
-		let mut fSlow11: F32 = fSlow3 / fSlow8;
-		let mut fSlow12: F32 = fSlow3 / fSlow4;
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
-			let mut fTemp0: F32 = fSlow10 * *input0;
-			let mut fTemp1: F32 = self.fRec5[1] + fSlow3 * (fTemp0 - self.fRec6[1]);
-			let mut fTemp2: F32 = F32::max(-3.0, F32::min(3.0, fSlow9 * fTemp1));
+			let mut fTemp0: F32 = self.fSlow10 * *input0;
+			let mut fTemp1: F32 = self.fRec5[1] + self.fSlow3 * (fTemp0 - self.fRec6[1]);
+			let mut fTemp2: F32 = F32::max(-3.0, F32::min(3.0, self.fSlow9 * fTemp1));
 			let mut fTemp3: F32 = Svf24Dsp_faustpower2_f(fTemp2);
 			let mut fTemp4: F32 = fTemp2 * (fTemp3 + 27.0) / (9.0 * fTemp3 + 27.0);
 			let mut fTemp5: F32 = 2.0 * fTemp4 - self.fRec5[1];
 			self.fRec5[0] = (if (F32::abs(fTemp5) > 1.1754944e-38) as i32 != 0 {fTemp5} else {0.0});
-			let mut fTemp6: F32 = self.fRec6[1] + fSlow11 * fTemp1;
+			let mut fTemp6: F32 = self.fRec6[1] + self.fSlow11 * fTemp1;
 			let mut fTemp7: F32 = 2.0 * fTemp6 - self.fRec6[1];
 			self.fRec6[0] = (if (F32::abs(fTemp7) > 1.1754944e-38) as i32 != 0 {fTemp7} else {0.0});
 			let mut fRec7: F32 = (if (F32::abs(fTemp6) > 1.1754944e-38) as i32 != 0 {fTemp6} else {0.0});
-			let mut fTemp8: F32 = fTemp0 - (fTemp6 + fSlow7 * fTemp4);
+			let mut fTemp8: F32 = fTemp0 - (fTemp6 + self.fSlow7 * fTemp4);
 			let mut fRec8: F32 = (if (F32::abs(fTemp8) > 1.1754944e-38) as i32 != 0 {fTemp8} else {0.0});
 			let mut fRec9: F32 = (if (F32::abs(fTemp4) > 1.1754944e-38) as i32 != 0 {fTemp4} else {0.0});
-			let mut fTemp9: F32 = 0.935 * (if iSlow1 != 0 {fRec7} else {(if iSlow2 != 0 {fRec8} else {fRec9})});
-			let mut fTemp10: F32 = self.fRec0[1] + fSlow3 * (fTemp9 - self.fRec1[1]);
-			let mut fTemp11: F32 = F32::max(-3.0, F32::min(3.0, fSlow5 * fTemp10));
+			let mut fTemp9: F32 = 0.935 * (if self.iSlow1 != 0 {fRec7} else {(if self.iSlow2 != 0 {fRec8} else {fRec9})});
+			let mut fTemp10: F32 = self.fRec0[1] + self.fSlow3 * (fTemp9 - self.fRec1[1]);
+			let mut fTemp11: F32 = F32::max(-3.0, F32::min(3.0, self.fSlow5 * fTemp10));
 			let mut fTemp12: F32 = Svf24Dsp_faustpower2_f(fTemp11);
 			let mut fTemp13: F32 = fTemp11 * (fTemp12 + 27.0) / (9.0 * fTemp12 + 27.0);
 			let mut fTemp14: F32 = 2.0 * fTemp13 - self.fRec0[1];
 			self.fRec0[0] = (if (F32::abs(fTemp14) > 1.1754944e-38) as i32 != 0 {fTemp14} else {0.0});
-			let mut fTemp15: F32 = fSlow12 * fTemp10;
+			let mut fTemp15: F32 = self.fSlow12 * fTemp10;
 			let mut fTemp16: F32 = self.fRec1[1] + fTemp15;
 			let mut fTemp17: F32 = 2.0 * fTemp16 - self.fRec1[1];
 			self.fRec1[0] = (if (F32::abs(fTemp17) > 1.1754944e-38) as i32 != 0 {fTemp17} else {0.0});
@@ -195,7 +225,7 @@ impl Svf24Dsp {
 			let mut fTemp18: F32 = fTemp9 - (fTemp15 + self.fRec1[1] + 1.4711188 * fTemp13);
 			let mut fRec3: F32 = (if (F32::abs(fTemp18) > 1.1754944e-38) as i32 != 0 {fTemp18} else {0.0});
 			let mut fRec4: F32 = (if (F32::abs(fTemp13) > 1.1754944e-38) as i32 != 0 {fTemp13} else {0.0});
-			*output0 = (if iSlow1 != 0 {fRec2} else {(if iSlow2 != 0 {fRec3} else {fRec4})});
+			*output0 = (if self.iSlow1 != 0 {fRec2} else {(if self.iSlow2 != 0 {fRec3} else {fRec4})});
 			self.fRec5[1] = self.fRec5[0];
 			self.fRec6[1] = self.fRec6[0];
 			self.fRec0[1] = self.fRec0[0];

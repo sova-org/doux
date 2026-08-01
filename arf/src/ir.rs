@@ -27,17 +27,26 @@ pub(crate) fn now_wrap(x: f32) -> f32 {
 #[derive(Clone, Copy, Debug)]
 pub struct Reg(pub(crate) u32);
 
-/// The binary arithmetic words the compiler lowers to [`Op::Bin`] instead of a UGen call:
-/// glue arithmetic is the most numerous node kind in a patch, and matching it inline in the
-/// interpreter loop skips the whole per-op call apparatus (input gather through the arena,
-/// `TickCtx` slicing, the indirect `tick` call) for a single IEEE expression. Each kind is
-/// bit-identical to its row's tick.
+/// The two-input words the compiler lowers to [`Op::Bin`] instead of a UGen call: glue
+/// arithmetic and scalar comparison are the most numerous node kinds in a patch, and matching
+/// them inline in the interpreter loop skips the whole per-op call apparatus (input gather
+/// through the arena, `TickCtx` slicing, the indirect `tick` call) for a single IEEE
+/// expression. Each kind is bit-identical to its row's tick — the arm below carries the same
+/// expression, in the same operand order, as the `tick_*` it replaces.
 #[derive(Clone, Copy, Debug)]
 pub enum BinKind {
     Add,
     Sub,
     Mul,
     Div,
+    Min,
+    Max,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+    Eq,
+    Ne,
 }
 
 impl BinKind {
@@ -48,16 +57,89 @@ impl BinKind {
             "-" => Some(BinKind::Sub),
             "*" => Some(BinKind::Mul),
             "/" => Some(BinKind::Div),
+            "min" => Some(BinKind::Min),
+            "max" => Some(BinKind::Max),
+            "<" => Some(BinKind::Lt),
+            ">" => Some(BinKind::Gt),
+            "<=" => Some(BinKind::Le),
+            ">=" => Some(BinKind::Ge),
+            "==" => Some(BinKind::Eq),
+            "!=" => Some(BinKind::Ne),
             _ => None,
         }
     }
 
-    /// The row cost the inlined op replaces (see [`Program::weight`]): 1 unit for
-    /// add/sub/mul, 4 for the division.
+    /// The row cost the inlined op replaces (see [`Program::weight`]): 1 unit for every kind
+    /// but the division, which its row prices at 4. Keeping the cost identical to the row's
+    /// keeps the host's install-time weight cap admitting exactly the same graphs.
     fn cost(self) -> u32 {
         match self {
             BinKind::Div => 4,
             _ => 1,
+        }
+    }
+}
+
+/// The one-input words the compiler lowers to [`Op::Un`] — the unary half of the inline fast
+/// path (see [`BinKind`]). Each kind reproduces its row's tick expression exactly.
+#[derive(Clone, Copy, Debug)]
+pub enum UnKind {
+    Abs,
+    Neg,
+    Uni,
+    Bi,
+    Floor,
+}
+
+impl UnKind {
+    /// The kind lowering `name`, if it is one of the inlined words.
+    pub(crate) fn of(name: &str) -> Option<UnKind> {
+        match name {
+            "abs" => Some(UnKind::Abs),
+            "neg" => Some(UnKind::Neg),
+            "uni" => Some(UnKind::Uni),
+            "bi" => Some(UnKind::Bi),
+            "floor" => Some(UnKind::Floor),
+            _ => None,
+        }
+    }
+
+    /// The row cost the inlined op replaces (see [`Program::weight`]).
+    fn cost(self) -> u32 {
+        match self {
+            UnKind::Uni | UnKind::Bi => 2,
+            UnKind::Abs | UnKind::Neg | UnKind::Floor => 1,
+        }
+    }
+}
+
+/// The three-input words the compiler lowers to [`Op::Tern`] — the ternary half of the inline
+/// fast path (see [`BinKind`]). Each kind reproduces its row's tick expression exactly,
+/// operand order included: `clip` is `x.max(lo).min(hi)`, never the mirrored form.
+#[derive(Clone, Copy, Debug)]
+pub enum TernKind {
+    Clip,
+    Lerp,
+    Range,
+}
+
+impl TernKind {
+    /// The kind lowering `name`, if it is one of the inlined words.
+    pub(crate) fn of(name: &str) -> Option<TernKind> {
+        match name {
+            "clip" => Some(TernKind::Clip),
+            "lerp" => Some(TernKind::Lerp),
+            "range" => Some(TernKind::Range),
+            _ => None,
+        }
+    }
+
+    /// The row cost the inlined op replaces (see [`Program::weight`]).
+    fn cost(self) -> u32 {
+        match self {
+            TernKind::Clip => 2,
+            TernKind::Lerp => 3,
+            TernKind::Range => 4,
         }
     }
 }
@@ -87,12 +169,26 @@ pub enum Op {
         /// declared length, and several ops can point at one named region.
         buffer_len: u32,
     },
-    /// An inlined binary arithmetic word (see [`BinKind`]): `regs[a] op regs[b]`, straight
+    /// An inlined two-input word (see [`BinKind`]): `regs[a] op regs[b]`, straight
     /// in the interpreter loop — no input arena, no state, no tick call.
     Bin {
         kind: BinKind,
         a: Reg,
         b: Reg,
+    },
+    /// An inlined one-input word (see [`UnKind`]): `op regs[a]`, straight in the
+    /// interpreter loop — no input arena, no state, no tick call.
+    Un {
+        kind: UnKind,
+        a: Reg,
+    },
+    /// An inlined three-input word (see [`TernKind`]): `op(regs[a], regs[b], regs[c])`,
+    /// straight in the interpreter loop — no input arena, no state, no tick call.
+    Tern {
+        kind: TernKind,
+        a: Reg,
+        b: Reg,
+        c: Reg,
     },
     /// Read a feedback bus: load `buses[slot]` (the value stored last sample). A leaf, so it
     /// can sit anywhere in topological order and breaks the feedback cycle. Buses live in
@@ -262,6 +358,8 @@ impl Program {
             .map(|op| match op {
                 Op::Ugen { def, .. } => def.cost as u32,
                 Op::Bin { kind, .. } => kind.cost(),
+                Op::Un { kind, .. } => kind.cost(),
+                Op::Tern { kind, .. } => kind.cost(),
                 _ => 1,
             })
             .sum()

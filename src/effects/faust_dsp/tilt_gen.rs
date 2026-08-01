@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "tilt"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn TiltDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
+Compilation options: -lang rust -ec -ct 1 -cn TiltDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct TiltDsp {
@@ -13,6 +13,7 @@ pub struct TiltDsp {
 	fVec0: [F32;2],
 	fRec0: [F32;2],
 	fHslider0: F32,
+	fSlow0: F32,
 	fRec1: [F32;2],
 }
 
@@ -41,6 +42,7 @@ impl TiltDsp {
 			fVec0: [0.0;2],
 			fRec0: [0.0;2],
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			fRec1: [0.0;2],
 		}
 	}
@@ -49,7 +51,7 @@ impl TiltDsp {
 		m.declare("analyzers.lib/version", r"1.2.0");
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn TiltDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn TiltDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0");
 		m.declare("filename", r"tilt.dsp");
 		m.declare("filters.lib/filterbank:author", r"Julius O. Smith III");
 		m.declare("filters.lib/filterbank:copyright", r"Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>");
@@ -142,6 +144,11 @@ impl TiltDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = F32::powf(1e+01, 0.3 * self.fHslider0);
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -154,14 +161,13 @@ impl TiltDsp {
 		let inputs0 = inputs0.as_ref()[..count].iter();
 		let [outputs0, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = F32::powf(1e+01, 0.3 * self.fHslider0);
 		let zipped_iterators = inputs0.zip(outputs0);
 		for (input0, output0) in zipped_iterators {
 			let mut fTemp0: F32 = *input0;
 			self.fVec0[0] = fTemp0;
 			self.fRec0[0] = -(self.fConst1 * (self.fConst2 * self.fRec0[1] - (fTemp0 + self.fVec0[1])));
 			self.fRec1[0] = -(self.fConst1 * (self.fConst2 * self.fRec1[1] - self.fConst0 * (fTemp0 - self.fVec0[1])));
-			*output0 = self.fRec0[0] + fSlow0 * self.fRec1[0];
+			*output0 = self.fRec0[0] + self.fSlow0 * self.fRec1[0];
 			self.fVec0[1] = self.fVec0[0];
 			self.fRec0[1] = self.fRec0[0];
 			self.fRec1[1] = self.fRec1[0];

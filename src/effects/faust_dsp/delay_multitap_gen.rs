@@ -2,7 +2,7 @@
 /* ------------------------------------------------------------
 name: "delay_multitap"
 Code generated with Faust 2.81.2 (https://faust.grame.fr)
-Compilation options: -lang rust -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
+Compilation options: -lang rust -ec -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1
 ------------------------------------------------------------ */
 #[repr(C)]
 pub struct DelayMultitapDsp {
@@ -13,11 +13,13 @@ pub struct DelayMultitapDsp {
 	fConst1: F32,
 	fConst2: F32,
 	fHslider0: F32,
+	fSlow0: F32,
 	fRec2: [F32;2],
 	fRec0: [F32;2],
 	fConst3: F32,
 	fConst4: F32,
 	fHslider1: F32,
+	fSlow1: F32,
 	fRec3: [F32;2],
 	fVec1: [F32;65536],
 	fRec4: [F32;2],
@@ -48,11 +50,13 @@ impl DelayMultitapDsp {
 			fConst1: 0.0,
 			fConst2: 0.0,
 			fHslider0: 0.0,
+			fSlow0: 0.0,
 			fRec2: [0.0;2],
 			fRec0: [0.0;2],
 			fConst3: 0.0,
 			fConst4: 0.0,
 			fHslider1: 0.0,
+			fSlow1: 0.0,
 			fRec3: [0.0;2],
 			fVec1: [0.0;65536],
 			fRec4: [0.0;2],
@@ -61,7 +65,7 @@ impl DelayMultitapDsp {
 	pub fn metadata(&self, m: &mut dyn Meta) { 
 		m.declare("basics.lib/name", r"Faust Basic Element Library");
 		m.declare("basics.lib/version", r"1.21.0");
-		m.declare("compile_options", r"-lang rust -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
+		m.declare("compile_options", r"-lang rust -ec -ct 1 -cn DelayMultitapDsp -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 1");
 		m.declare("delays.lib/name", r"Faust Delay Library");
 		m.declare("delays.lib/version", r"1.2.0");
 		m.declare("filename", r"delay_multitap.dsp");
@@ -153,6 +157,12 @@ impl DelayMultitapDsp {
 		}
 	}
 	
+	pub fn control(&mut self) {
+		// Obtaining locks on 0 static var(s)
+	self.fSlow0 = self.fConst2 * self.fHslider0;
+		self.fSlow1 = self.fConst4 * self.fHslider1;
+	}
+	
 	pub fn compute(
 		&mut self,
 		count: usize,
@@ -167,13 +177,11 @@ impl DelayMultitapDsp {
 		let [outputs0, outputs1, .. ] = outputs.as_mut() else { panic!("wrong number of output buffers"); };
 		let outputs0 = outputs0.as_mut()[..count].iter_mut();
 		let outputs1 = outputs1.as_mut()[..count].iter_mut();
-		let mut fSlow0: F32 = self.fConst2 * self.fHslider0;
-		let mut fSlow1: F32 = self.fConst4 * self.fHslider1;
 		let zipped_iterators = inputs0.zip(inputs1).zip(outputs0).zip(outputs1);
 		for (((input0, input1), output0), output1) in zipped_iterators {
 			let mut fTemp0: F32 = *input0 + 0.5 * self.fRec0[1];
 			self.fVec0[(self.IOTA0 & 65535) as usize] = fTemp0;
-			let mut fTemp1: F32 = fSlow0 + self.fConst1 * self.fRec2[1];
+			let mut fTemp1: F32 = self.fSlow0 + self.fConst1 * self.fRec2[1];
 			self.fRec2[0] = (if (F32::abs(fTemp1) > 1.1754944e-38) as i32 != 0 {fTemp1} else {0.0});
 			let mut fTemp2: F32 = F32::max(1.0, F32::min(65534.0, self.fRec2[0]));
 			let mut iTemp3: i32 = (fTemp2) as i32;
@@ -184,7 +192,7 @@ impl DelayMultitapDsp {
 			let mut iTemp8: i32 = std::cmp::min(65537, std::cmp::max(0, i32::wrapping_add(iTemp3, 1)));
 			let mut fTemp9: F32 = self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp4)) & 65535) as usize] * fTemp6 + fTemp7 * self.fVec0[((i32::wrapping_sub(self.IOTA0, iTemp8)) & 65535) as usize];
 			self.fRec0[0] = (if (F32::abs(fTemp9) > 1.1754944e-38) as i32 != 0 {fTemp9} else {0.0});
-			let mut fTemp10: F32 = fSlow1 + self.fConst3 * self.fRec3[1];
+			let mut fTemp10: F32 = self.fSlow1 + self.fConst3 * self.fRec3[1];
 			self.fRec3[0] = (if (F32::abs(fTemp10) > 1.1754944e-38) as i32 != 0 {fTemp10} else {0.0});
 			let mut fTemp11: F32 = F32::max(0.0, F32::min(0.95, self.fRec3[0]));
 			let mut fTemp12: F32 = F32::max(1.0, fTemp2 * (0.167 * fTemp11 + 0.5));

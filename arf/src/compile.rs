@@ -198,14 +198,34 @@ impl Lowering<'_> {
                             // Resolve the row once; the op carries the reference so the VM's
                             // hot loop never goes back through the global table.
                             let def = ugen::def(*ugen);
-                            // The binary arithmetic words lower to an inline op — no input
-                            // arena, no state, no tick call (see `ir::BinKind`).
+                            // The stateless one-expression words lower to an inline op — no
+                            // input arena, no state, no tick call (see `ir::BinKind`). Every
+                            // one is `Arity::Fixed`, so `Graph::validate` has already pinned
+                            // `inputs.len()` to the arity these arms index.
+                            if let Some(kind) = crate::ir::UnKind::of(def.name) {
+                                let a =
+                                    self.reg_of[inputs[0].0 as usize].expect("input emitted first");
+                                let reg = self.push_op(Op::Un { kind, a });
+                                self.reg_of[id.0 as usize] = Some(reg);
+                                continue;
+                            }
                             if let Some(kind) = crate::ir::BinKind::of(def.name) {
                                 let a =
                                     self.reg_of[inputs[0].0 as usize].expect("input emitted first");
                                 let b =
                                     self.reg_of[inputs[1].0 as usize].expect("input emitted first");
                                 let reg = self.push_op(Op::Bin { kind, a, b });
+                                self.reg_of[id.0 as usize] = Some(reg);
+                                continue;
+                            }
+                            if let Some(kind) = crate::ir::TernKind::of(def.name) {
+                                let a =
+                                    self.reg_of[inputs[0].0 as usize].expect("input emitted first");
+                                let b =
+                                    self.reg_of[inputs[1].0 as usize].expect("input emitted first");
+                                let c =
+                                    self.reg_of[inputs[2].0 as usize].expect("input emitted first");
+                                let reg = self.push_op(Op::Tern { kind, a, b, c });
                                 self.reg_of[id.0 as usize] = Some(reg);
                                 continue;
                             }

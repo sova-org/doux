@@ -10,6 +10,15 @@ pub struct Vm {
     state: Vec<f32>,
     buses: Vec<f32>,
     buffers: Vec<f32>,
+    /// Per-op input gather buffer, owned by the VM so the tick path neither touches the heap
+    /// nor re-zeroes it every frame. Sized to the widest possible op: a fixed generator is
+    /// bounded by MAX_ARITY, but a variadic one (e.g. `mix`) consumes a whole channel-list,
+    /// so the bound is MAX_CHANNELS. Its contents carry no meaning between ops — the gather
+    /// writes `scratch[..n_in]` before the tick reads `inputs = &scratch[..n_in]`, so nothing
+    /// past `n_in` is ever observed and neither `new` nor `reset` needs to clear it. Boxed
+    /// like the other planes so a `Vm` stays pointer-sized to move between the pool and the
+    /// reaper channel rather than carrying a kilobyte of mostly-unused scratch inline.
+    scratch: Box<[f32; crate::graph::MAX_CHANNELS]>,
 }
 
 impl Vm {
@@ -25,6 +34,7 @@ impl Vm {
             state,
             buses: vec![0.0; program.bus_len()],
             buffers: vec![0.0; program.buffer_len()],
+            scratch: Box::new([0.0; crate::graph::MAX_CHANNELS]),
         }
     }
 
@@ -70,18 +80,17 @@ impl Vm {
         // The pure-core face of time: the absolute position reduced into the precision window,
         // computed once per frame and shared by the `now` leaf and every UGen's `TickCtx.now`.
         let now = (frame_pos & (crate::ir::NOW_WINDOW - 1)) as f32;
-        // Split the borrows: registers are read-then-written, state is persistent.
-        let regs = &mut self.regs;
-        let state = &mut self.state;
-        let buses = &mut self.buses;
-        let buffers = &mut self.buffers;
+        // Split the borrows field by field: registers are read-then-written, state is
+        // persistent, and the input gather buffer must stay disjoint from `regs` so a UGen can
+        // write its outputs straight into its register block while reading gathered inputs.
+        let Vm {
+            regs,
+            state,
+            buses,
+            buffers,
+            scratch,
+        } = self;
         let arena = program.inputs();
-        // Per-op input gather and output scratch, stack-allocated so the tick path never
-        // touches the heap. Inputs are sized to the widest possible op: a fixed generator is
-        // bounded by MAX_ARITY, but a variadic one (e.g. `mix`) consumes a whole channel-list,
-        // so the bound is MAX_CHANNELS.
-        let mut scratch = [0.0_f32; crate::graph::MAX_CHANNELS];
-        let mut out_scratch = [0.0_f32; ugen::MAX_OUTPUTS];
 
         // The registers an op writes are the contiguous block starting at `reg_cursor`, which
         // advances in op order: a leaf writes one, a generator writes its `outputs`.
@@ -114,7 +123,10 @@ impl Vm {
                     reg_cursor += 1;
                 }
                 // Inlined glue arithmetic — the most numerous op kind in a patch; matched
-                // here so it pays none of the UGen call apparatus below.
+                // here so it pays none of the UGen call apparatus below. Every arm is the
+                // verbatim expression of the row's tick, so the inline path and the table
+                // agree bit for bit (NaN behaviour included: the NaN-suppressing `min`/`max`
+                // of `min`/`max`, the ordered compares, the unordered `!=`).
                 Op::Bin { kind, a, b } => {
                     let x = regs[a.0 as usize];
                     let y = regs[b.0 as usize];
@@ -123,6 +135,74 @@ impl Vm {
                         crate::ir::BinKind::Sub => x - y,
                         crate::ir::BinKind::Mul => x * y,
                         crate::ir::BinKind::Div => x / y,
+                        crate::ir::BinKind::Min => x.min(y),
+                        crate::ir::BinKind::Max => x.max(y),
+                        crate::ir::BinKind::Lt => {
+                            if x < y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        crate::ir::BinKind::Gt => {
+                            if x > y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        crate::ir::BinKind::Le => {
+                            if x <= y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        crate::ir::BinKind::Ge => {
+                            if x >= y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        crate::ir::BinKind::Eq => {
+                            if x == y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        crate::ir::BinKind::Ne => {
+                            if x != y {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                    };
+                    reg_cursor += 1;
+                }
+                Op::Un { kind, a } => {
+                    let x = regs[a.0 as usize];
+                    regs[reg_cursor] = match kind {
+                        crate::ir::UnKind::Abs => x.abs(),
+                        crate::ir::UnKind::Neg => -x,
+                        crate::ir::UnKind::Uni => x * 0.5 + 0.5,
+                        crate::ir::UnKind::Bi => x * 2.0 - 1.0,
+                        crate::ir::UnKind::Floor => x.floor(),
+                    };
+                    reg_cursor += 1;
+                }
+                Op::Tern { kind, a, b, c } => {
+                    let x = regs[a.0 as usize];
+                    let y = regs[b.0 as usize];
+                    let z = regs[c.0 as usize];
+                    regs[reg_cursor] = match kind {
+                        // max(lo) then min(hi), exactly as `tick_clip` orders it — the
+                        // mirrored form would land a NaN input on `lo` instead of `hi`.
+                        crate::ir::TernKind::Clip => x.max(y).min(z),
+                        crate::ir::TernKind::Lerp => x + (y - x) * z,
+                        crate::ir::TernKind::Range => y + (x + 1.0) * 0.5 * (z - y),
                     };
                     reg_cursor += 1;
                 }
@@ -149,9 +229,11 @@ impl Vm {
                         sr,
                         now,
                     };
-                    (def.tick)(&mut ctx, &mut out_scratch[..def.outputs]);
-                    regs[reg_cursor..reg_cursor + def.outputs]
-                        .copy_from_slice(&out_scratch[..def.outputs]);
+                    // Straight into the op's register block: every tick writes the whole of
+                    // `out[0..outputs]` before returning and never reads it, and the gather
+                    // above already copied the inputs out of `regs`, so no tick can observe
+                    // the difference from staging through an intermediate buffer.
+                    (def.tick)(&mut ctx, &mut regs[reg_cursor..reg_cursor + def.outputs]);
                     reg_cursor += def.outputs;
                 }
             }
